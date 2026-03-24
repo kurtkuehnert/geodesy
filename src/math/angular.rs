@@ -119,6 +119,33 @@ pub fn parse_sexagesimal(angle: &str) -> f64 {
     sign * (dms[0].abs() + (dms[1] + dms[2] / 60.0) / 60.0)
 }
 
+/// Parse a PROJ-style prime meridian specifier into decimal degrees east of Greenwich.
+///
+/// This currently supports:
+/// - explicit angular values accepted by `parse_sexagesimal`
+/// - a small named subset needed by the current harness corpus
+///
+/// The named values below are taken from the PROJ cartographic projection docs.
+pub fn parse_prime_meridian(pm: &str) -> Option<f64> {
+    let normalized = pm.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Some(0.0);
+    }
+
+    let numeric = parse_sexagesimal(&normalized);
+    if !numeric.is_nan() {
+        return Some(numeric);
+    }
+
+    match normalized.as_str() {
+        "greenwich" => Some(0.0),
+        "jakarta" => Some(106.807_719_444_444),
+        "paris" => Some(2.337_229_166_666_667),
+        "ferro" => Some(-17.666_666_666_666_667),
+        _ => None,
+    }
+}
+
 // ----- Tests ---------------------------------------------------------------------
 
 #[cfg(test)]
@@ -156,5 +183,15 @@ mod tests {
         assert_eq!(1.51, parse_sexagesimal("1:30:36e"));
         assert_eq!(-1.51, parse_sexagesimal("1:30:36w"));
         assert!(parse_sexagesimal("q1:30:36w").is_nan());
+    }
+
+    #[test]
+    fn test_parse_prime_meridian() {
+        assert_eq!(Some(0.0), parse_prime_meridian("greenwich"));
+        assert_eq!(Some(13.5), parse_prime_meridian("13.5"));
+        assert_eq!(Some(-17.666_666_666_666_667), parse_prime_meridian("ferro"));
+        assert_eq!(Some(106.807_719_444_444), parse_prime_meridian("jakarta"));
+        assert_eq!(Some(2.337_229_166_666_667), parse_prime_meridian("paris"));
+        assert_eq!(None, parse_prime_meridian("unknown-meridian"));
     }
 }
