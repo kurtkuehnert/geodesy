@@ -60,10 +60,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 // ----- C O N S T R U C T O R ---------------------------------------------------------
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 9] = [
+pub const GAMUT: [OpParameter; 8] = [
     OpParameter::Flag { key: "inv" },
     OpParameter::Text { key: "ellps",  default: Some("GRS80") },
-    OpParameter::Text { key: "pm",     default: Some("") },
 
     OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
     OpParameter::Real { key: "lon_0",  default: Some(0_f64) },
@@ -91,14 +90,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         let sc = lat_ts.to_radians().sin_cos();
         let k_0 = sc.1 / (1. - ellps.eccentricity_squared() * sc.0 * sc.0).sqrt();
         params.real.insert("k_0", k_0);
-    }
-
-    let pm = params.text("pm").unwrap_or_default();
-    if !pm.is_empty() {
-        let Some(pm_offset_deg) = crate::math::angular::parse_prime_meridian(&pm) else {
-            return Err(Error::General("Merc: Unsupported value for pm"));
-        };
-        params.real.insert("lon_0", params.real["lon_0"] + pm_offset_deg);
     }
 
     params
@@ -227,9 +218,9 @@ mod tests {
     }
 
     #[test]
-    fn merc_with_prime_meridian() -> Result<(), Error> {
+    fn merc_with_parser_normalized_prime_meridian() -> Result<(), Error> {
         let mut ctx = Minimal::default();
-        let definition = "merc pm=13.5";
+        let definition = "merc lon_0=13.5";
         let op = ctx.op(definition)?;
 
         let geo = [Coor4D::geo(45., 13.5, 0., 0.)];
