@@ -62,7 +62,8 @@ impl Ellipsoid {
         if a_and_rf.len() == 2_usize {
             if let Ok(a) = a_and_rf[0].trim().parse::<f64>() {
                 if let Ok(rf) = a_and_rf[1].trim().parse::<f64>() {
-                    return Ok(Ellipsoid::new(a, 1. / rf));
+                    let f = if rf != 0.0 { 1.0 / rf } else { 0.0 };
+                    return Ok(Ellipsoid::new(a, f));
                 }
             }
         }
@@ -97,6 +98,10 @@ mod tests {
         let ellps = Ellipsoid::named("(6378137, 298.25)")?;
         assert_eq!(ellps.semimajor_axis(), 6378137.0);
         assert_eq!(ellps.flattening(), 1. / 298.25);
+
+        let ellps = Ellipsoid::named("6371228, 0")?;
+        assert_eq!(ellps.semimajor_axis(), 6371228.0);
+        assert_eq!(ellps.flattening(), 0.0);
 
         let ellps = Ellipsoid::named("GRS80")?;
         assert_eq!(ellps.semimajor_axis(), 6378137.0);

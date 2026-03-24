@@ -225,6 +225,7 @@ where
 ///   support which *parse_proj* provides partial support for.
 /// - Specifically if an ellipsoid is defined via `a` and `rf` parameters, *parse_proj*
 ///   will redefine them as `ellps=a,rf` and remove the `a` and `rf` parameters.
+/// - A spherical `R` parameter is also rewritten as `ellps=R,0`.
 /// - All other cases supported by PROJ are NOT handled by *parse_proj* and will
 ///   fail when instantiating the operator.
 ///
@@ -382,8 +383,8 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
 fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     // Geodesy only supports ellipsoid definitions as named builtins or ellps=a,rf
     // PROJ has richer support which we try navigate here
-    // First we find the indices of ellps, a and rf elements
-    let mut ellps_def: [Option<usize>; 3] = [None; 3];
+    // First we find the indices of ellps, a, rf and R elements
+    let mut ellps_def: [Option<usize>; 4] = [None; 4];
     for (i, element) in elements.iter().enumerate() {
         if element.starts_with("ellps=") {
             ellps_def[0] = Some(i);
@@ -394,6 +395,9 @@ fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
         if element.starts_with("rf=") {
             ellps_def[2] = Some(i);
         }
+        if element.starts_with("R=") {
+            ellps_def[3] = Some(i);
+        }
     }
 
     // Then if there there is an `a` AND and an `rf` element but NOT an `ellps` element
@@ -403,7 +407,7 @@ fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     // elements we ignore it and rely on operator instantiation to fail due to unknown elements
     // A complete solution would need to include `a` and `rf` keys in the gamut of all operators so that
     // the Ellipsoid struct can build the required ellipsoid.
-    if let [None, Some(a_idx), Some(rf_idx)] = ellps_def {
+    if let [None, Some(a_idx), Some(rf_idx), _] = ellps_def {
         let a = elements[a_idx][2..].to_string();
         let rf = elements[rf_idx][3..].to_string();
         elements.push(format!("ellps={a},{rf}").to_string());
@@ -416,6 +420,13 @@ fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
             elements.remove(rf_idx);
             elements.remove(a_idx);
         }
+    }
+
+    // Spherical radius specification: convert R to a sphere with flattening 0
+    if let [None, None, None, Some(r_idx)] = ellps_def {
+        let radius = elements[r_idx][2..].to_string();
+        elements.push(format!("ellps={radius},0"));
+        elements.remove(r_idx);
     }
 
     // `projinfo`  still produces strings with scaling defined as `k` instead of `k_0`
@@ -605,6 +616,12 @@ mod tests {
 
         // Replace occurrences of `k=` with `k_0=`
         assert_eq!(parse_proj("+proj=tmerc +k=1.5")?, "tmerc k_0=1.5");
+
+        // Convert spherical radius to a zero-flattening ellipsoid
+        assert_eq!(
+            parse_proj("+proj=laea +lat_0=90 +R=6371228")?,
+            "laea lat_0=90 ellps=6371228,0"
+        );
 
         Ok(())
     }
