@@ -16,9 +16,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
 
-        let easting = (lon - lon_0) * k_0 * a - x_0;
+        let easting = (lon - lon_0) * k_0 * a + x_0;
         let isometric = ellps.latitude_geographic_to_isometric(lat + lat_0);
-        let northing = a * k_0 * isometric - y_0;
+        let northing = a * k_0 * isometric + y_0;
 
         operands.set_xy(i, easting, northing);
         successes += 1;
@@ -43,11 +43,11 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (mut x, mut y) = operands.xy(i);
 
         // Easting -> Longitude
-        x += x_0;
-        let lon = x / (a * k_0) - lon_0;
+        x -= x_0;
+        let lon = x / (a * k_0) + lon_0;
 
         // Northing -> Latitude
-        y += y_0;
+        y -= y_0;
         let psi = y / (a * k_0);
         let lat = ellps.latitude_isometric_to_geographic(psi) - lat_0;
         operands.set_xy(i, lon, lat);
@@ -91,6 +91,13 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         let k_0 = sc.1 / (1. - ellps.eccentricity_squared() * sc.0 * sc.0).sqrt();
         params.real.insert("k_0", k_0);
     }
+
+    params
+        .real
+        .insert("lat_0", params.real["lat_0"].to_radians());
+    params
+        .real
+        .insert("lon_0", params.real["lon_0"].to_radians());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
 
@@ -175,6 +182,37 @@ mod tests {
         for i in 0..operands.len() {
             assert!(operands[i].hypot2(&geo[i]) < 20e-9);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn merc_with_false_origin_and_central_meridian() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let definition = "merc lat_ts=-41 lon_0=100 x_0=1234 y_0=5678 ellps=WGS84";
+        let op = ctx.op(definition)?;
+
+        // Validation value from PROJ:
+        // echo 141 -33 0 0 | cct -d12 +proj=merc +lat_ts=-41 +lon_0=100 +x_0=1234 +y_0=5678 +ellps=WGS84
+        let geo = [Coor4D::geo(-33., 141., 0., 0.)];
+        let projected = [Coor4D::raw(
+            3_450_776.589_667_497,
+            -2_920_802.103_023_224_5,
+            0.,
+            0.,
+        )];
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(
+            operands[0].hypot2(&projected[0]) < 20e-6,
+            "expected {:?}, got {:?}",
+            projected[0],
+            operands[0]
+        );
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!(operands[0].hypot2(&geo[0]) < 20e-9);
 
         Ok(())
     }
