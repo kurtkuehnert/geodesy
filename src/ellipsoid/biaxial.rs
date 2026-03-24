@@ -36,7 +36,10 @@ impl Ellipsoid {
     }
 
     /// Predefined ellipsoid; built-in, defined in asset collections, or given as a
-    /// string formatted (a, rf) tuple, e.g. "6378137, 298.25"
+    /// string formatted (a, rf) tuple, e.g. "6378137, 298.25".
+    ///
+    /// As in EPSG / PROJ practice, `rf=0` is interpreted as zero flattening,
+    /// i.e. a sphere with radius `a`.
     pub fn named(name: &str) -> Result<Ellipsoid, Error> {
         // Is it one of the few builtins?
         if let Some(index) = super::constants::ELLIPSOID_LIST

@@ -126,6 +126,8 @@ pub fn parse_sexagesimal(angle: &str) -> f64 {
 /// - a small named subset needed by the current harness corpus
 ///
 /// The named values below are taken from the PROJ cartographic projection docs.
+///
+/// This is a limited PROJ-compatibility helper, not a complete prime-meridian model.
 pub fn parse_prime_meridian(pm: &str) -> Option<f64> {
     let normalized = pm.trim().to_ascii_lowercase();
     if normalized.is_empty() {
