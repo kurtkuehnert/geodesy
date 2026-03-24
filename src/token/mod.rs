@@ -3,6 +3,31 @@ use std::collections::BTreeMap;
 
 mod proj_adapter;
 
+/// One grid candidate from a `grids=` list.
+///
+/// Grid candidates are ordered left-to-right within a step, and may be marked
+/// optional by the `@grid` syntax.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GridSpec {
+    /// The grid identifier as referenced from the pipeline definition.
+    pub name: String,
+    /// Whether the grid is optional at operator construction time.
+    pub optional: bool,
+}
+
+/// Grid requirements for one pipeline step.
+///
+/// The returned `grids` preserve the original left-to-right priority order from
+/// the `grids=` parameter. `null_fallback` records whether `@null` was present
+/// in the same list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GridDependency {
+    /// Ordered grid candidates for this step.
+    pub grids: Vec<GridSpec>,
+    /// Whether the step's `grids=` list contains `@null`.
+    pub null_fallback: bool,
+}
+
 /// Convenience methods for lexical analysis of operator definitions.
 /// - For splitting a pipeline into steps
 /// - For splitting a step into parameters (i.e. key=value-pairs)
@@ -388,6 +413,53 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
     Ok(geodesy_steps.join(" | ").trim().to_string())
 }
 
+/// Inspect a pipeline definition and return one grid dependency chain per step.
+///
+/// The returned vector preserves pipeline step order. Steps without a `grids=`
+/// parameter are omitted. Within each [`GridDependency`], `grids` preserve the
+/// original left-to-right priority order.
+///
+/// This helper accepts both Rust Geodesy syntax and PROJ syntax.
+pub fn grid_dependencies(definition: &str) -> Result<Vec<GridDependency>, Error> {
+    let definition = parse_proj(definition)?;
+    let mut dependencies = Vec::new();
+
+    for step in definition.split_into_steps() {
+        let params = step.split_into_parameters();
+        let Some(grids) = params.get("grids") else {
+            continue;
+        };
+
+        let mut chain = Vec::new();
+        let mut null_fallback = false;
+        for item in grids.split(',') {
+            let item = item.trim();
+            if item.is_empty() {
+                continue;
+            }
+
+            let optional = item.starts_with('@');
+            let name = item.trim_start_matches('@');
+            if name.eq_ignore_ascii_case("null") {
+                null_fallback = true;
+                continue;
+            }
+
+            chain.push(GridSpec {
+                name: name.to_string(),
+                optional,
+            });
+        }
+
+        dependencies.push(GridDependency {
+            grids: chain,
+            null_fallback,
+        });
+    }
+
+    Ok(dependencies)
+}
+
 // ----- T E S T S ------------------------------------------------------------------
 
 #[cfg(test)]
@@ -585,6 +657,49 @@ mod tests {
             "omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn grid_dependencies_preserve_order_optionality_and_null() -> Result<(), Error> {
+        let deps = grid_dependencies(
+            "+proj=pipeline \
+             +step +proj=hgridshift +grids=@first.gsb,second.tif,@null \
+             +step +proj=utm zone=32 \
+             +step +proj=gridshift +grids=third.gtx,@fourth.gsb",
+        )?;
+
+        assert_eq!(
+            deps,
+            vec![
+                GridDependency {
+                    grids: vec![
+                        GridSpec {
+                            name: "first.gsb".to_string(),
+                            optional: true,
+                        },
+                        GridSpec {
+                            name: "second.tif".to_string(),
+                            optional: false,
+                        },
+                    ],
+                    null_fallback: true,
+                },
+                GridDependency {
+                    grids: vec![
+                        GridSpec {
+                            name: "third.gtx".to_string(),
+                            optional: false,
+                        },
+                        GridSpec {
+                            name: "fourth.gsb".to_string(),
+                            optional: true,
+                        },
+                    ],
+                    null_fallback: false,
+                },
+            ]
+        );
         Ok(())
     }
 }

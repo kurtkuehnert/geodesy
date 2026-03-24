@@ -34,6 +34,7 @@ log = "0.4"
 thiserror = "1.0.50"
 float_eq = "1.0.0"
 byteorder = "1.5.0"
+tiff = { version = "0.11.3", optional = true }
 
 [dev-dependencies]
 # Needed for building doc-tests
@@ -52,8 +53,9 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 js = ["uuid/js"]
+with_gtg = ["dep:tiff"]
 binary = ["dirs", "clap", "clap-verbosity-flag", "env_logger", "anyhow"]
-with_plain = ["dirs", "memmap2"]
+with_plain = ["dirs", "memmap2", "with_gtg"]
 default = ["binary", "with_plain"]
 
 [[bin]]

@@ -2,6 +2,10 @@ use crate::Error;
 use crate::math::angular;
 
 pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
+    if elements.first().map(String::as_str) == Some("hgridshift") {
+        elements[0] = "gridshift".to_string();
+    }
+
     // Geodesy only supports ellipsoid definitions as named builtins or ellps=a,rf
     // PROJ has richer support which we try navigate here
     // First we find the indices of ellps, a, rf and R elements
@@ -148,4 +152,20 @@ fn remove_parameter_flag(elements: &mut Vec<String>, flag: &str) -> bool {
     let before = elements.len();
     elements.retain(|e| e != flag);
     before != elements.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_hgridshift_to_gridshift() -> Result<(), Error> {
+        let mut elements = vec![
+            "hgridshift".to_string(),
+            "grids=us_noaa_conus.tif".to_string(),
+        ];
+        tidy_proj(&mut elements)?;
+        assert_eq!(elements, vec!["gridshift", "grids=us_noaa_conus.tif"]);
+        Ok(())
+    }
 }

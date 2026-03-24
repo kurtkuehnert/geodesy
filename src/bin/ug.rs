@@ -129,7 +129,7 @@ fn add_grid_files_to_unigrid(args: &[&String], force: bool) -> Result<(), Error>
             continue;
         }
 
-        let grid = geodesy::grd::read_grid(arg)?;
+        let grid = geodesy::grd::BaseGrid::read(arg)?;
         let header = &grid.header;
         let records = header.rows * header.cols * header.bands;
         let duration = start.elapsed();

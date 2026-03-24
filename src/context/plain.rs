@@ -1,12 +1,15 @@
 #[cfg(feature = "with_plain")]
 use crate::authoring::*;
 use crate::grid::GridSource;
+use grid_stores::{FileGridStore, GridStore, MemoryGridStore, UnigridStore};
 use memmap2::Mmap;
 use std::{
     fs::File,
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
 };
+
+mod grid_stores;
 
 // ----- T H E   P L A I N   C O N T E X T ---------------------------------------------
 
@@ -20,6 +23,7 @@ pub struct Plain {
     resources: BTreeMap<String, String>,
     operators: BTreeMap<OpHandle, Op>,
     paths: Vec<std::path::PathBuf>,
+    memory_grids: BTreeMap<String, Arc<BaseGrid>>,
     unigrid_elements: Vec<BTreeMap<String, Arc<BaseGrid>>>,
     memmapped_unigrids: Vec<Option<Mmap>>,
 }
@@ -35,73 +39,8 @@ fn init_grids() -> Mutex<GridCollection> {
 
 struct GridCollection(BTreeMap<String, Arc<BaseGrid>>);
 impl GridCollection {
-    fn get_grid_from_global_collection(
-        &mut self,
-        name: &str,
-        paths: &[PathBuf],
-    ) -> Result<Arc<BaseGrid>, Error> {
-        // If the grid is already there, just return a reference clone
-        if let Some(grid) = self.0.get(name) {
-            return Ok(grid.clone());
-        }
-
-        // Otherwise, we must look for it in the data path
-        let n = PathBuf::from(name);
-        let ext = n
-            .extension()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default();
-
-        for path in paths {
-            // First we look in the base directory
-            let mut gridpath = path.clone();
-            gridpath.push(name);
-            let mut grid = std::fs::read(gridpath);
-
-            // If not found there: Look in a subdirectory named after the file extension
-            if grid.is_err() {
-                gridpath = path.clone();
-                gridpath.push(ext);
-                gridpath.push(name);
-                grid = std::fs::read(gridpath);
-            }
-            let Ok(grid) = grid else {
-                continue;
-            };
-
-            let key = name.to_string();
-            match ext {
-                "gsb" => {
-                    let value = crate::grid::ntv2::ntv2_grid(&grid)?;
-                    self.0.insert(key, Arc::new(value));
-                }
-
-                "gtx" => {
-                    let value = crate::grid::gtx::gtx(&key, &grid)?;
-                    self.0.insert(key, Arc::new(value));
-                }
-
-                _ => {
-                    // Neither GSA, nor Gravsoft can be identified by extension alone,
-                    // so we try GSA first, since it can identify itself from its
-                    // magic bytes 'DSAA'
-                    if let Ok(grid) = crate::grid::gsa::gsa(&key, &grid) {
-                        self.0.insert(name.to_string(), Arc::new(grid));
-                    } else {
-                        // Gravsoft
-                        let value = crate::grid::gravsoft::gravsoft(&key, &grid)?;
-                        self.0.insert(key, Arc::new(value));
-                    }
-                }
-            }
-
-            if let Some(grid) = self.0.get(name) {
-                return Ok(grid.clone());
-            }
-        }
-
-        Err(Error::NotFound(name.to_string(), ": Grid".to_string()))
+    fn get(&self, name: &str) -> Option<Arc<BaseGrid>> {
+        self.0.get(name).cloned()
     }
 }
 
@@ -118,6 +57,31 @@ impl Plain {
         if let Some(grids) = GLOBALLY_ALLOCATED_GRIDS.get() {
             grids.lock().unwrap().0.clear();
         }
+    }
+
+    /// Register a decoded grid under `name`.
+    ///
+    /// This is primarily intended for preloaded or externally fetched grids,
+    /// such as tests, browser environments, or applications that resolve grid
+    /// resources outside of `geodesy`.
+    pub fn insert_grid(&mut self, name: &str, grid: BaseGrid) {
+        self.memory_grids.insert(name.to_string(), Arc::new(grid));
+    }
+
+    /// Check whether `name` is resolvable through the configured local stores.
+    ///
+    /// This probes memory-backed grids, file-backed grids, and unigrid bundles.
+    /// It does not perform any network access.
+    pub fn has_grid(&self, name: &str) -> bool {
+        let stores: [&dyn GridStore; 3] = [&MemoryGridStore, &FileGridStore, &UnigridStore];
+        for store in stores {
+            match store.get_grid(name, self) {
+                Ok(Some(_)) => return true,
+                Ok(None) => continue,
+                Err(_) => continue,
+            }
+        }
+        false
     }
 }
 
@@ -141,6 +105,7 @@ impl Default for Plain {
             paths.push(userpath);
         }
 
+        let memory_grids = BTreeMap::new();
         let unigrid_elements = Vec::new();
         let memmapped_unigrids = Vec::new();
 
@@ -149,6 +114,7 @@ impl Default for Plain {
             resources,
             operators,
             paths,
+            memory_grids,
             unigrid_elements,
             memmapped_unigrids,
         }
@@ -334,19 +300,9 @@ impl Context for Plain {
 
     /// Access grid resources by identifier
     fn get_grid(&self, name: &str) -> Result<Arc<BaseGrid>, Error> {
-        // First search among the run time loaded grids
-        if let Ok(grid) = GLOBALLY_ALLOCATED_GRIDS
-            .get_or_init(init_grids)
-            .lock()
-            .unwrap()
-            .get_grid_from_global_collection(name, &self.paths)
-        {
-            return Ok(grid);
-        }
-
-        // Then among the unigrids
-        for unigrid in self.unigrid_elements.iter() {
-            if let Some(grid) = unigrid.get(name) {
+        let stores: [&dyn GridStore; 3] = [&MemoryGridStore, &FileGridStore, &UnigridStore];
+        for store in stores {
+            if let Some(grid) = store.get_grid(name, self)? {
                 return Ok(grid.clone());
             }
         }
@@ -558,6 +514,44 @@ mod tests {
             return Err(Error::General("No (sub-)grid found for (56.3E, 12.1E)"));
         };
         assert_eq!("test_datum_with_subset_as_subgrid[1]", subgrid);
+
+        Ok(())
+    }
+
+    #[test]
+    fn memory_grid_store() -> Result<(), Error> {
+        let mut ctx = Plain::new();
+        let path = if std::path::Path::new("geodesy/datum/test.datum").exists() {
+            "geodesy/datum/test.datum"
+        } else {
+            "crates/geodesy/geodesy/datum/test.datum"
+        };
+        let grid = BaseGrid::read(path)?;
+        ctx.insert_grid("memory-test-grid", grid);
+
+        let found = ctx.get_grid("memory-test-grid")?;
+        assert_eq!(found.header.bands, 2);
+        assert_eq!(found.header.rows, 5);
+        assert_eq!(found.header.cols, 9);
+
+        Ok(())
+    }
+
+    #[test]
+    fn has_grid_reports_local_sources() -> Result<(), Error> {
+        let mut ctx = Plain::new();
+        assert!(!ctx.has_grid("definitely-missing-grid"));
+
+        let path = if std::path::Path::new("geodesy/datum/test.datum").exists() {
+            "geodesy/datum/test.datum"
+        } else {
+            "crates/geodesy/geodesy/datum/test.datum"
+        };
+        ctx.insert_grid("memory-only-grid", BaseGrid::read(path)?);
+
+        assert!(ctx.has_grid("memory-only-grid"));
+        assert!(ctx.has_grid("test.geoid"));
+        assert!(ctx.has_grid("test_datum_with_subset_as_subgrid"));
 
         Ok(())
     }

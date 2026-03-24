@@ -90,12 +90,14 @@ pub mod grd {
     pub use crate::grid::GridSource;
     pub use crate::grid::gravsoft;
     pub use crate::grid::grids_at;
-    pub use crate::grid::read_grid;
     pub use crate::grid::unigrid::read_unigrid_index;
 }
 
 /// Elements for parsing both Geodesy and PROJ syntax
 mod parse {
+    pub use crate::token::GridDependency;
+    pub use crate::token::GridSpec;
+    pub use crate::token::grid_dependencies;
     // Tokenizing Rust Geodesy operations
     pub use crate::token::Tokenize;
     // PROJ interoperability

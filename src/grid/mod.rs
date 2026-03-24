@@ -2,6 +2,8 @@
 
 pub mod gravsoft;
 pub mod gsa;
+#[cfg(feature = "with_gtg")]
+pub mod gtg;
 pub mod gtx;
 pub mod ntv2;
 pub mod unigrid;
@@ -88,6 +90,49 @@ impl BaseGrid {
             grid,
             subgrids,
         })
+    }
+
+    /// Read and decode a grid from a filesystem path.
+    ///
+    /// The decoder is selected from the file extension.
+    pub fn read(path: &str) -> Result<Self, Error> {
+        let path: std::path::PathBuf = path.into();
+        let grid = std::fs::read(&path)?;
+        let id = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default();
+        Self::read_bytes(id, &grid, path.extension().and_then(|ext| ext.to_str()))
+    }
+
+    /// Decode a grid from raw bytes.
+    ///
+    /// `name` is used as the logical grid identifier in diagnostics and grid
+    /// metadata. `format_hint` is typically a file extension such as `"gsb"`
+    /// or `"tif"`.
+    pub fn read_bytes(name: &str, bytes: &[u8], format_hint: Option<&str>) -> Result<Self, Error> {
+        match format_hint
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            #[cfg(feature = "with_gtg")]
+            "tif" | "tiff" => gtg::gtg(name, bytes),
+            #[cfg(not(feature = "with_gtg"))]
+            "tif" | "tiff" => Err(Error::Unsupported(
+                "GeoTIFF grid support requires the `with_gtg` feature".to_string(),
+            )),
+            "gsb" => ntv2::ntv2_grid(bytes),
+            "gtx" => gtx::gtx(name, bytes),
+            _ => {
+                if let Ok(grid) = gsa::gsa(name, bytes) {
+                    Ok(grid)
+                } else {
+                    gravsoft::gravsoft(name, bytes)
+                }
+            }
+        }
     }
 
     pub fn is_projected(&self) -> bool {
@@ -436,38 +481,6 @@ pub fn grids_at(
     None
 }
 
-/// Try to read 'path' as a grid file in one of the 4 supported formats:
-/// ntv2, gtx, Golden Software GSA, and Gravsoft
-pub fn read_grid(path: &str) -> Result<BaseGrid, Error> {
-    let path: std::path::PathBuf = path.into();
-    let grid = std::fs::read(&path)?;
-    let id = path
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or_default();
-    let ext = path
-        .extension()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or_default();
-    match ext {
-        "gsb" => ntv2::ntv2_grid(&grid),
-        "gtx" => gtx::gtx(id, &grid),
-        _ => {
-            // Neither GSA, nor Gravsoft can be identified by extension alone,
-            // so we try GSA first, since it can identify itself from its
-            // magic bytes 'DSAA'
-            if let Ok(grid) = gsa::gsa(id, &grid) {
-                Ok(grid)
-            } else {
-                // Gravsoft
-                gravsoft::gravsoft(id, &grid)
-            }
-        }
-    }
-}
-
 // ----- T E S T S ------------------------------------------------------------------
 
 #[cfg(test)]
@@ -571,15 +584,15 @@ mod tests {
     }
 
     #[test]
-    fn read_grid() {
+    fn read_base_grid() {
         // trying to read non-existing files fail with Error::Io
-        assert!(matches!(super::read_grid(""), Err(Error::Io(_))));
-        assert!(matches!(super::read_grid("not.existing"), Err(Error::Io(_))));
+        assert!(matches!(BaseGrid::read(""), Err(Error::Io(_))));
+        assert!(matches!(BaseGrid::read("not.existing"), Err(Error::Io(_))));
 
-        // read_grid goes only after the exact filename specified,
+        // BaseGrid::read goes only after the exact filename specified,
         // it does not chase the file down the "known paths"
-        assert!(super::read_grid("test.datum").is_err());
-        assert!(super::read_grid("geodesy/datum/test.datum").is_ok());
+        assert!(BaseGrid::read("test.datum").is_err());
+        assert!(BaseGrid::read("geodesy/datum/test.datum").is_ok());
     }
 }
 
