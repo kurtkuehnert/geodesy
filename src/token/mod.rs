@@ -243,6 +243,43 @@ where
 /// second that Rust Geodesy does not support init-files. Hence no support for
 /// any kind of nesting here.
 ///
+/// ## Coordinate convention: PROJ vs Geodesy
+///
+/// **This is the most important difference between PROJ and Geodesy pipelines.**
+///
+/// PROJ uses **radians internally** but exposes a **degrees boundary** for
+/// geographic operators at the API level:
+/// - Single-step operations like `+proj=merc` implicitly accept lon/lat in degrees.
+/// - Explicit `+proj=pipeline` strings carry their own
+///   `+step +proj=unitconvert +xy_in=deg +xy_out=rad` steps at entry/exit to
+///   handle the conversion explicitly — degrees at the boundary, radians inside.
+///
+/// Geodesy uses **radians throughout** with no implicit degree conversion at any
+/// boundary. Callers are responsible for the conversion.
+///
+/// *parse_proj* bridges this gap for single-step PROJ strings by injecting an
+/// explicit `unitconvert xy_in=deg xy_out=rad` step before geographic projection
+/// operators, and a matching `unitconvert xy_in=rad xy_out=deg` step after
+/// geographic identity operators (longlat/latlong). This makes a geodesy pipeline
+/// produced from a PROJ string behave identically to PROJ at the degree boundary.
+///
+/// Explicit `+proj=pipeline` strings are **not** wrapped — they already carry
+/// their own unitconvert steps.
+///
+/// **Note on named angular parameters** (`lat_0=`, `lon_0=`, `latc=`, etc.):
+/// These are always specified in degrees in both PROJ and Geodesy. Each operator
+/// converts them to radians internally. The `unitconvert` wrapping described above
+/// only affects coordinate *values* flowing through the pipeline at runtime, not
+/// named parameters.
+///
+/// **Maintenance note:** The list of operators that require degree wrapping is
+/// currently a hardcoded allowlist (`GEO_PROJ_OPS`, `GEO_IDENTITY_OPS`) inside
+/// this function. It must be kept in sync as new geographic operators are added to
+/// Geodesy. A future improvement would be to encode this as per-operator metadata
+/// (analogous to how PROJ tracks input/output coordinate types in its operator
+/// registry) so the wrapping is driven by the operator itself rather than this
+/// centralized list.
+///
 /// ## Known differences between PROJ and Rust Geodesy definitions:
 ///
 /// ## Ellipsoid definitions
@@ -316,6 +353,11 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
     // insert them in the beginning of the argument list of each step
     let mut pipeline_globals = "".to_string();
     let mut pipeline_is_inverted = false;
+    // Track whether the input was an explicit +proj=pipeline (as opposed to a single-step
+    // PROJ string or the unofficial multi-step-without-pipeline extension).
+    let mut is_explicit_pipeline = false;
+    // The operator name of the first (and typically only) non-pipeline step.
+    let mut primary_op: Option<String> = None;
 
     for (step_index, step) in steps.iter().enumerate() {
         let mut elements: Vec<_> = step.split_whitespace().map(|x| x.to_string()).collect();
@@ -338,6 +380,7 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
                 // In the proj=pipeline case, just collect the globals, without
                 // introducing a new step into geodesy_steps
                 if elements[0] == "pipeline" {
+                    is_explicit_pipeline = true;
                     if step_index != 0 {
                         return Err(Error::Unsupported(
                             "PROJ does not support nested pipelines: ".to_string() + &trimmed,
@@ -365,6 +408,11 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
                 }
                 break;
             }
+        }
+
+        // Capture the primary operator name before tidy_proj may alter it
+        if primary_op.is_none() && !is_explicit_pipeline && !elements.is_empty() {
+            primary_op = Some(elements[0].clone());
         }
 
         proj_adapter::tidy_proj(&mut elements)?;
@@ -410,7 +458,37 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
             }
         }
     }
-    Ok(geodesy_steps.join(" | ").trim().to_string())
+    let result = geodesy_steps.join(" | ").trim().to_string();
+
+    // For a single-step non-pipeline PROJ string that represents a geographic operator,
+    // inject degree↔radian conversion so the resulting geodesy pipeline matches PROJ's
+    // external coordinate convention (geographic input/output in degrees).
+    //
+    // Explicit +proj=pipeline strings are excluded: their steps already operate in
+    // PROJ's internal radian convention and include explicit unitconvert steps where needed.
+    // Multi-step strings (unofficial extension) are excluded by the steps.len() == 1 guard.
+    if steps.len() == 1 && !is_explicit_pipeline && !result.is_empty() {
+        if let Some(op) = primary_op.as_deref() {
+            // Projection operators: geographic (lon/lat degrees) input, projected output
+            const GEO_PROJ_OPS: &[&str] = &[
+                "aea", "aeqd", "laea", "lcc", "merc", "omerc", "stere", "sterea", "tmerc", "utm",
+                "webmerc",
+            ];
+            // Identity operators: geographic input and output (both in degrees)
+            const GEO_IDENTITY_OPS: &[&str] = &["latlong", "longlat", "lonlat", "latlon"];
+
+            if GEO_PROJ_OPS.contains(&op) {
+                return Ok(format!("unitconvert xy_in=deg xy_out=rad | {result}"));
+            }
+            if GEO_IDENTITY_OPS.contains(&op) {
+                return Ok(format!(
+                    "unitconvert xy_in=deg xy_out=rad | {result} | unitconvert xy_in=rad xy_out=deg"
+                ));
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 /// Inspect a pipeline definition and return one grid dependency chain per step.
@@ -622,33 +700,39 @@ mod tests {
         );
 
         // Ellipsoid is defined with a builtin
-        assert_eq!(parse_proj("+proj=tmerc +ellps=GRS80")?, "tmerc ellps=GRS80");
+        assert_eq!(
+            parse_proj("+proj=tmerc +ellps=GRS80")?,
+            "unitconvert xy_in=deg xy_out=rad | tmerc ellps=GRS80"
+        );
 
         // Ellipsoid is defined with a builtin but is modified by `a` or `rf`
         // Note we don't remove `a` here even though this modification is not supported in RG
         // it's expected to fail in the operator instantiation
         assert_eq!(
             parse_proj("+proj=tmerc +ellps=GRS80 +a=1")?,
-            "tmerc ellps=GRS80 a=1"
+            "unitconvert xy_in=deg xy_out=rad | tmerc ellps=GRS80 a=1"
         );
 
         // Replace occurrences of `k=` with `k_0=`
-        assert_eq!(parse_proj("+proj=tmerc +k=1.5")?, "tmerc k_0=1.5");
+        assert_eq!(
+            parse_proj("+proj=tmerc +k=1.5")?,
+            "unitconvert xy_in=deg xy_out=rad | tmerc k_0=1.5"
+        );
 
         // Convert spherical radius to a zero-flattening ellipsoid
         assert_eq!(
             parse_proj("+proj=laea +lat_0=90 +R=6371228")?,
-            "laea lat_0=90 ellps=6371228,0"
+            "unitconvert xy_in=deg xy_out=rad | laea lat_0=90 ellps=6371228,0"
         );
 
         assert_eq!(
             parse_proj("+proj=laea +R_A +ellps=clrk66 +lat_0=45 +lon_0=-100")?,
-            "laea ellps=6370997.240632998,0 lat_0=45 lon_0=-100"
+            "unitconvert xy_in=deg xy_out=rad | laea ellps=6370997.240632998,0 lat_0=45 lon_0=-100"
         );
 
         assert_eq!(
             parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449")?,
-            "stere lat_0=90 ellps=6378273,298.279411123064"
+            "unitconvert xy_in=deg xy_out=rad | stere lat_0=90 ellps=6378273,298.279411123064"
         );
 
         // Generic axis handling should become explicit axisswap steps
@@ -660,20 +744,20 @@ mod tests {
         // Normalize PROJ omerc parameters to the geodesy operator surface
         assert_eq!(
             parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +k=1")?,
-            "omerc latc=4 lonc=115 alpha=53 gamma_c=52 k_0=1 variant"
+            "unitconvert xy_in=deg xy_out=rad | omerc latc=4 lonc=115 alpha=53 gamma_c=52 k_0=1 variant"
         );
         assert_eq!(
             parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +no_uoff +pm=paris")?,
-            "omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
+            "unitconvert xy_in=deg xy_out=rad | omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
         );
 
         assert_eq!(
             parse_proj("+proj=longlat +ellps=bessel +pm=0.00289027777777778")?,
-            "longlat ellps=bessel lon_0=0.00289027777777778"
+            "unitconvert xy_in=deg xy_out=rad | longlat ellps=bessel lon_0=0.00289027777777778 | unitconvert xy_in=rad xy_out=deg"
         );
         assert_eq!(
             parse_proj("+proj=longlat +ellps=bessel +lon_0=10 +pm=paris")?,
-            "longlat ellps=bessel lon_0=12.337229166666667"
+            "unitconvert xy_in=deg xy_out=rad | longlat ellps=bessel lon_0=12.337229166666667 | unitconvert xy_in=rad xy_out=deg"
         );
 
         Ok(())
