@@ -126,6 +126,14 @@ pub fn extract_axis_step(elements: &mut Vec<String>) -> Result<Option<String>, E
     let Some(axis_idx) = elements.iter().position(|e| e.starts_with("axis=")) else {
         return Ok(None);
     };
+
+    // PROJ rejects specifying both axis= and order= on the same step
+    if elements.iter().any(|e| e.starts_with("order=")) {
+        return Err(Error::Unsupported(
+            "parse_proj does not support both axis= and order= on the same step".to_string(),
+        ));
+    }
+
     let axis = elements[axis_idx][5..].to_ascii_lowercase();
     elements.remove(axis_idx);
 
@@ -138,19 +146,28 @@ pub fn extract_axis_step(elements: &mut Vec<String>) -> Result<Option<String>, E
 
     let mapped: Vec<String> = chars
         .iter()
-        .take(2)
+        .take(3)
         .map(|c| match c {
             'e' => Ok("1".to_string()),
             'w' => Ok("-1".to_string()),
             'n' => Ok("2".to_string()),
             's' => Ok("-2".to_string()),
+            'u' => Ok("3".to_string()),
+            'd' => Ok("-3".to_string()),
             other => Err(Error::Unsupported(format!(
                 "parse_proj does not support axis orientation '{other}' in axis={axis}"
             ))),
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    if mapped == ["1", "2"] {
+    // When axis= appears on an axisswap step, inject order= directly so the step
+    // is fully specified. For other operators, append a separate axisswap step.
+    if elements.first().map(String::as_str) == Some("axisswap") {
+        elements.push(format!("order={}", mapped.join(",")));
+        return Ok(None);
+    }
+
+    if mapped == ["1", "2"] || mapped == ["1", "2", "3"] {
         return Ok(None);
     }
 

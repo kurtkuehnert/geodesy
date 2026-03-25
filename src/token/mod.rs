@@ -654,7 +654,7 @@ mod tests {
         // Generic axis handling should become explicit axisswap steps
         assert_eq!(
             parse_proj("+proj=pipeline +step +inv +proj=tmerc +axis=wsu +lon_0=29")?,
-            "axisswap order=-1,-2 | tmerc inv lon_0=29"
+            "axisswap order=-1,-2,3 | tmerc inv lon_0=29"
         );
 
         // Normalize PROJ omerc parameters to the geodesy operator surface

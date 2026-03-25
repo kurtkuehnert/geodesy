@@ -72,15 +72,17 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 #[rustfmt::skip]
 pub const GAMUT: [OpParameter; 2] = [
     OpParameter::Flag { key: "inv" },
-    OpParameter::Series { key: "order", default: Some("1,2,3,4") },
+    OpParameter::Series { key: "order", default: None },
 ];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
 
-    // We default to order=1,2,3,4, so if order is not given, all is OK
     let Ok(order) = op.params.series("order") else {
-        return Ok(op);
+        return Err(Error::BadParam(
+            "order".to_string(),
+            "axisswap requires an explicit order or axis parameter".to_string(),
+        ));
     };
 
     if order.len() > 4 {
@@ -144,27 +146,9 @@ mod tests {
     }
 
     #[test]
-    fn default_order() -> Result<(), Error> {
+    fn no_args_is_error() {
         let mut ctx = Minimal::default();
-        let op = ctx.op("axisswap")?;
-
-        let mut operands = [Coor4D([1., 2., 3., 4.])];
-
-        // Forward
-        ctx.apply(op, Fwd, &mut operands)?;
-        assert_eq!(operands[0][0], 1.);
-        assert_eq!(operands[0][1], 2.);
-        assert_eq!(operands[0][2], 3.);
-        assert_eq!(operands[0][3], 4.);
-
-        // Inverse + roundtrip
-        ctx.apply(op, Inv, &mut operands)?;
-        assert_eq!(operands[0][0], 1.);
-        assert_eq!(operands[0][1], 2.);
-        assert_eq!(operands[0][2], 3.);
-        assert_eq!(operands[0][3], 4.);
-
-        Ok(())
+        assert!(ctx.op("axisswap").is_err());
     }
 
     #[test]
@@ -210,9 +194,9 @@ mod tests {
         let op = ctx.op("axisswap order");
         assert!(matches!(op, Err(Error::BadParam(_, _))));
 
-        // Missing all args: axisswap succeeds and becomes a no-op
+        // Missing all args: error — PROJ requires explicit order or axis
         let op = ctx.op("axisswap");
-        assert!(op.is_ok());
+        assert!(op.is_err());
 
         Ok(())
     }
