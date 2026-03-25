@@ -7,6 +7,7 @@ const TOL7: f64 = 1e-7;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
+    let a = ellps.semimajor_axis();
     let lon_0 = op.params.lon(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
@@ -34,8 +35,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         }
         let rho = dd * rho_term.sqrt();
         let theta = (lon - lon_0) * n;
-        let x = x_0 + rho * theta.sin();
-        let y = y_0 + op.params.real("rho0").unwrap() - rho * theta.cos();
+        let x = x_0 + a * rho * theta.sin();
+        let y = y_0 + a * (op.params.real("rho0").unwrap() - rho * theta.cos());
         let _ = qp; // retained for constructor symmetry/readability
         operands.set_xy(i, x, y);
         successes += 1;
@@ -45,6 +46,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
+    let a = ellps.semimajor_axis();
     let lon_0 = op.params.lon(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
@@ -69,8 +71,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let mut x = operands.xy(i).0 - x_0;
-        let mut y = rho0 - (operands.xy(i).1 - y_0);
+        let mut x = (operands.xy(i).0 - x_0) / a;
+        let mut y = rho0 - (operands.xy(i).1 - y_0) / a;
         let mut rho = x.hypot(y);
         if rho != 0.0 {
             if n < 0.0 {
@@ -223,6 +225,19 @@ mod tests {
 
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn aea_inverse_matches_proj_metric_coordinates() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80")?;
+
+        let mut projected = [Coor4D::raw(0.0, -112_982.4091, 0.0, 0.0)];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert!((projected[0][0].to_degrees() + 120.0).abs() < 1e-8);
+        assert!((projected[0][1].to_degrees() - 37.0).abs() < 1e-8);
         Ok(())
     }
 }

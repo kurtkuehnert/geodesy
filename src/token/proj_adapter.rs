@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::ellipsoid::{EllipsoidBase, biaxial::Ellipsoid};
 use crate::math::angular;
 
 pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
@@ -70,6 +71,8 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
         elements.remove(r_idx);
     }
 
+    normalize_authalic_sphere(elements)?;
+
     for (i, element) in elements.iter().enumerate() {
         if let Some(stripped) = element.strip_prefix("k=") {
             elements[i] = "k_0=".to_string() + stripped;
@@ -81,6 +84,42 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     normalize_omerc(elements);
 
     Ok(())
+}
+
+fn normalize_authalic_sphere(elements: &mut Vec<String>) -> Result<(), Error> {
+    let Some(r_a_idx) = elements.iter().position(|e| e == "R_A") else {
+        return Ok(());
+    };
+
+    let Some(ellps_idx) = elements.iter().position(|e| e.starts_with("ellps=")) else {
+        return Err(Error::Unsupported(
+            "parse_proj does not support +R_A without a resolvable ellipsoid".to_string(),
+        ));
+    };
+
+    let definition = elements[ellps_idx][6..].trim();
+    let ellps = Ellipsoid::named(definition).map_err(|_| {
+        Error::Unsupported(format!(
+            "parse_proj cannot derive authalic sphere from ellipsoid definition: {definition}"
+        ))
+    })?;
+    let radius = authalic_radius(&ellps);
+    elements[ellps_idx] = format!("ellps={radius},0");
+    elements.remove(r_a_idx);
+    Ok(())
+}
+
+fn authalic_radius(ellps: &impl EllipsoidBase) -> f64 {
+    let a = ellps.semimajor_axis();
+    let e = ellps.eccentricity();
+    if e == 0.0 {
+        return a;
+    }
+
+    let one_minus_es = 1.0 - ellps.eccentricity_squared();
+    let qp = one_minus_es
+        * (1.0 / one_minus_es - (0.5 / e) * ((1.0 - e) / (1.0 + e)).ln());
+    a * (0.5 * qp).sqrt()
 }
 
 pub fn extract_axis_step(elements: &mut Vec<String>) -> Result<Option<String>, Error> {
@@ -129,7 +168,15 @@ fn normalize_prime_meridian(elements: &mut Vec<String>) -> Result<(), Error> {
         )));
     };
 
+    let is_longlat = matches!(
+        elements.first().map(String::as_str),
+        Some("longlat" | "latlon" | "latlong" | "lonlat")
+    );
+
     for key in ["lon_0=", "lonc=", "lon_1=", "lon_2="] {
+        if is_longlat && key == "lon_0=" {
+            continue;
+        }
         if let Some(idx) = elements.iter().position(|e| e.starts_with(key)) {
             let value = elements[idx][key.len()..].to_string();
             let angle = angular::parse_sexagesimal(&value);
@@ -139,6 +186,21 @@ fn normalize_prime_meridian(elements: &mut Vec<String>) -> Result<(), Error> {
                 )));
             }
             elements[idx] = format!("{key}{}", angle + offset_deg);
+        }
+    }
+
+    if is_longlat {
+        if let Some(idx) = elements.iter().position(|e| e.starts_with("lon_0=")) {
+            let value = elements[idx][6..].to_string();
+            let angle = angular::parse_sexagesimal(&value);
+            if angle.is_nan() {
+                return Err(Error::Unsupported(format!(
+                    "parse_proj cannot adjust longitude parameter lon_0={value} for pm={pm}"
+                )));
+            }
+            elements[idx] = format!("lon_0={}", angle + offset_deg);
+        } else {
+            elements.push(format!("lon_0={offset_deg}"));
         }
     }
 

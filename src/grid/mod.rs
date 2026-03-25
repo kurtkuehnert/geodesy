@@ -257,7 +257,7 @@ impl Grid for BaseGrid {
     /// "On the boundary" qualifies as within for westernmost and southernmost, or for
     /// all boundaries if `all_inclusive==true`.
     fn contains(&self, position: Coor4D, margin: f64, all_inclusive: bool) -> bool {
-        let (lon, lat) = position.xy();
+        let (mut lon, lat) = position.xy();
 
         // We start by assuming that the last row (latitude) is the southernmost
         let mut lat_min = self.header.lat_s;
@@ -283,6 +283,9 @@ impl Grid for BaseGrid {
             (lon_min, lon_max) = (lon_max, lon_min);
         }
 
+        if !self.is_projected() {
+            lon = wrap_longitude_to_interval(lon, lon_min, lon_max);
+        }
         let lon_grace = margin * self.header.dlon.abs();
         lon_min -= lon_grace;
         lon_max += lon_grace;
@@ -325,7 +328,7 @@ impl Grid for BaseGrid {
         }
 
         // Locate the relevant sub-grid (if any)
-        for subgrid in &self.subgrids {
+        for subgrid in self.subgrids.iter().rev() {
             if subgrid.contains(at, margin, false) {
                 return interpolate(subgrid, ctx, at, 0.0);
             }
@@ -369,9 +372,14 @@ fn interpolate(
     // during parsing, we just cruise along here
     let dlat = head.dlat.abs();
     let dlon = head.dlon.abs();
+    let lon = if base.is_projected() {
+        at[0]
+    } else {
+        wrap_longitude_to_interval(at[0], head.lon_w.min(head.lon_e), head.lon_w.max(head.lon_e))
+    };
 
     // The interpolation coordinate relative to the grid origin
-    let rlon = at[0] - head.lon_w;
+    let rlon = lon - head.lon_w;
     let rlat = head.lat_n - at[1];
 
     // The (row, column) of the lower left node of the grid cell containing
@@ -396,7 +404,7 @@ fn interpolate(
     let ll_lat = head.lat_n - row as f64 * dlat;
 
     // Cell relative, cell unit coordinates in a right handed CS
-    let rlon = (at[0] - ll_lon) / dlon;
+    let rlon = (lon - ll_lon) / dlon;
     let rlat = (at[1] - ll_lat) / dlat;
 
     // We cannot return more than 4 bands in a Coor4D,
@@ -460,6 +468,20 @@ fn interpolate(
     }
 
     Some(result)
+}
+
+fn wrap_longitude_to_interval(mut lon: f64, lon_min: f64, lon_max: f64) -> f64 {
+    let center = 0.5 * (lon_min + lon_max);
+    let two_pi = std::f64::consts::TAU;
+
+    while lon - center > std::f64::consts::PI {
+        lon -= two_pi;
+    }
+    while lon - center < -std::f64::consts::PI {
+        lon += two_pi;
+    }
+
+    lon
 }
 
 /// Find the most appropriate grid value from a stack (i.e. slice) of grids.
@@ -600,6 +622,68 @@ mod tests {
         // it does not chase the file down the "known paths"
         assert!(BaseGrid::read("test.datum").is_err());
         assert!(BaseGrid::read("geodesy/datum/test.datum").is_ok());
+    }
+
+    #[test]
+    fn projected_grids_do_not_wrap_longitude_like_angles() -> Result<(), Error> {
+        let projected = GridHeader {
+            lat_n: 20.0,
+            lat_s: 0.0,
+            lon_w: 1000.0,
+            lon_e: 1010.0,
+            dlat: -10.0,
+            dlon: 10.0,
+            rows: 3,
+            cols: 2,
+            bands: 1,
+        };
+        let grid = BaseGrid::new(
+            "projected",
+            projected,
+            GridSource::Internal {
+                values: vec![0.0; 3 * 2],
+            },
+        )?;
+
+        assert!(!grid.contains(Coor4D::raw(1020.0, 10.0, 0.0, 0.0), 0.0, true));
+        Ok(())
+    }
+
+    #[test]
+    fn at_prefers_most_specific_subgrid() -> Result<(), Error> {
+        let parent = BaseGrid::new(
+            "parent",
+            DATUM_HEADER,
+            GridSource::Internal {
+                values: vec![0.0; DATUM.len()],
+            },
+        )?;
+        let child_header = GridHeader::new(
+            57f64.to_radians(),
+            55f64.to_radians(),
+            10f64.to_radians(),
+            12f64.to_radians(),
+            1f64.to_radians(),
+            1f64.to_radians(),
+            2,
+        )?;
+        let child = BaseGrid::new(
+            "child",
+            child_header,
+            GridSource::Internal {
+                values: vec![42.0; 3 * 3 * 2],
+            },
+        )?;
+
+        let mut root = parent;
+        root.subgrids.push(child);
+
+        let point = Coor4D::geo(56.5, 10.5, 0.0, 0.0);
+        assert_eq!(root.which_subgrid_contains(point, 0.0), Some("child".to_string()));
+        let value = root.at(None, point, 0.0).unwrap();
+        assert_eq!(value[0], 42.0);
+        assert_eq!(value[1], 42.0);
+        Ok(())
     }
 }
 

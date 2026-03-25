@@ -33,7 +33,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let el = lam * sinphi;
             (
                 a * (ms * el.sin()) + x_0,
-                a * ((ellps.meridian_latitude_to_distance(lat) - ml0) + ms * (1.0 - el.cos()))
+                a * ((ellps.meridian_latitude_to_distance(lat) / a - ml0) + ms * (1.0 - el.cos()))
                     + y_0,
             )
         };
@@ -78,7 +78,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 break;
             }
             let s2ph = sp * cp;
-            let ml = ellps.meridian_latitude_to_distance(lat);
+            let ml = ellps.meridian_latitude_to_distance(lat) / a;
             let root = (1.0 - es * sp * sp).sqrt();
             let c = sp * root / cp;
             let mlb = ml * ml + r;
@@ -134,7 +134,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("lon_0", params.lon(0).to_radians());
 
     let ellps = params.ellps(0);
-    let ml0 = ellps.meridian_latitude_to_distance(lat_0);
+    let ml0 = ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis();
     params.real.insert("ml0", ml0);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
@@ -163,6 +163,27 @@ mod tests {
 
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn poly_non_origin_roundtrip() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("poly lat_0=0 lon_0=-54 x_0=5000000 y_0=10000000 ellps=GRS80")?;
+
+        let geo = [Coor4D::raw((-50.0_f64).to_radians(), (-10.0_f64).to_radians(), 0., 0.)];
+        let projected = [Coor4D::raw(5_438_546.7142, 8_891_486.8987, 0., 0.)];
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&projected[0]) < 1e-3);
+
+        let mut inverse_probe = projected;
+        ctx.apply(op, Inv, &mut inverse_probe)?;
+        assert!(inverse_probe[0][0].is_finite());
+        assert!(inverse_probe[0][1].is_finite());
+        assert!((inverse_probe[0][0].to_degrees() + 50.0).abs() < 1e-2);
+        assert!((inverse_probe[0][1].to_degrees() + 10.0).abs() < 1e-6);
         Ok(())
     }
 }

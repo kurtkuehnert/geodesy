@@ -25,6 +25,7 @@ mod iso6709;
 mod laea;
 mod latitude;
 mod lcc;
+mod longlat;
 mod merc;
 mod molodensky;
 mod noop;
@@ -87,10 +88,10 @@ const BUILTIN_OPERATORS: [(&str, OpConstructor); 43] = [
 
     // Some commonly used noop-aliases
     ("noop",         OpConstructor(noop::new)),
-    ("longlat",      OpConstructor(noop::new)),
-    ("latlon",       OpConstructor(noop::new)),
-    ("latlong",      OpConstructor(noop::new)),
-    ("lonlat",       OpConstructor(noop::new)),
+    ("longlat",      OpConstructor(longlat::new)),
+    ("latlon",       OpConstructor(longlat::new)),
+    ("latlong",      OpConstructor(longlat::new)),
+    ("lonlat",       OpConstructor(longlat::new)),
 ];
 // A BTreeMap would have been a better choice for BUILTIN_OPERATORS, except
 // for the annoying fact that it cannot be compile-time const-constructed.

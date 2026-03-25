@@ -642,6 +642,11 @@ mod tests {
         );
 
         assert_eq!(
+            parse_proj("+proj=laea +R_A +ellps=clrk66 +lat_0=45 +lon_0=-100")?,
+            "laea ellps=6370997.240632998,0 lat_0=45 lon_0=-100"
+        );
+
+        assert_eq!(
             parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449")?,
             "stere lat_0=90 ellps=6378273,298.279411123064"
         );
@@ -660,6 +665,15 @@ mod tests {
         assert_eq!(
             parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +no_uoff +pm=paris")?,
             "omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
+        );
+
+        assert_eq!(
+            parse_proj("+proj=longlat +ellps=bessel +pm=0.00289027777777778")?,
+            "longlat ellps=bessel lon_0=0.00289027777777778"
+        );
+        assert_eq!(
+            parse_proj("+proj=longlat +ellps=bessel +lon_0=10 +pm=paris")?,
+            "longlat ellps=bessel lon_0=12.337229166666667"
         );
 
         Ok(())

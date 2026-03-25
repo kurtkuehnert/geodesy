@@ -50,15 +50,15 @@ fn helmert_common(
         let mut c = operands.get_coord(i);
 
         // Time varying case?
-        if dynamic && !fixed_t {
+        if dynamic && !fixed_t && c[3].is_finite() {
             // Necessary to update parameters?
             #[allow(clippy::float_cmp)]
             if c[3] != prev_t {
                 prev_t = c[3];
                 let dt = c[3] - epoch;
-                TT[0] += dt * DT[0];
-                TT[1] += dt * DT[1];
-                TT[2] += dt * DT[2];
+                TT[0] = T[0] + dt * DT[0];
+                TT[1] = T[1] + dt * DT[1];
+                TT[2] = T[2] + dt * DT[2];
                 if rotated {
                     let RR = [R[0] + dt * DR[0], R[1] + dt * DR[1], R[2] + dt * DR[2]];
                     ROT = rotation_matrix(&RR, exact, position_vector);
@@ -513,6 +513,53 @@ mod tests {
         // ... and even closer on the way back
         ctx.apply(op, Inv, &mut operands)?;
         assert!(ITRF2014.hypot3(&operands[0]) < 40e-8);
+
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_without_observation_time_is_identity() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let definition = "
+            helmert  exact    convention = coordinate_frame
+            drx = 0.00150379  dry = 0.00118346  drz = 0.00120716
+            t_epoch = 2020.0
+        ";
+        let op = ctx.op(definition)?;
+
+        let no_time = Coor4D::raw(ITRF2014[0], ITRF2014[1], ITRF2014[2], f64::INFINITY);
+        let mut operands = [no_time];
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(no_time.hypot3(&operands[0]) < 1e-12);
+        assert!(operands[0][3].is_infinite());
+
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_parameters_do_not_accumulate_between_epochs() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let definition = "
+            helmert  exact    convention = coordinate_frame
+            x = 1 y = 2 z = 3
+            dx = 0.5 dy = 1.0 dz = 1.5
+            t_epoch = 2000
+        ";
+        let op = ctx.op(definition)?;
+
+        let mut together = [
+            Coor4D::raw(0.0, 0.0, 0.0, 2001.0),
+            Coor4D::raw(0.0, 0.0, 0.0, 2002.0),
+        ];
+        ctx.apply(op, Fwd, &mut together)?;
+
+        let mut separate_2001 = [Coor4D::raw(0.0, 0.0, 0.0, 2001.0)];
+        let mut separate_2002 = [Coor4D::raw(0.0, 0.0, 0.0, 2002.0)];
+        ctx.apply(op, Fwd, &mut separate_2001)?;
+        ctx.apply(op, Fwd, &mut separate_2002)?;
+
+        assert_eq!(together[0], separate_2001[0]);
+        assert_eq!(together[1], separate_2002[0]);
 
         Ok(())
     }
