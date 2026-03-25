@@ -4,8 +4,28 @@
 // we keep them and allow(dead_code) to maintain alignment with
 // the PROJ implementation
 #[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Unit(&'static str, &'static str, &'static str, f64);
+
 impl Unit {
+    pub fn lookup(name: &str) -> Option<Self> {
+        if let Some(unit) = LINEAR_UNITS.iter().find(|u| u.name() == name) {
+            return Some(*unit);
+        }
+        if let Some(unit) = ANGULAR_UNITS.iter().find(|u| u.name() == name) {
+            return Some(*unit);
+        }
+        let multiplier = name.parse::<f64>().ok()?;
+        Self::new_numeric(multiplier)
+    }
+
+    pub fn new_numeric(multiplier: f64) -> Option<Self> {
+        if !multiplier.is_finite() || multiplier <= 0.0 {
+            return None;
+        }
+        Some(Self("<numeric>", "", "Numeric multiplier", multiplier))
+    }
+
     pub fn name(&self) -> &'static str {
         self.0
     }
@@ -17,6 +37,34 @@ impl Unit {
     }
     pub fn multiplier(&self) -> f64 {
         self.3
+    }
+
+    pub fn kind(&self) -> UnitKind {
+        if self.0 == "<numeric>" {
+            return UnitKind::Numeric;
+        }
+        if LINEAR_UNITS.iter().any(|unit| unit.name() == self.name()) {
+            return UnitKind::Linear;
+        }
+        UnitKind::Angular
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnitKind {
+    Linear,
+    Angular,
+    Numeric,
+}
+
+impl UnitKind {
+    /// Only named linear↔angular mismatches are rejected.
+    /// Numeric is compatible with any kind — it carries no semantic type.
+    pub fn is_compatible_with(self, other: Self) -> bool {
+        !matches!(
+            (self, other),
+            (UnitKind::Linear, UnitKind::Angular) | (UnitKind::Angular, UnitKind::Linear)
+        )
     }
 }
 

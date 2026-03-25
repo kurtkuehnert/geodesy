@@ -6,7 +6,7 @@
 /// For horizontal conversions, the pivot unit is meters for linear units and radians for angular units.
 /// Vertical units always pivot around meters.
 /// Unit_A => (meters || radians) => Unit_B
-use super::units::{ANGULAR_UNITS, LINEAR_UNITS};
+use super::units::Unit;
 use crate::authoring::*;
 
 // ----- F O R W A R D -----------------------------------------------------------------
@@ -79,23 +79,44 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let z_in = params.text("z_in").unwrap();
     let z_out = params.text("z_out").unwrap();
 
-    let Some(xy_in_to_pivot) = get_pivot_multiplier(xy_in.as_str()) else {
+    let Some(xy_in_unit) = Unit::lookup(xy_in.as_str()) else {
         return Err(Error::BadParam("xy_in".to_string(), xy_in));
     };
-    let Some(xy_out_to_pivot) = get_pivot_multiplier(xy_out.as_str()) else {
+    let Some(xy_out_unit) = Unit::lookup(xy_out.as_str()) else {
         return Err(Error::BadParam("xy_out".to_string(), xy_out));
     };
-    let Some(z_in_to_pivot) = get_pivot_multiplier(z_in.as_str()) else {
-        return Err(Error::BadParam("z_in".to_string(), xy_in));
+    let Some(z_in_unit) = Unit::lookup(z_in.as_str()) else {
+        return Err(Error::BadParam("z_in".to_string(), z_in));
     };
-    let Some(z_out_to_pivot) = get_pivot_multiplier(z_out.as_str()) else {
-        return Err(Error::BadParam("z_out".to_string(), xy_out));
+    let Some(z_out_unit) = Unit::lookup(z_out.as_str()) else {
+        return Err(Error::BadParam("z_out".to_string(), z_out));
     };
 
-    params.real.insert("xy_in_to_pivot", xy_in_to_pivot);
-    params.real.insert("pivot_to_xy_out", 1. / xy_out_to_pivot);
-    params.real.insert("z_in_to_pivot", z_in_to_pivot);
-    params.real.insert("pivot_to_z_out", 1. / z_out_to_pivot);
+    if !xy_in_unit.kind().is_compatible_with(xy_out_unit.kind()) {
+        return Err(Error::BadParam(
+            "xy_in/xy_out".to_string(),
+            format!("{xy_in}->{xy_out}"),
+        ));
+    }
+    if !z_in_unit.kind().is_compatible_with(z_out_unit.kind()) {
+        return Err(Error::BadParam(
+            "z_in/z_out".to_string(),
+            format!("{z_in}->{z_out}"),
+        ));
+    }
+
+    params
+        .real
+        .insert("xy_in_to_pivot", xy_in_unit.multiplier());
+    params
+        .real
+        .insert("pivot_to_xy_out", 1. / xy_out_unit.multiplier());
+    params
+        .real
+        .insert("z_in_to_pivot", z_in_unit.multiplier());
+    params
+        .real
+        .insert("pivot_to_z_out", 1. / z_out_unit.multiplier());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
 
@@ -104,15 +125,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params,
         steps: None,
     })
-}
-
-fn get_pivot_multiplier(name: &str) -> Option<f64> {
-    LINEAR_UNITS
-        .iter()
-        .chain(ANGULAR_UNITS.iter())
-        .find(|u| u.name() == name)
-        .map(|u| u.multiplier())
-        .or_else(|| name.parse::<f64>().ok())
 }
 
 // ----- T E S T S ---------------------------------------------------------------------
@@ -278,5 +290,29 @@ mod tests {
         assert_float_eq!(operands[0][1], 20., abs_all <= 1e-12);
         assert_float_eq!(operands[0][2], 5., abs_all <= 1e-12);
         Ok(())
+    }
+
+    #[test]
+    fn rejects_linear_to_angular_xy_conversion() {
+        let mut ctx = Minimal::default();
+        ctx.register_op("unitconvert", OpConstructor(new));
+        assert!(ctx.op("unitconvert xy_in=m xy_out=rad").is_err());
+    }
+
+    #[test]
+    fn rejects_angular_to_linear_z_conversion() {
+        let mut ctx = Minimal::default();
+        ctx.register_op("unitconvert", OpConstructor(new));
+        assert!(ctx.op("unitconvert z_in=rad z_out=m").is_err());
+    }
+
+    #[test]
+    fn rejects_zero_and_non_finite_numeric_units() {
+        let mut ctx = Minimal::default();
+        ctx.register_op("unitconvert", OpConstructor(new));
+        assert!(ctx.op("unitconvert xy_in=0").is_err());
+        assert!(ctx.op("unitconvert xy_out=0").is_err());
+        assert!(ctx.op("unitconvert xy_in=1e400").is_err());
+        assert!(ctx.op("unitconvert z_out=1e400").is_err());
     }
 }
