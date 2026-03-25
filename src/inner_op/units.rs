@@ -1,106 +1,111 @@
-// Units are taken from PROJ https://github.com/OSGeo/PROJ/blob/master/src/units.c,
-
-// the factor and description elements are not used for now, but
-// we keep them and allow(dead_code) to maintain alignment with
-// the PROJ implementation
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Unit(&'static str, &'static str, &'static str, f64);
-
-impl Unit {
-    pub fn lookup(name: &str) -> Option<Self> {
-        if let Some(unit) = LINEAR_UNITS.iter().find(|u| u.name() == name) {
-            return Some(*unit);
-        }
-        if let Some(unit) = ANGULAR_UNITS.iter().find(|u| u.name() == name) {
-            return Some(*unit);
-        }
-        let multiplier = name.parse::<f64>().ok()?;
-        Self::new_numeric(multiplier)
-    }
-
-    pub fn new_numeric(multiplier: f64) -> Option<Self> {
-        if !multiplier.is_finite() || multiplier <= 0.0 {
-            return None;
-        }
-        Some(Self("<numeric>", "", "Numeric multiplier", multiplier))
-    }
-
-    pub fn name(&self) -> &'static str {
-        self.0
-    }
-    pub fn _factor(&self) -> &'static str {
-        self.1
-    }
-    pub fn _description(&self) -> &'static str {
-        self.2
-    }
-    pub fn multiplier(&self) -> f64 {
-        self.3
-    }
-
-    pub fn kind(&self) -> UnitKind {
-        if self.0 == "<numeric>" {
-            return UnitKind::Numeric;
-        }
-        if LINEAR_UNITS.iter().any(|unit| unit.name() == self.name()) {
-            return UnitKind::Linear;
-        }
-        UnitKind::Angular
-    }
-}
+// Units are taken from PROJ https://github.com/OSGeo/PROJ/blob/master/src/units.c
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnitKind {
     Linear,
     Angular,
-    Numeric,
 }
 
 impl UnitKind {
     /// Only named linear↔angular mismatches are rejected.
-    /// Numeric is compatible with any kind — it carries no semantic type.
     pub fn is_compatible_with(self, other: Self) -> bool {
-        !matches!(
-            (self, other),
-            (UnitKind::Linear, UnitKind::Angular) | (UnitKind::Angular, UnitKind::Linear)
-        )
+        self == other
     }
 }
 
-/// Represents a set of linear units and their conversion to meters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Unit {
+    name: &'static str,
+    description: &'static str,
+    multiplier: f64,
+    kind: UnitKind,
+}
+
+impl Unit {
+    const fn linear(name: &'static str, description: &'static str, multiplier: f64) -> Self {
+        Self { name, description, multiplier, kind: UnitKind::Linear }
+    }
+
+    const fn angular(name: &'static str, description: &'static str, multiplier: f64) -> Self {
+        Self { name, description, multiplier, kind: UnitKind::Angular }
+    }
+
+    pub fn name(self) -> &'static str { self.name }
+    pub fn multiplier(self) -> f64 { self.multiplier }
+    pub fn kind(self) -> UnitKind { self.kind }
+}
+
+/// A resolved unit parameter: either a named unit with known kind, or a raw numeric scale factor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UnitParam {
+    Named(Unit),
+    /// Raw scale factor — no semantic kind, compatible with any unit.
+    Numeric(f64),
+}
+
+impl UnitParam {
+    pub fn lookup(name: &str) -> Option<Self> {
+        LINEAR_UNITS
+            .iter()
+            .chain(ANGULAR_UNITS.iter())
+            .find(|u| u.name() == name)
+            .copied()
+            .map(Self::Named)
+            .or_else(|| {
+                let m = name.parse::<f64>().ok()?;
+                if !m.is_finite() || m <= 0.0 {
+                    return None;
+                }
+                Some(Self::Numeric(m))
+            })
+    }
+
+    pub fn multiplier(self) -> f64 {
+        match self {
+            Self::Named(u) => u.multiplier(),
+            Self::Numeric(m) => m,
+        }
+    }
+
+    /// Numeric is compatible with any unit. Only named linear↔angular is rejected.
+    pub fn is_compatible_with(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Named(a), Self::Named(b)) => a.kind().is_compatible_with(b.kind()),
+            _ => true,
+        }
+    }
+}
+
+/// Linear units and their conversion factor to meters.
 #[rustfmt::skip]
 pub const LINEAR_UNITS: [Unit; 21] = [
-    Unit("km",      "1000",              "Kilometer",                    1000.0),
-    Unit("m",       "1",                 "Meter",                        1.0),
-    Unit("dm",      "1/10",              "Decimeter",                    0.1),
-    Unit("cm",      "1/100",             "Centimeter",                   0.01),
-    Unit("mm",      "1/1000",            "Millimeter",                   0.001),
-    Unit("kmi",     "1852",              "International Nautical Mile",  1852.0),
-    Unit("in",      "0.0254",            "International Inch",           0.0254),
-    Unit("ft",      "0.3048",            "International Foot",           0.3048),
-    Unit("yd",      "0.9144",            "International Yard",           0.9144),
-    Unit("kmi",     "1609.344",          "International Statute Mile",   1609.344),
-    Unit("fath",    "1.8288",            "International Fathom",         1.8288),
-    Unit("ch",      "20.1168",           "International Chain",          20.1168),
-    Unit("link",    "0.201168",          "International Link",           0.201168),
-    Unit("us-in",   "1/39.37",           "U.S. Surveyor's Inch",         100.0 / 3937.0),
-    Unit("us-ft",   "0.304800609601219", "U.S. Surveyor's Foot",         1200.0 / 3937.0, ),
-    Unit("us-yd",   "0.914401828803658", "U.S. Surveyor's Yard",         3600.0 / 3937.0, ),
-    Unit("us-ch",   "20.11684023368047", "U.S. Surveyor's Chain",        79200.0 / 3937.0,   ),
-    Unit("us-mi",   "1609.347218694437", "U.S. Surveyor's Statute Mile", 6336000.0 / 3937.0, ),
-    Unit("ind-yd",  "0.91439523",        "Indian Yard",                  0.91439523),
-    Unit("ind-ft",  "0.30479841",        "Indian Foot",                  0.30479841),
-    Unit("ind-ch",  "20.11669506",       "Indian Chain",                 20.11669506),
+    Unit::linear("km",     "Kilometer",                    1000.0),
+    Unit::linear("m",      "Meter",                        1.0),
+    Unit::linear("dm",     "Decimeter",                    0.1),
+    Unit::linear("cm",     "Centimeter",                   0.01),
+    Unit::linear("mm",     "Millimeter",                   0.001),
+    Unit::linear("kmi",    "International Nautical Mile",  1852.0),
+    Unit::linear("in",     "International Inch",           0.0254),
+    Unit::linear("ft",     "International Foot",           0.3048),
+    Unit::linear("yd",     "International Yard",           0.9144),
+    Unit::linear("mi",     "International Statute Mile",   1609.344),
+    Unit::linear("fath",   "International Fathom",         1.8288),
+    Unit::linear("ch",     "International Chain",          20.1168),
+    Unit::linear("link",   "International Link",           0.201168),
+    Unit::linear("us-in",  "U.S. Surveyor's Inch",         100.0 / 3937.0),
+    Unit::linear("us-ft",  "U.S. Surveyor's Foot",         1200.0 / 3937.0),
+    Unit::linear("us-yd",  "U.S. Surveyor's Yard",         3600.0 / 3937.0),
+    Unit::linear("us-ch",  "U.S. Surveyor's Chain",        79200.0 / 3937.0),
+    Unit::linear("us-mi",  "U.S. Surveyor's Statute Mile", 6336000.0 / 3937.0),
+    Unit::linear("ind-yd", "Indian Yard",                  0.91439523),
+    Unit::linear("ind-ft", "Indian Foot",                  0.30479841),
+    Unit::linear("ind-ch", "Indian Chain",                 20.11669506),
 ];
 
-const GRAD_TO_RAD: f64 = 0.015707963267948967;
-const DEG_TO_RAD: f64 = 0.017453292519943296;
-
-// Angular units and there conversion to radians
+/// Angular units and their conversion factor to radians.
 #[rustfmt::skip]
 pub const ANGULAR_UNITS: [Unit; 3] = [
-    Unit("rad",     "1.0",                  "Radian",   1.0),
-    Unit("deg",     "0.017453292519943296", "Degree",   DEG_TO_RAD),
-    Unit("grad",    "0.015707963267948967", "Grad",     GRAD_TO_RAD),
+    Unit::angular("rad",  "Radian",  1.0),
+    Unit::angular("deg",  "Degree",  std::f64::consts::PI / 180.0),
+    Unit::angular("grad", "Grad",    std::f64::consts::PI / 200.0),
 ];

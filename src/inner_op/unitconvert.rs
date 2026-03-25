@@ -6,7 +6,7 @@
 /// For horizontal conversions, the pivot unit is meters for linear units and radians for angular units.
 /// Vertical units always pivot around meters.
 /// Unit_A => (meters || radians) => Unit_B
-use super::units::Unit;
+use super::units::UnitParam;
 use crate::authoring::*;
 
 // ----- F O R W A R D -----------------------------------------------------------------
@@ -79,44 +79,36 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let z_in = params.text("z_in").unwrap();
     let z_out = params.text("z_out").unwrap();
 
-    let Some(xy_in_unit) = Unit::lookup(xy_in.as_str()) else {
+    let Some(xy_in) = UnitParam::lookup(xy_in.as_str()) else {
         return Err(Error::BadParam("xy_in".to_string(), xy_in));
     };
-    let Some(xy_out_unit) = Unit::lookup(xy_out.as_str()) else {
+    let Some(xy_out) = UnitParam::lookup(xy_out.as_str()) else {
         return Err(Error::BadParam("xy_out".to_string(), xy_out));
     };
-    let Some(z_in_unit) = Unit::lookup(z_in.as_str()) else {
+    let Some(z_in) = UnitParam::lookup(z_in.as_str()) else {
         return Err(Error::BadParam("z_in".to_string(), z_in));
     };
-    let Some(z_out_unit) = Unit::lookup(z_out.as_str()) else {
+    let Some(z_out) = UnitParam::lookup(z_out.as_str()) else {
         return Err(Error::BadParam("z_out".to_string(), z_out));
     };
 
-    if !xy_in_unit.kind().is_compatible_with(xy_out_unit.kind()) {
+    if !xy_in.is_compatible_with(xy_out) {
         return Err(Error::BadParam(
             "xy_in/xy_out".to_string(),
-            format!("{xy_in}->{xy_out}"),
+            format!("{}->{}", params.text("xy_in").unwrap(), params.text("xy_out").unwrap()),
         ));
     }
-    if !z_in_unit.kind().is_compatible_with(z_out_unit.kind()) {
+    if !z_in.is_compatible_with(z_out) {
         return Err(Error::BadParam(
             "z_in/z_out".to_string(),
-            format!("{z_in}->{z_out}"),
+            format!("{}->{}", params.text("z_in").unwrap(), params.text("z_out").unwrap()),
         ));
     }
 
-    params
-        .real
-        .insert("xy_in_to_pivot", xy_in_unit.multiplier());
-    params
-        .real
-        .insert("pivot_to_xy_out", 1. / xy_out_unit.multiplier());
-    params
-        .real
-        .insert("z_in_to_pivot", z_in_unit.multiplier());
-    params
-        .real
-        .insert("pivot_to_z_out", 1. / z_out_unit.multiplier());
+    params.real.insert("xy_in_to_pivot", xy_in.multiplier());
+    params.real.insert("pivot_to_xy_out", 1. / xy_out.multiplier());
+    params.real.insert("z_in_to_pivot", z_in.multiplier());
+    params.real.insert("pivot_to_z_out", 1. / z_out.multiplier());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
 
