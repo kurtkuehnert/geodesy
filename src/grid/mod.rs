@@ -452,6 +452,13 @@ fn interpolate(
         result[i] = (1. - rlon) * left[i] + rlon * right[i];
     }
 
+    // Synthetic parent grids use NaN-filled payloads as a "no value here"
+    // marker, so callers fall through to a matching subgrid instead of
+    // interpolating across empty space.
+    if (0..maxbands).any(|i| !result[i].is_finite()) {
+        return None;
+    }
+
     Some(result)
 }
 
