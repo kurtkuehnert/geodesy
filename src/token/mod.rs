@@ -641,6 +641,11 @@ mod tests {
             "laea lat_0=90 ellps=6371228,0"
         );
 
+        assert_eq!(
+            parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449")?,
+            "stere lat_0=90 ellps=6378273,298.279411123064"
+        );
+
         // Generic axis handling should become explicit axisswap steps
         assert_eq!(
             parse_proj("+proj=pipeline +step +inv +proj=tmerc +axis=wsu +lon_0=29")?,

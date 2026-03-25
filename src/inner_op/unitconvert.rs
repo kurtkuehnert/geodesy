@@ -112,6 +112,7 @@ fn get_pivot_multiplier(name: &str) -> Option<f64> {
         .chain(ANGULAR_UNITS.iter())
         .find(|u| u.name() == name)
         .map(|u| u.multiplier())
+        .or_else(|| name.parse::<f64>().ok())
 }
 
 // ----- T E S T S ---------------------------------------------------------------------
@@ -255,6 +256,27 @@ mod tests {
         let mut ctx = Minimal::default();
         ctx.register_op("unitconvert", OpConstructor(new));
         assert!(ctx.op("unitconvert xy_in=unknown xy_out=deg").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn numeric_xy_multiplier_to_m() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        ctx.register_op("unitconvert", OpConstructor(new));
+        let op = ctx.op("unitconvert xy_in=0.3048 xy_out=m")?;
+
+        let mut operands = [Coor4D::raw(10., 20., 5., 1.)];
+
+        let successes = ctx.apply(op, Fwd, &mut operands)?;
+        assert_eq!(successes, 1);
+        assert_float_eq!(operands[0][0], 3.048, abs_all <= 1e-12);
+        assert_float_eq!(operands[0][1], 6.096, abs_all <= 1e-12);
+        assert_float_eq!(operands[0][2], 5., abs_all <= 1e-12);
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert_float_eq!(operands[0][0], 10., abs_all <= 1e-12);
+        assert_float_eq!(operands[0][1], 20., abs_all <= 1e-12);
+        assert_float_eq!(operands[0][2], 5., abs_all <= 1e-12);
         Ok(())
     }
 }

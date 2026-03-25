@@ -7,12 +7,16 @@ use crate::authoring::*;
 
 mod adapt;
 mod addone;
+mod aea;
+mod aeqd;
 mod axisswap;
 mod btmerc;
 mod cart;
+mod cass;
 mod curvature;
 mod deflection;
 mod deformation;
+mod eqearth;
 mod geodesic;
 mod gravity;
 mod gridshift;
@@ -27,27 +31,34 @@ mod noop;
 mod omerc;
 mod permtide;
 pub(crate) mod pipeline; // Needed by Op for instantiation
+mod poly;
 mod pushpop;
 mod somerc;
 mod stack;
+mod stere;
+mod sterea;
 mod tmerc;
 mod unitconvert;
 mod units;
 mod webmerc;
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [(&str, OpConstructor); 36] = [
+const BUILTIN_OPERATORS: [(&str, OpConstructor); 43] = [
+    ("aea",          OpConstructor(aea::new)),
+    ("aeqd",         OpConstructor(aeqd::new)),
     ("adapt",        OpConstructor(adapt::new)),
     ("addone",       OpConstructor(addone::new)),
     ("axisswap",     OpConstructor(axisswap::new)),
     ("btmerc",       OpConstructor(btmerc::new)),
     ("butm",         OpConstructor(btmerc::utm)),
+    ("cass",         OpConstructor(cass::new)),
     ("cart",         OpConstructor(cart::new)),
     ("curvature",    OpConstructor(curvature::new)),
     ("deflection",   OpConstructor(deflection::new)),
     ("deformation",  OpConstructor(deformation::new)),
     ("dm",           OpConstructor(iso6709::dm)),
     ("dms",          OpConstructor(iso6709::dms)),
+    ("eqearth",      OpConstructor(eqearth::new)),
     ("geodesic",     OpConstructor(geodesic::new)),
     ("gravity",      OpConstructor(gravity::new)),
     ("gridshift",    OpConstructor(gridshift::new)),
@@ -60,8 +71,11 @@ const BUILTIN_OPERATORS: [(&str, OpConstructor); 36] = [
     ("molodensky",   OpConstructor(molodensky::new)),
     ("omerc",        OpConstructor(omerc::new)),
     ("permtide",     OpConstructor(permtide::new)),
+    ("poly",         OpConstructor(poly::new)),
     ("somerc",       OpConstructor(somerc::new)),
     ("tmerc",        OpConstructor(tmerc::new)),
+    ("stere",        OpConstructor(stere::new)),
+    ("sterea",       OpConstructor(sterea::new)),
     ("unitconvert",  OpConstructor(unitconvert::new)),
     ("utm",          OpConstructor(tmerc::utm)),
 

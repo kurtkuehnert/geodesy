@@ -121,13 +121,10 @@ pub fn parse_sexagesimal(angle: &str) -> f64 {
 
 /// Parse a PROJ-style prime meridian specifier into decimal degrees east of Greenwich.
 ///
-/// This currently supports:
-/// - explicit angular values accepted by `parse_sexagesimal`
-/// - a small named subset needed by the current harness corpus
-///
 /// The named values below are taken from the PROJ cartographic projection docs.
 ///
-/// This is a limited PROJ-compatibility helper, not a complete prime-meridian model.
+/// Docs source:
+/// https://proj.org/en/stable/usage/projections.html#prime-meridian
 pub fn parse_prime_meridian(pm: &str) -> Option<f64> {
     let normalized = pm.trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -140,10 +137,20 @@ pub fn parse_prime_meridian(pm: &str) -> Option<f64> {
     }
 
     match normalized.as_str() {
+        "athens" => Some(23.716_337_5),
+        "bern" => Some(7.439_583_333_333_333),
+        "bogota" => Some(-74.080_916_666_666_67),
+        "brussels" => Some(4.367_975),
+        "copenhagen" => Some(12.577_875),
+        "ferro" => Some(-17.666_666_666_666_667),
         "greenwich" => Some(0.0),
         "jakarta" => Some(106.807_719_444_444),
+        "lisbon" => Some(-9.131_906_111_111_112),
+        "madrid" => Some(-3.687_938_888_888_889),
+        "oslo" => Some(10.722_916_666_666_666),
         "paris" => Some(2.337_229_166_666_667),
-        "ferro" => Some(-17.666_666_666_666_667),
+        "rome" => Some(12.452_333_333_333_334),
+        "stockholm" => Some(18.058_277_777_777_78),
         _ => None,
     }
 }
@@ -189,11 +196,24 @@ mod tests {
 
     #[test]
     fn test_parse_prime_meridian() {
+        assert_eq!(Some(23.716_337_5), parse_prime_meridian("athens"));
+        assert_eq!(Some(7.439_583_333_333_333), parse_prime_meridian("bern"));
+        assert_eq!(Some(-74.080_916_666_666_67), parse_prime_meridian("bogota"));
+        assert_eq!(Some(4.367_975), parse_prime_meridian("brussels"));
+        assert_eq!(Some(12.577_875), parse_prime_meridian("copenhagen"));
         assert_eq!(Some(0.0), parse_prime_meridian("greenwich"));
         assert_eq!(Some(13.5), parse_prime_meridian("13.5"));
         assert_eq!(Some(-17.666_666_666_666_667), parse_prime_meridian("ferro"));
         assert_eq!(Some(106.807_719_444_444), parse_prime_meridian("jakarta"));
+        assert_eq!(Some(-9.131_906_111_111_112), parse_prime_meridian("lisbon"));
+        assert_eq!(Some(-3.687_938_888_888_889), parse_prime_meridian("madrid"));
+        assert_eq!(Some(10.722_916_666_666_666), parse_prime_meridian("oslo"));
         assert_eq!(Some(2.337_229_166_666_667), parse_prime_meridian("paris"));
+        assert_eq!(Some(12.452_333_333_333_334), parse_prime_meridian("rome"));
+        assert_eq!(
+            Some(18.058_277_777_777_78),
+            parse_prime_meridian("stockholm")
+        );
         assert_eq!(None, parse_prime_meridian("unknown-meridian"));
     }
 }

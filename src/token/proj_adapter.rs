@@ -9,7 +9,7 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     // Geodesy only supports ellipsoid definitions as named builtins or ellps=a,rf
     // PROJ has richer support which we try navigate here
     // First we find the indices of ellps, a, rf and R elements
-    let mut ellps_def: [Option<usize>; 4] = [None; 4];
+    let mut ellps_def: [Option<usize>; 5] = [None; 5];
     for (i, element) in elements.iter().enumerate() {
         if element.starts_with("ellps=") {
             ellps_def[0] = Some(i);
@@ -17,15 +17,18 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
         if element.starts_with("a=") {
             ellps_def[1] = Some(i);
         }
-        if element.starts_with("rf=") {
+        if element.starts_with("b=") {
             ellps_def[2] = Some(i);
         }
-        if element.starts_with("R=") {
+        if element.starts_with("rf=") {
             ellps_def[3] = Some(i);
+        }
+        if element.starts_with("R=") {
+            ellps_def[4] = Some(i);
         }
     }
 
-    if let [None, Some(a_idx), Some(rf_idx), _] = ellps_def {
+    if let [None, Some(a_idx), _, Some(rf_idx), _] = ellps_def {
         let a = elements[a_idx][2..].to_string();
         let rf = elements[rf_idx][3..].to_string();
         elements.push(format!("ellps={a},{rf}").to_string());
@@ -39,7 +42,29 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
         }
     }
 
-    if let [None, None, None, Some(r_idx)] = ellps_def {
+    if let [None, Some(a_idx), Some(b_idx), None, _] = ellps_def {
+        let a = elements[a_idx][2..].trim().parse::<f64>();
+        let b = elements[b_idx][2..].trim().parse::<f64>();
+        if let (Ok(a), Ok(b)) = (a, b) {
+            if a > 0.0 && b > 0.0 && b <= a {
+                let rf = if (a - b).abs() < f64::EPSILON {
+                    0.0
+                } else {
+                    a / (a - b)
+                };
+                elements.push(format!("ellps={a},{rf}"));
+                if a_idx > b_idx {
+                    elements.remove(a_idx);
+                    elements.remove(b_idx);
+                } else {
+                    elements.remove(b_idx);
+                    elements.remove(a_idx);
+                }
+            }
+        }
+    }
+
+    if let [None, None, None, None, Some(r_idx)] = ellps_def {
         let radius = elements[r_idx][2..].to_string();
         elements.push(format!("ellps={radius},0"));
         elements.remove(r_idx);

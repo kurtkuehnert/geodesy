@@ -3,7 +3,7 @@
 //! This reader currently supports the horizontal geographic case used by the
 //! first GeoTIFF-backed `hgridshift` corpus pipelines:
 //! - `TYPE=HORIZONTAL_OFFSET`
-//! - 2 bands described as latitude/longitude offsets in arc-seconds
+//! - latitude/longitude offset bands described in arc-seconds
 //! - regular grids georeferenced by ModelPixelScale + ModelTiepoint
 
 use super::{BaseGrid, GridHeader, GridSource};
@@ -50,8 +50,19 @@ pub fn gtg(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
         }
     };
 
+    let samples_per_pixel = decoder
+        .find_tag_unsigned::<u16>(Tag::SamplesPerPixel)
+        .map_err(tiff_err)?
+        .unwrap_or(1) as usize;
+
     let meta = GtgMetadata::from_xml(&metadata, layout)?;
     meta.validate_horizontal_arcsec()?;
+    let required_bands = meta.lat_band.max(meta.lon_band) + 1;
+    if samples_per_pixel < required_bands {
+        return Err(Error::Unsupported(format!(
+            "GTG reader expected at least {required_bands} float32 bands, found {samples_per_pixel}"
+        )));
+    }
 
     let mut decoded = DecodingResult::F32(Vec::new());
     decoder
@@ -64,10 +75,17 @@ pub fn gtg(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
     };
 
     let plane_len = rows * cols;
-    if values.len() != plane_len * 2 {
+    if values.len() % plane_len != 0 {
         return Err(Error::Unsupported(format!(
-            "GTG reader expected 2 float32 bands, found {} samples",
-            values.len()
+            "GTG reader expected whole float32 bands, found {} samples for {} pixels",
+            values.len(),
+            plane_len
+        )));
+    }
+    let decoded_bands = values.len() / plane_len;
+    if decoded_bands < required_bands {
+        return Err(Error::Unsupported(format!(
+            "GTG reader expected at least {required_bands} float32 bands, found {decoded_bands}"
         )));
     }
 
@@ -92,7 +110,7 @@ pub fn gtg(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
     let mut grid = Vec::with_capacity(values.len());
     match meta.layout {
         SampleLayout::Chunky => {
-            for node in values.chunks_exact(2) {
+            for node in values.chunks_exact(decoded_bands) {
                 let lon = apply_axis_polarity(node[meta.lon_band], meta.lon_positive_east);
                 let lat = apply_axis_polarity(node[meta.lat_band], meta.lat_positive_north);
                 grid.push(lon);
