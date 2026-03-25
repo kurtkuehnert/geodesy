@@ -1,6 +1,8 @@
 use crate::Error;
 use std::collections::BTreeMap;
 
+mod proj_adapter;
+
 /// Convenience methods for lexical analysis of operator definitions.
 /// - For splitting a pipeline into steps
 /// - For splitting a step into parameters (i.e. key=value-pairs)
@@ -225,6 +227,8 @@ where
 ///   support which *parse_proj* provides partial support for.
 /// - Specifically if an ellipsoid is defined via `a` and `rf` parameters, *parse_proj*
 ///   will redefine them as `ellps=a,rf` and remove the `a` and `rf` parameters.
+/// - A spherical `R` parameter is also rewritten as `ellps=R,0`.
+/// - `R_A` is rewritten to the authalic sphere of the resolved ellipsoid.
 /// - All other cases supported by PROJ are NOT handled by *parse_proj* and will
 ///   fail when instantiating the operator.
 ///
@@ -339,7 +343,7 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
             }
         }
 
-        tidy_proj(&mut elements)?;
+        proj_adapter::tidy_proj(&mut elements)?;
 
         // Skip empty steps, insert pipeline globals, handle step and pipeline
         // inversions, and handle directional omissions (omit_fwd, omit_inv)
@@ -361,11 +365,20 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
                 .map(|x| x.to_string())
                 .collect();
 
-            if step_is_inverted != pipeline_is_inverted {
+            let effective_inverted = step_is_inverted != pipeline_is_inverted;
+            if effective_inverted {
                 elements.insert(1, "inv".to_string());
             }
 
+            let axis_step = proj_adapter::extract_axis_step(&mut elements)?;
             geodesy_step = elements.join(" ").trim().to_string();
+            if let Some(axis_step) = axis_step {
+                geodesy_step = if effective_inverted {
+                    format!("{axis_step} | {geodesy_step}")
+                } else {
+                    format!("{geodesy_step} | {axis_step}")
+                };
+            }
             if pipeline_is_inverted {
                 geodesy_steps.insert(0, geodesy_step);
             } else {
@@ -374,61 +387,6 @@ pub fn parse_proj(definition: &str) -> Result<String, Error> {
         }
     }
     Ok(geodesy_steps.join(" | ").trim().to_string())
-}
-
-// Address some known incompatibilities between PROJ and Rust Geodesy
-// - Ellipsoid definitions
-// - Scaling via the deprecated `k` parameter
-fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
-    // Geodesy only supports ellipsoid definitions as named builtins or ellps=a,rf
-    // PROJ has richer support which we try navigate here
-    // First we find the indices of ellps, a and rf elements
-    let mut ellps_def: [Option<usize>; 3] = [None; 3];
-    for (i, element) in elements.iter().enumerate() {
-        if element.starts_with("ellps=") {
-            ellps_def[0] = Some(i);
-        }
-        if element.starts_with("a=") {
-            ellps_def[1] = Some(i);
-        }
-        if element.starts_with("rf=") {
-            ellps_def[2] = Some(i);
-        }
-    }
-
-    // Then if there there is an `a` AND and an `rf` element but NOT an `ellps` element
-    // we compose them into the `ellps=a,rf` format.
-    // Anything else we ignore, this means that if `ellps` is defined we do nothing
-    // and if an ellps is defined but is also modified with `a` or `rf`
-    // elements we ignore it and rely on operator instantiation to fail due to unknown elements
-    // A complete solution would need to include `a` and `rf` keys in the gamut of all operators so that
-    // the Ellipsoid struct can build the required ellipsoid.
-    if let [None, Some(a_idx), Some(rf_idx)] = ellps_def {
-        let a = elements[a_idx][2..].to_string();
-        let rf = elements[rf_idx][3..].to_string();
-        elements.push(format!("ellps={a},{rf}").to_string());
-
-        // Remove the a and rf elements from the vector
-        if a_idx > rf_idx {
-            elements.remove(a_idx);
-            elements.remove(rf_idx);
-        } else {
-            elements.remove(rf_idx);
-            elements.remove(a_idx);
-        }
-    }
-
-    // `projinfo`  still produces strings with scaling defined as `k` instead of `k_0`
-    // We replace `k` with `k_0` wherever it is encountered.
-    for (i, element) in elements.iter().enumerate() {
-        if let Some(stripped) = element.strip_prefix("k=") {
-            elements[i] = "k_0=".to_string() + stripped;
-            // There should be at most one scaling so it's safe to break here
-            break;
-        }
-    }
-
-    Ok(())
 }
 
 // ----- T E S T S ------------------------------------------------------------------
@@ -605,6 +563,38 @@ mod tests {
 
         // Replace occurrences of `k=` with `k_0=`
         assert_eq!(parse_proj("+proj=tmerc +k=1.5")?, "tmerc k_0=1.5");
+
+        // Convert spherical radius to a zero-flattening ellipsoid
+        assert_eq!(
+            parse_proj("+proj=laea +lat_0=90 +R=6371228")?,
+            "laea lat_0=90 ellps=6371228,0"
+        );
+
+        assert_eq!(
+            parse_proj("+proj=laea +R_A +ellps=clrk66 +lat_0=45 +lon_0=-100")?,
+            "laea ellps=6370997.240632998,0 lat_0=45 lon_0=-100"
+        );
+
+        assert_eq!(
+            parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449")?,
+            "stere lat_0=90 ellps=6378273,298.279411123064"
+        );
+
+        // Generic axis handling should become explicit axisswap steps
+        assert_eq!(
+            parse_proj("+proj=pipeline +step +inv +proj=tmerc +axis=wsu +lon_0=29")?,
+            "axisswap order=-1,-2 | tmerc inv lon_0=29"
+        );
+
+        // Normalize PROJ omerc parameters to the geodesy operator surface
+        assert_eq!(
+            parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +k=1")?,
+            "omerc latc=4 lonc=115 alpha=53 gamma_c=52 k_0=1 variant"
+        );
+        assert_eq!(
+            parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +no_uoff +pm=paris")?,
+            "omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
+        );
 
         Ok(())
     }
