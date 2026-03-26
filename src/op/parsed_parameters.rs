@@ -398,6 +398,8 @@ impl ParsedParameters {
             .unwrap_or(&"unknown".to_string())
             .to_string();
 
+        validate_ellipsoid_text_params(&text)?;
+
         // TODO:
         // Params explicitly set to the default value
         // let mut redundant = BTreeSet::<String>::new();
@@ -420,6 +422,15 @@ impl ParsedParameters {
             given,
         })
     }
+}
+
+fn validate_ellipsoid_text_params(text: &BTreeMap<&'static str, String>) -> Result<(), Error> {
+    for (key, value) in text {
+        if *key == "ellps" || key.starts_with("ellps_") {
+            Ellipsoid::named(value).map_err(|_| Error::BadParam((*key).to_string(), value.clone()))?;
+        }
+    }
+    Ok(())
 }
 
 // ----- A N C I L L A R Y   F U N C T I O N S -----------------------------------------
@@ -611,5 +622,25 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn invalid_ellipsoid_text_is_reported_not_panicked() {
+        let globals = BTreeMap::<String, String>::new();
+        let invocation = String::from("cucumber ellps_0=GRS80000000000");
+        let raw = RawParameters::new(&invocation, &globals);
+        let err = ParsedParameters::new(&raw, &GAMUT).unwrap_err();
+        assert!(
+            matches!(err, Error::BadParam(key, value) if key == "ellps_0" && value == "GRS80000000000")
+        );
+    }
+
+    #[test]
+    fn invalid_ellipsoid_tuple_is_reported_not_panicked() {
+        let globals = BTreeMap::<String, String>::new();
+        let invocation = String::from("cucumber ellps_0=6378137,-1");
+        let raw = RawParameters::new(&invocation, &globals);
+        let err = ParsedParameters::new(&raw, &GAMUT).unwrap_err();
+        assert!(matches!(err, Error::BadParam(key, value) if key == "ellps_0" && value == "6378137,-1"));
     }
 }
