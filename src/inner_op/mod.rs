@@ -5,6 +5,51 @@ use crate::authoring::*;
 // Install new builtin operators by adding them in the `mod` and
 // `BUILTIN_OPERATORS` blocks below
 
+/// The coordinate domain an operator works in at its input or output port.
+///
+/// Used by [`op_domains`] to let callers (e.g. `parse_proj`) decide whether
+/// degree↔radian conversion is needed without maintaining a separate list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordDomain {
+    /// Angular coordinates — lon/lat, degrees at the PROJ API boundary.
+    Geographic,
+    /// Linear 2D coordinates — easting/northing or equivalent projected output.
+    Projected,
+    /// Linear 3D coordinates — geocentric XYZ.
+    Cartesian,
+}
+
+struct BuiltinOp {
+    name: &'static str,
+    constructor: OpConstructor,
+    /// `None` means the operator is domain-agnostic (axisswap, unitconvert, …).
+    input_domain: Option<CoordDomain>,
+    output_domain: Option<CoordDomain>,
+}
+
+impl BuiltinOp {
+    const fn new(
+        name: &'static str,
+        ctor: fn(&RawParameters, &dyn Context) -> Result<Op, Error>,
+    ) -> Self {
+        Self { name, constructor: OpConstructor(ctor), input_domain: None, output_domain: None }
+    }
+
+    const fn with_domains(
+        name: &'static str,
+        ctor: fn(&RawParameters, &dyn Context) -> Result<Op, Error>,
+        input_domain: CoordDomain,
+        output_domain: CoordDomain,
+    ) -> Self {
+        Self {
+            name,
+            constructor: OpConstructor(ctor),
+            input_domain: Some(input_domain),
+            output_domain: Some(output_domain),
+        }
+    }
+}
+
 mod adapt;
 mod addone;
 mod aea;
@@ -43,68 +88,86 @@ mod unitconvert;
 mod units;
 mod webmerc;
 
+use CoordDomain::{Cartesian, Geographic, Projected};
+
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [(&str, OpConstructor); 43] = [
-    ("aea",          OpConstructor(aea::new)),
-    ("aeqd",         OpConstructor(aeqd::new)),
-    ("adapt",        OpConstructor(adapt::new)),
-    ("addone",       OpConstructor(addone::new)),
-    ("axisswap",     OpConstructor(axisswap::new)),
-    ("btmerc",       OpConstructor(btmerc::new)),
-    ("butm",         OpConstructor(btmerc::utm)),
-    ("cass",         OpConstructor(cass::new)),
-    ("cart",         OpConstructor(cart::new)),
-    ("curvature",    OpConstructor(curvature::new)),
-    ("deflection",   OpConstructor(deflection::new)),
-    ("deformation",  OpConstructor(deformation::new)),
-    ("dm",           OpConstructor(iso6709::dm)),
-    ("dms",          OpConstructor(iso6709::dms)),
-    ("eqearth",      OpConstructor(eqearth::new)),
-    ("geodesic",     OpConstructor(geodesic::new)),
-    ("gravity",      OpConstructor(gravity::new)),
-    ("gridshift",    OpConstructor(gridshift::new)),
-    ("helmert",      OpConstructor(helmert::new)),
-    ("laea",         OpConstructor(laea::new)),
-    ("latitude",     OpConstructor(latitude::new)),
-    ("lcc",          OpConstructor(lcc::new)),
-    ("merc",         OpConstructor(merc::new)),
-    ("webmerc",      OpConstructor(webmerc::new)),
-    ("molodensky",   OpConstructor(molodensky::new)),
-    ("omerc",        OpConstructor(omerc::new)),
-    ("permtide",     OpConstructor(permtide::new)),
-    ("poly",         OpConstructor(poly::new)),
-    ("somerc",       OpConstructor(somerc::new)),
-    ("tmerc",        OpConstructor(tmerc::new)),
-    ("stere",        OpConstructor(stere::new)),
-    ("sterea",       OpConstructor(sterea::new)),
-    ("unitconvert",  OpConstructor(unitconvert::new)),
-    ("utm",          OpConstructor(tmerc::utm)),
+const BUILTIN_OPERATORS: [BuiltinOp; 43] = [
+    // Geographic projections: lon/lat degrees in, projected (linear) out
+    BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
+    BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
+    BuiltinOp::with_domains("btmerc",      btmerc::new,      Geographic, Projected),
+    BuiltinOp::with_domains("butm",        btmerc::utm,      Geographic, Projected),
+    BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
+    BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
+    BuiltinOp::with_domains("laea",        laea::new,        Geographic, Projected),
+    BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),
+    BuiltinOp::with_domains("merc",        merc::new,        Geographic, Projected),
+    BuiltinOp::with_domains("omerc",       omerc::new,       Geographic, Projected),
+    BuiltinOp::with_domains("poly",        poly::new,        Geographic, Projected),
+    BuiltinOp::with_domains("somerc",      somerc::new,      Geographic, Projected),
+    BuiltinOp::with_domains("stere",       stere::new,       Geographic, Projected),
+    BuiltinOp::with_domains("sterea",      sterea::new,      Geographic, Projected),
+    BuiltinOp::with_domains("tmerc",       tmerc::new,       Geographic, Projected),
+    BuiltinOp::with_domains("utm",         tmerc::utm,       Geographic, Projected),
+    BuiltinOp::with_domains("webmerc",     webmerc::new,     Geographic, Projected),
 
-    // Pipeline handlers
-    ("pipeline",     OpConstructor(pipeline::new)),
-    ("pop",          OpConstructor(pushpop::pop)),
-    ("push",         OpConstructor(pushpop::push)),
-    ("stack",        OpConstructor(stack::new)),
+    // Geographic identity: lon/lat degrees in and out
+    BuiltinOp::with_domains("longlat",     longlat::new,     Geographic, Geographic),
+    BuiltinOp::with_domains("latlon",      longlat::new,     Geographic, Geographic),
+    BuiltinOp::with_domains("latlong",     longlat::new,     Geographic, Geographic),
+    BuiltinOp::with_domains("lonlat",      longlat::new,     Geographic, Geographic),
 
-    // Some commonly used noop-aliases
-    ("noop",         OpConstructor(noop::new)),
-    ("longlat",      OpConstructor(longlat::new)),
-    ("latlon",       OpConstructor(longlat::new)),
-    ("latlong",      OpConstructor(longlat::new)),
-    ("lonlat",       OpConstructor(longlat::new)),
+    // Geographic to Cartesian: lon/lat degrees in, XYZ meters out
+    BuiltinOp::with_domains("cart",        cart::new,        Geographic, Cartesian),
+
+    // Domain-agnostic operators
+    BuiltinOp::new("adapt",       adapt::new),
+    BuiltinOp::new("addone",      addone::new),
+    BuiltinOp::new("axisswap",    axisswap::new),
+    BuiltinOp::new("curvature",   curvature::new),
+    BuiltinOp::new("deflection",  deflection::new),
+    BuiltinOp::new("deformation", deformation::new),
+    BuiltinOp::new("dm",          iso6709::dm),
+    BuiltinOp::new("dms",         iso6709::dms),
+    BuiltinOp::new("geodesic",    geodesic::new),
+    BuiltinOp::new("gravity",     gravity::new),
+    BuiltinOp::new("gridshift",   gridshift::new),
+    BuiltinOp::new("helmert",     helmert::new),
+    BuiltinOp::new("latitude",    latitude::new),
+    BuiltinOp::new("molodensky",  molodensky::new),
+    BuiltinOp::new("permtide",    permtide::new),
+    BuiltinOp::new("unitconvert", unitconvert::new),
+
+    // Pipeline / flow control
+    BuiltinOp::new("pipeline",    pipeline::new),
+    BuiltinOp::new("pop",         pushpop::pop),
+    BuiltinOp::new("push",        pushpop::push),
+    BuiltinOp::new("stack",       stack::new),
+    BuiltinOp::new("noop",        noop::new),
 ];
 // A BTreeMap would have been a better choice for BUILTIN_OPERATORS, except
 // for the annoying fact that it cannot be compile-time const-constructed.
 
-/// Handle instantiation of built-in operators, as defined in
-/// `BUILTIN_OPERATORS` above.
+/// Handle instantiation of built-in operators, as defined in `BUILTIN_OPERATORS` above.
 pub(crate) fn builtin(name: &str) -> Result<OpConstructor, Error> {
-    for p in BUILTIN_OPERATORS {
-        if p.0 == name {
-            return Ok(p.1);
+    for p in &BUILTIN_OPERATORS {
+        if p.name == name {
+            return Ok(p.constructor);
         }
     }
     Err(Error::NotFound(name.to_string(), String::default()))
+}
+
+/// Return the input and output [`CoordDomain`] for a built-in operator.
+///
+/// Returns `(None, None)` for domain-agnostic operators (axisswap, unitconvert, …)
+/// and for unknown operator names.
+pub(crate) fn op_domains(name: &str) -> (Option<CoordDomain>, Option<CoordDomain>) {
+    BUILTIN_OPERATORS
+        .iter()
+        .find(|e| e.name == name)
+        .map(|e| (e.input_domain, e.output_domain))
+        .unwrap_or((None, None))
 }
 
 // ----- S T R U C T   O P C O N S T R U C T O R ---------------------------------------
@@ -114,6 +177,7 @@ pub(crate) fn builtin(name: &str) -> Result<OpConstructor, Error> {
 /// OpConstructor needs to be a newtype, rather than a type alias,
 /// since we must implement the Debug-trait for OpConstructor (to
 /// make auto derive of the Debug-trait work for any derived type).
+#[derive(Clone, Copy)]
 pub struct OpConstructor(pub fn(args: &RawParameters, ctx: &dyn Context) -> Result<Op, Error>);
 
 // Cannot autoderive the Debug trait

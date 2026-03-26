@@ -152,7 +152,7 @@ impl Context for Plain {
     /// and [`token::normalize()`](crate::token::Tokenize::normalize())
     fn op(&mut self, definition: &str) -> Result<OpHandle, Error> {
         // It may be a PROJ string, so we filter it through the PROJ parser
-        let definition = parse_proj(definition)?;
+        let definition = parse_proj(definition, false)?;
 
         let op = Op::new(&definition, self)?;
         let id = OpHandle::new();
