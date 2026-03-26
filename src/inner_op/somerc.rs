@@ -97,19 +97,19 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let sin_lam_p = (phi_pp.cos() * lam_pp.sin()) / phi_p.cos();
         let lam_p = sin_lam_p.asin();
 
-        let C = (K - (FRAC_PI_4 + 0.5 * phi_p).tan().ln()) / c;
+        let C = ((FRAC_PI_4 + 0.5 * phi_p).tan().ln() - K) / c;
 
         let lam = (lam_p / c) + lam_0;
         let mut phi = phi_p;
-
-        let mut prev_phi = phi_p;
+        let mut prev_phi = f64::INFINITY;
         let mut j = MAX_ITERATIONS;
         while j > 0 {
             if (phi - prev_phi).abs() < EPS_10 {
                 break;
             }
 
-            let S = C + e * ((FRAC_PI_4 + (e * phi.sin()).asin() / 2.0).tan().ln());
+            let esin = e * phi.sin();
+            let S = C + 0.5 * e * ((1.0 + esin) / (1.0 - esin)).ln();
 
             prev_phi = phi;
             phi = 2.0 * (S.exp()).atan() - FRAC_PI_2;
@@ -207,7 +207,7 @@ mod tests {
 
         let expected = [Coor4D::raw(
             0.11413236074541264,
-            0.814287372550452,
+            0.8142867784788468,
             452.0,
             0.0,
         )];
@@ -284,6 +284,30 @@ mod tests {
             assert_float_eq!(operands[i][3], input[i][3], abs_all <= 1e-4);
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn somerc_inverse_matches_proj_false_origin() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        ctx.register_op("somerc", OpConstructor(new));
+        let op = ctx.op(
+            "somerc lat_0=46.9524055555556 lon_0=7.43958333333333 k_0=1 x_0=600000 y_0=200000 ellps=bessel",
+        )?;
+
+        let mut projected = [Coor4D::raw(600_000.0, 200_000.0, 0.0, 0.0)];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert_float_eq!(
+            projected[0][0].to_degrees(),
+            7.43958333333333,
+            abs_all <= 1e-10
+        );
+        assert_float_eq!(
+            projected[0][1].to_degrees(),
+            46.9524055555556,
+            abs_all <= 1e-10
+        );
         Ok(())
     }
 }
