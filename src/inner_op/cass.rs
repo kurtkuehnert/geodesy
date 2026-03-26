@@ -15,6 +15,7 @@ fn fwd_ellipsoidal(
     x_0: f64,
     y_0: f64,
     m0: f64,
+    hyperbolic: bool,
     lon: f64,
     lat: f64,
 ) -> (f64, f64) {
@@ -31,10 +32,14 @@ fn fwd_ellipsoidal(
     let a1 = lam * cosphi;
     let c = es * cosphi * cosphi / one_es;
     let a2 = a1 * a1;
-    (
-        x_0 + a * nu * a1 * (1.0 - a2 * t * (C1 + (8.0 - t + 8.0 * c) * a2 * C2)),
-        y_0 + (m - m0) + a * nu * tanphi * a2 * (0.5 + (5.0 - t + 6.0 * c) * a2 * C3),
-    )
+    let x = x_0 + a * nu * a1 * (1.0 - a2 * t * (C1 + (8.0 - t + 8.0 * c) * a2 * C2));
+    let mut y = y_0 + (m - m0) + a * nu * tanphi * a2 * (0.5 + (5.0 - t + 6.0 * c) * a2 * C3);
+    if hyperbolic {
+        let rho = nu_sq * one_es * nu;
+        let dy = y - y_0;
+        y -= dy * dy * dy / (6.0 * a * a * rho * nu);
+    }
+    (x, y)
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -47,6 +52,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         return 0;
     };
     let spherical = op.params.boolean("spherical");
+    let hyperbolic = op.params.boolean("hyperbolic");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -59,7 +65,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 a * (lat.tan().atan2(lam.cos()) - op.params.lat(0)),
             )
         } else {
-            fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, lon, lat)
+            fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat)
         };
 
         operands.set_xy(i, x, y);
@@ -107,7 +113,16 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let mut lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
 
             for _ in 0..INV_ITER {
-                let (fx, fy) = fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, lon, lat);
+                let (fx, fy) = fwd_ellipsoidal(
+                    &ellps,
+                    lon_0,
+                    x_0,
+                    y_0,
+                    m0,
+                    op.params.boolean("hyperbolic"),
+                    lon,
+                    lat,
+                );
                 let dx = x + x_0 - fx;
                 let dy = y + y_0 - fy;
                 if dx.hypot(dy) < INV_TOL {
@@ -116,10 +131,11 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
                 let h_lon = 1e-8;
                 let h_lat = 1e-8;
+                let hyperbolic = op.params.boolean("hyperbolic");
                 let (fx_lon, fy_lon) =
-                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, lon + h_lon, lat);
+                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon + h_lon, lat);
                 let (fx_lat, fy_lat) =
-                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, lon, lat + h_lat);
+                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat + h_lat);
                 let j11 = (fx_lon - fx) / h_lon;
                 let j21 = (fy_lon - fy) / h_lon;
                 let j12 = (fx_lat - fx) / h_lat;
@@ -195,6 +211,26 @@ mod tests {
 
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn hyperbolic_cass_inverse_matches_proj() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "cass hyperbolic lat_0=-16.25 lon_0=179.333333333333 x_0=251727.9155424 y_0=334519.953768 ellps=6378306.3696,293.4663076567816",
+        )?;
+
+        let mut projected = [
+            Coor4D::raw(251727.9155424, 334519.953768, 0.0, 0.0),
+            Coor4D::raw(261727.9155424, 354519.953768, 0.0, 0.0),
+        ];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert!((projected[0][0].to_degrees() - 179.33333333333303).abs() < 1e-10);
+        assert!((projected[0][1].to_degrees() + 16.25).abs() < 1e-10);
+        assert!((projected[1][0].to_degrees() - 179.42679063431376).abs() < 1e-10);
+        assert!((projected[1][1].to_degrees() + 16.06923331216869).abs() < 1e-10);
         Ok(())
     }
 }

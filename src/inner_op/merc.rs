@@ -9,7 +9,6 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let k_0 = op.params.k(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
-    let lat_0 = op.params.lat(0);
     let lon_0 = op.params.lon(0);
 
     let mut successes = 0_usize;
@@ -17,7 +16,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, lat) = operands.xy(i);
 
         let easting = (lon - lon_0) * k_0 * a + x_0;
-        let isometric = ellps.latitude_geographic_to_isometric(lat + lat_0);
+        let isometric = ellps.latitude_geographic_to_isometric(lat);
         let northing = a * k_0 * isometric + y_0;
 
         operands.set_xy(i, easting, northing);
@@ -35,7 +34,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let k_0 = op.params.k(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
-    let lat_0 = op.params.lat(0);
     let lon_0 = op.params.lon(0);
 
     let mut successes = 0_usize;
@@ -49,7 +47,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         // Northing -> Latitude
         y -= y_0;
         let psi = y / (a * k_0);
-        let lat = ellps.latitude_isometric_to_geographic(psi) - lat_0;
+        let lat = ellps.latitude_isometric_to_geographic(psi);
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -231,6 +229,20 @@ mod tests {
         ctx.apply(op, Inv, &mut projected)?;
         assert!(projected[0].hypot2(&geo[0]) < 20e-9);
 
+        Ok(())
+    }
+
+    #[test]
+    fn merc_spherical_inverse_matches_proj() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let definition = "merc ellps=6356751.9,0";
+        let op = ctx.op(definition)?;
+
+        let mut projected = [Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0)];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert!((projected[0][0].to_degrees() - 0.090133735615956).abs() < 1e-12);
+        assert!((projected[0][1].to_degrees() - 0.180267173822635).abs() < 1e-12);
         Ok(())
     }
 }

@@ -65,9 +65,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         return 0;
     };
     let spherical = op.params.boolean("spherical");
-    let Ok(authalic) = op.params.fourier_coefficients("authalic") else {
-        return 0;
-    };
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -85,6 +82,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let arg = (c - (rho / dd).powi(2)) / (2.0 * n);
                 arg.clamp(-1.0, 1.0).asin()
             } else {
+                let Ok(authalic) = op.params.fourier_coefficients("authalic") else {
+                    return 0;
+                };
                 let qs = (c - (rho / dd).powi(2)) / n;
                 if (ec - qs.abs()).abs() > TOL7 {
                     if qs.abs() > 2.0 {
@@ -239,6 +239,24 @@ mod tests {
 
         assert!((projected[0][0].to_degrees() + 120.0).abs() < 1e-8);
         assert!((projected[0][1].to_degrees() - 37.0).abs() < 1e-8);
+        Ok(())
+    }
+
+    #[test]
+    fn aea_spherical_inverse_matches_proj() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0")?;
+
+        let mut projected = [
+            Coor4D::raw(0.0, 0.0, 0.0, 0.0),
+            Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0),
+        ];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert!(projected[0][0].abs() < 1e-12);
+        assert!((projected[0][1].to_degrees() - 40.0).abs() < 1e-10);
+        assert!((projected[1][0].to_degrees() - 0.124940293483244).abs() < 1e-10);
+        assert!((projected[1][1].to_degrees() - 40.169004441322194).abs() < 1e-10);
         Ok(())
     }
 }
