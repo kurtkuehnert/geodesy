@@ -67,6 +67,7 @@ mod curvature;
 mod deflection;
 mod deformation;
 mod eqearth;
+mod eqc;
 mod geodesic;
 mod gravity;
 mod gridshift;
@@ -96,13 +97,14 @@ mod webmerc;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 43] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 44] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
     BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
     BuiltinOp::with_domains("btmerc",      btmerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("butm",        btmerc::utm,      Geographic, Projected),
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
+    BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
     BuiltinOp::with_domains("laea",        laea::new,        Geographic, Projected),
     BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),

@@ -268,6 +268,7 @@ fn normalize_sphere_reductions(elements: &mut Vec<String>) -> Result<(), Error> 
     let a_idx = find_prefix(elements, "a=");
     let b_idx = find_prefix(elements, "b=");
     let rf_idx = find_prefix(elements, "rf=");
+    let sphere_idx = find_prefix(elements, "R=");
     let f_idx = find_prefix(elements, "f=");
 
     let a = ellps.semimajor_axis();
@@ -319,7 +320,7 @@ fn normalize_sphere_reductions(elements: &mut Vec<String>) -> Result<(), Error> 
         elements.push(format!("ellps={radius},0"));
     }
     let mut indices_to_remove = vec![mod_idx];
-    indices_to_remove.extend([a_idx, b_idx, rf_idx, f_idx].into_iter().flatten());
+    indices_to_remove.extend([a_idx, b_idx, rf_idx, sphere_idx, f_idx].into_iter().flatten());
     indices_to_remove.sort_unstable();
     indices_to_remove.dedup();
     for idx in indices_to_remove.into_iter().rev() {
@@ -335,6 +336,7 @@ fn resolve_ellipsoid_for_sphere_reduction(
     let a_idx = find_prefix(elements, "a=");
     let b_idx = find_prefix(elements, "b=");
     let rf_idx = find_prefix(elements, "rf=");
+    let sphere_idx = find_prefix(elements, "R=");
     let f_idx = find_prefix(elements, "f=");
     let named = if let Some(ellps_idx) = find_prefix(elements, "ellps=") {
         let definition = elements[ellps_idx][6..].trim().to_string();
@@ -347,8 +349,8 @@ fn resolve_ellipsoid_for_sphere_reduction(
         None
     };
 
-    match (named, a_idx, b_idx, rf_idx, f_idx) {
-        (Some(base), maybe_a, Some(bi), None, None) => {
+    match (named, a_idx, b_idx, rf_idx, sphere_idx, f_idx) {
+        (Some(base), maybe_a, Some(bi), None, None, None) => {
             let a = if let Some(ai) = maybe_a {
                 parse_f64(&elements[ai][2..], "a")?
             } else {
@@ -357,7 +359,7 @@ fn resolve_ellipsoid_for_sphere_reduction(
             let b = parse_f64(&elements[bi][2..], "b")?;
             Ellipsoid::named(&format!("{a},{}", rf_from_ab(a, b)))
         }
-        (Some(base), maybe_a, None, Some(rfi), None) => {
+        (Some(base), maybe_a, None, Some(rfi), None, None) => {
             let a = if let Some(ai) = maybe_a {
                 parse_f64(&elements[ai][2..], "a")?
             } else {
@@ -366,7 +368,7 @@ fn resolve_ellipsoid_for_sphere_reduction(
             let rf = parse_f64(&elements[rfi][3..], "rf")?;
             Ellipsoid::named(&format!("{a},{rf}"))
         }
-        (Some(base), maybe_a, None, None, Some(fi)) => {
+        (Some(base), maybe_a, None, None, None, Some(fi)) => {
             let a = if let Some(ai) = maybe_a {
                 parse_f64(&elements[ai][2..], "a")?
             } else {
@@ -375,7 +377,7 @@ fn resolve_ellipsoid_for_sphere_reduction(
             let f = parse_f64(&elements[fi][2..], "f")?;
             Ellipsoid::named(&format!("{a},{}", rf_from_f(f)))
         }
-        (Some(base), Some(ai), None, None, None) => {
+        (Some(base), Some(ai), None, None, None, None) => {
             let a = parse_f64(&elements[ai][2..], "a")?;
             Ellipsoid::named(&format!(
                 "{a},{}",
@@ -386,18 +388,27 @@ fn resolve_ellipsoid_for_sphere_reduction(
                 }
             ))
         }
-        (Some(base), None, None, None, None) => Ok(base),
-        (None, Some(ai), Some(bi), None, None) => {
+        (Some(base), None, None, None, None, None) => Ok(base),
+        (None, Some(ai), Some(bi), None, None, None) => {
             let a = parse_f64(&elements[ai][2..], "a")?;
             let b = parse_f64(&elements[bi][2..], "b")?;
             Ellipsoid::named(&format!("{a},{}", rf_from_ab(a, b)))
         }
-        (None, Some(ai), None, Some(rfi), None) => {
+        (None, Some(ai), None, Some(rfi), None, None) => {
             let a = parse_f64(&elements[ai][2..], "a")?;
             let rf = parse_f64(&elements[rfi][3..], "rf")?;
             Ellipsoid::named(&format!("{a},{rf}"))
         }
-        (None, Some(ai), None, None, Some(fi)) => {
+        (None, None, None, None, Some(ri), None) => {
+            let r = parse_f64(&elements[ri][2..], "R")?;
+            if r <= 0.0 {
+                return Err(Error::Unsupported(format!(
+                    "ellipsoid: R={r} must be positive"
+                )));
+            }
+            Ellipsoid::named(&format!("{r},0"))
+        }
+        (None, Some(ai), None, None, None, Some(fi)) => {
             let a = parse_f64(&elements[ai][2..], "a")?;
             let f = parse_f64(&elements[fi][2..], "f")?;
             Ellipsoid::named(&format!("{a},{}", rf_from_f(f)))

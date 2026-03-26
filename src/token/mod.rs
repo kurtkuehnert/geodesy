@@ -740,6 +740,10 @@ mod tests {
             parse_proj("+proj=merc +ellps=GRS80 +b=6356750 +R_C +lat_0=0", true)?,
             "unitconvert xy_in=deg xy_out=rad | merc ellps=6356750,0 lat_0=0"
         );
+        assert_eq!(
+            parse_proj("+proj=merc +R_C +R=6378136.6 +lat_0=0", true)?,
+            "unitconvert xy_in=deg xy_out=rad | merc lat_0=0 ellps=6378136.6,0"
+        );
 
         assert_eq!(
             parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449", true)?,
