@@ -6,6 +6,7 @@ use crate::authoring::*;
 fn fwd(op: &Op, ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let grids = &op.params.grids;
     let use_null_grid = op.params.boolean("null_grid");
+    let no_z_transform = op.params.boolean("no_z_transform");
 
     let mut successes = 0_usize;
     let n = operands.len();
@@ -20,20 +21,36 @@ fn fwd(op: &Op, ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     for i in 0..n {
         let mut coord = operands.get_coord(i);
 
-        if let Some(d) = grids_at(ctx, grids, coord, use_null_grid) {
-            // Geoid
-            if grids[0].bands() == 1 {
-                coord[2] -= d[0];
+        if let Some(sample) = gridshift_sample(ctx, grids, coord, use_null_grid, false) {
+            if sample.grid.bands() == 1 {
+                if sample.grid.kind.applies_vertical_as_addition() && !no_z_transform {
+                    coord[2] += sample.value[0];
+                } else {
+                    coord[2] -= sample.value[0];
+                }
+                if !sample.grid.is_projected() {
+                    coord[0] = normalize_longitude(coord[0]);
+                }
                 operands.set_coord(i, &coord);
                 successes += 1;
 
                 continue;
             }
 
-            // Datum shift
-            let d = d.arcsec_to_radians();
+            // Horizontal (+ optional height) datum shift
+            let d = if sample.grid.is_projected() {
+                sample.value
+            } else {
+                sample.value.arcsec_to_radians()
+            };
             coord[0] += d[0];
             coord[1] += d[1];
+            if sample.grid.kind.applies_vertical_as_addition() && !no_z_transform {
+                coord[2] += d[2];
+            }
+            if !sample.grid.is_projected() {
+                coord[0] = normalize_longitude(coord[0]);
+            }
             operands.set_coord(i, &coord);
             successes += 1;
 
@@ -52,6 +69,7 @@ fn fwd(op: &Op, ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 fn inv(op: &Op, ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let grids = &op.params.grids;
     let use_null_grid = op.params.boolean("null_grid");
+    let no_z_transform = op.params.boolean("no_z_transform");
 
     let mut successes = 0_usize;
     let n = operands.len();
@@ -65,21 +83,39 @@ fn inv(op: &Op, ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     'points: for i in 0..n {
         let mut coord = operands.get_coord(i);
-        if let Some(t) = grids_at(ctx, grids, coord, use_null_grid) {
-            // Geoid
-            if grids[0].bands() == 1 {
-                coord[2] += t[0];
+        if let Some(sample) = gridshift_sample(ctx, grids, coord, use_null_grid, true) {
+            if sample.grid.bands() == 1 {
+                if sample.grid.kind.applies_vertical_as_addition() && !no_z_transform {
+                    coord[2] -= sample.value[0];
+                } else {
+                    coord[2] += sample.value[0];
+                }
                 operands.set_coord(i, &coord);
                 successes += 1;
                 continue;
             }
 
             // Inverse case datum shift - iteration needed
-            let t = t.arcsec_to_radians();
+            let mut t = if sample.grid.is_projected() {
+                sample.value
+            } else {
+                sample.value.arcsec_to_radians()
+            };
+            if !sample.grid.kind.applies_vertical_as_addition() || no_z_transform {
+                t[2] = 0.0;
+            }
             let mut t = coord - t;
             for _ in 0..10 {
-                if let Some(t2) = grids_at(ctx, grids, t, use_null_grid) {
-                    let d = t - coord + t2.arcsec_to_radians();
+                if let Some(iteration) = gridshift_sample(ctx, grids, t, use_null_grid, false) {
+                    let mut correction = if iteration.grid.is_projected() {
+                        iteration.value
+                    } else {
+                        iteration.value.arcsec_to_radians()
+                    };
+                    if !iteration.grid.kind.applies_vertical_as_addition() || no_z_transform {
+                        correction[2] = 0.0;
+                    }
+                    let d = t - coord + correction;
                     t = t - d;
                     if d[0].hypot(d[1]) < 1e-12 {
                         operands.set_coord(i, &t);
@@ -100,18 +136,86 @@ fn inv(op: &Op, ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     successes
 }
 
+#[derive(Clone)]
+struct GridshiftSample {
+    value: Coor4D,
+    grid: std::sync::Arc<BaseGrid>,
+}
+
+fn gridshift_sample(
+    ctx: Option<&dyn Context>,
+    grids: &[std::sync::Arc<BaseGrid>],
+    coord: Coor4D,
+    use_null_grid: bool,
+    inverse_seed: bool,
+) -> Option<GridshiftSample> {
+    for margin in [0.0, 0.5] {
+        for grid in grids {
+            if margin > 0.0 && !grid.allow_margin_fallback {
+                continue;
+            }
+            let query = if inverse_seed && grid.is_projected() {
+                coord - grid.bias
+            } else {
+                coord
+            };
+            if let Some(mut value) = grid.at(ctx, query, margin) {
+                if let Some(companion) = &grid.vertical_companion {
+                    let height_margin = if margin > 0.0 && !companion.allow_margin_fallback {
+                        0.0
+                    } else {
+                        margin
+                    };
+                    let height = companion.at(ctx, query, height_margin)?;
+                    value[2] = height[0];
+                }
+                return Some(GridshiftSample {
+                    value,
+                    grid: grid.clone(),
+                });
+            }
+        }
+    }
+
+    if use_null_grid {
+        return Some(GridshiftSample {
+            value: Coor4D::origin(),
+            grid: grids[0].clone(),
+        });
+    }
+
+    None
+}
+
+fn normalize_longitude(mut lon: f64) -> f64 {
+    while lon > std::f64::consts::PI {
+        lon -= std::f64::consts::TAU;
+    }
+    while lon <= -std::f64::consts::PI {
+        lon += std::f64::consts::TAU;
+    }
+    lon
+}
+
 // ----- C O N S T R U C T O R ------------------------------------------------------
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 3] = [
+pub const GAMUT: [OpParameter; 5] = [
     OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "no_z_transform" },
     OpParameter::Texts { key: "grids", default: None },
+    OpParameter::Text { key: "interpolation", default: Some("bilinear") },
     OpParameter::Real { key: "padding", default: Some(0.5) },
 ];
 
 pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+
+    let interpolation = params.text("interpolation")?;
+    if interpolation != "bilinear" {
+        return Err(Error::BadParam("interpolation".to_string(), interpolation));
+    }
 
     for mut grid_name in params.texts("grids")?.clone() {
         let optional = grid_name.starts_with('@');
@@ -152,6 +256,22 @@ pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
 mod tests {
     use super::*;
     use crate::coordinate::AngularUnits;
+
+    fn constant_grid(bands: usize, values: Vec<f32>, kind: crate::grid::GridKind) -> BaseGrid {
+        let header = GridHeader::new(
+            1f64.to_radians(),
+            0f64.to_radians(),
+            0f64.to_radians(),
+            1f64.to_radians(),
+            -1f64.to_radians(),
+            1f64.to_radians(),
+            bands,
+        )
+        .unwrap();
+        BaseGrid::new("memory-grid", header, GridSource::Internal { values })
+            .unwrap()
+            .with_kind(kind)
+    }
 
     #[test]
     fn gridshift() -> Result<(), Error> {
@@ -303,6 +423,54 @@ mod tests {
         let op = ctx.op("gridshift grids=missing.gsb");
         assert!(op.is_err());
 
+        Ok(())
+    }
+
+    #[test]
+    fn ellipsoidal_height_offset_adds_height() -> Result<(), Error> {
+        let mut ctx = Plain::default();
+        let grid = constant_grid(
+            1,
+            vec![5.0; 4],
+            crate::grid::GridKind::EllipsoidalHeightOffset,
+        );
+        ctx.insert_grid("ellipsoidal-height", grid);
+        let op = ctx.op("gridshift grids=ellipsoidal-height")?;
+
+        let source = Coor4D::geo(0.5, 0.5, 10., 0.);
+        let mut data = [source];
+        ctx.apply(op, Fwd, &mut data)?;
+        assert_eq!(data[0][2], 15.0);
+
+        ctx.apply(op, Inv, &mut data)?;
+        assert!((data[0][2] - source[2]).abs() < 1e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn no_z_transform_skips_geographic_3d_height() -> Result<(), Error> {
+        let mut ctx = Plain::default();
+        let grid = constant_grid(
+            3,
+            vec![
+                1.0, 2.0, 5.0,
+                1.0, 2.0, 5.0,
+                1.0, 2.0, 5.0,
+                1.0, 2.0, 5.0,
+            ],
+            crate::grid::GridKind::Geographic3DOffset,
+        );
+        ctx.insert_grid("geographic-3d", grid);
+
+        let op = ctx.op("gridshift grids=geographic-3d no_z_transform")?;
+        let source = Coor4D::geo(0.5, 0.5, 10., 0.);
+        let mut data = [source];
+
+        ctx.apply(op, Fwd, &mut data)?;
+        assert_eq!(data[0][2], source[2]);
+
+        ctx.apply(op, Inv, &mut data)?;
+        assert!((data[0][2] - source[2]).abs() < 1e-12);
         Ok(())
     }
 }
