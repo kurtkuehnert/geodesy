@@ -10,6 +10,34 @@ pub mod unigrid;
 use crate::prelude::*;
 use std::{fmt::Debug, sync::Arc};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridKind {
+    HorizontalOffset,
+    GeoidUndulation,
+    VerticalOffsetGeographicToVertical,
+    EllipsoidalHeightOffset,
+    Geographic3DOffset,
+}
+
+impl GridKind {
+    pub const fn default_for_bands(bands: usize) -> Self {
+        match bands {
+            1 => Self::GeoidUndulation,
+            3 => Self::Geographic3DOffset,
+            _ => Self::HorizontalOffset,
+        }
+    }
+
+    pub const fn applies_vertical_as_addition(self) -> bool {
+        matches!(
+            self,
+            Self::VerticalOffsetGeographicToVertical
+                | Self::EllipsoidalHeightOffset
+                | Self::Geographic3DOffset
+        )
+    }
+}
+
 pub trait Grid: Debug + Sync + Send {
     fn bands(&self) -> usize;
     /// Returns true if `coord` is contained by `self` or lies within a margin of
@@ -60,6 +88,11 @@ pub enum GridSource {
 pub struct BaseGrid {
     pub name: String,
     pub header: GridHeader,
+    pub kind: GridKind,
+    pub projected: bool,
+    pub bias: Coor4D,
+    pub vertical_companion: Option<Box<BaseGrid>>,
+    pub allow_margin_fallback: bool,
     // pub lat_n: f64, // Latitude of the first (typically northernmost) row of the grid
     // pub lat_s: f64, // Latitude of the last (typically southernmost) row of the grid
     pub grid: GridSource,
@@ -87,9 +120,39 @@ impl BaseGrid {
         Ok(BaseGrid {
             name: name.to_string(),
             header,
+            kind: GridKind::default_for_bands(bands),
+            projected: false,
+            bias: Coor4D::origin(),
+            vertical_companion: None,
+            allow_margin_fallback: true,
             grid,
             subgrids,
         })
+    }
+
+    pub fn with_kind(mut self, kind: GridKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub fn with_bias(mut self, bias: Coor4D) -> Self {
+        self.bias = bias;
+        self
+    }
+
+    pub fn with_projected(mut self, projected: bool) -> Self {
+        self.projected = projected;
+        self
+    }
+
+    pub fn with_vertical_companion(mut self, companion: BaseGrid) -> Self {
+        self.vertical_companion = Some(Box::new(companion));
+        self
+    }
+
+    pub fn with_margin_fallback(mut self, allow: bool) -> Self {
+        self.allow_margin_fallback = allow;
+        self
     }
 
     /// Read and decode a grid from a filesystem path.
@@ -136,17 +199,14 @@ impl BaseGrid {
     }
 
     pub fn is_projected(&self) -> bool {
-        // If any boundary is outside of [-720; 720], the grid must (by a wide margin) be
-        // in projected coordinates
-        [
-            self.header.lat_n,
-            self.header.lat_s,
-            self.header.lon_w,
-            self.header.lon_e,
-        ]
+        self.projected
+    }
+}
+
+pub(crate) fn projected_hint_from_header(header: &GridHeader) -> bool {
+    [header.lat_n, header.lat_s, header.lon_w, header.lon_e]
         .iter()
         .any(|h| h.abs() > 7.0)
-    }
 }
 
 /// Grid metadata: bounding box, quantization, size, dimension
@@ -467,7 +527,7 @@ fn interpolate(
         return None;
     }
 
-    Some(result)
+    Some(result + base.bias)
 }
 
 fn wrap_longitude_to_interval(mut lon: f64, lon_min: f64, lon_max: f64) -> f64 {
@@ -643,7 +703,8 @@ mod tests {
             GridSource::Internal {
                 values: vec![0.0; 3 * 2],
             },
-        )?;
+        )?
+        .with_projected(true);
 
         assert!(!grid.contains(Coor4D::raw(1020.0, 10.0, 0.0, 0.0), 0.0, true));
         Ok(())

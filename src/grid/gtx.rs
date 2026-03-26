@@ -2,6 +2,7 @@
 //! at <https://vdatum.noaa.gov/docs/gtx_info.html#dev_gtx_binary>
 
 use super::*;
+use crate::coord::Coor4D;
 use std::io::{BufReader, Read};
 
 pub fn gtx(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
@@ -59,6 +60,11 @@ pub fn gtx(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
     Ok(BaseGrid {
         name,
         header,
+        kind: GridKind::GeoidUndulation,
+        projected: false,
+        bias: Coor4D::origin(),
+        vertical_companion: None,
+        allow_margin_fallback: true,
         grid,
         subgrids,
     })

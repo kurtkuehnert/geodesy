@@ -1,4 +1,4 @@
-use super::{BaseGrid, GridHeader, GridSource};
+use super::{BaseGrid, GridHeader, GridSource, projected_hint_from_header};
 use crate::Error;
 use std::io::{BufRead, BufReader};
 
@@ -42,7 +42,8 @@ pub fn gsa(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
         }
     }
     let grid = GridSource::Internal { values: grid };
-    BaseGrid::new(name, header, grid)
+    let projected = projected_hint_from_header(&header);
+    BaseGrid::new(name, header, grid).map(|grid| grid.with_projected(projected))
 }
 
 // Read a Golden Software grid. Discard '#'-style comments

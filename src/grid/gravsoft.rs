@@ -1,5 +1,5 @@
-use super::{BaseGrid, GridHeader, GridSource};
-use crate::Error;
+use super::{BaseGrid, GridHeader, GridKind, GridSource};
+use crate::{Error, coord::Coor4D};
 use std::io::BufRead;
 
 pub fn gravsoft(name: &str, buf: &[u8]) -> Result<BaseGrid, Error> {
@@ -148,6 +148,11 @@ pub fn gravsoft_grid_interpreter(
     Ok(BaseGrid {
         name,
         header,
+        kind: GridKind::default_for_bands(bands),
+        projected: false,
+        bias: Coor4D::origin(),
+        vertical_companion: None,
+        allow_margin_fallback: true,
         grid,
         subgrids,
     })

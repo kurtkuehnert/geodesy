@@ -87,6 +87,7 @@ pub mod grd {
     pub use crate::grid::BaseGrid;
     pub use crate::grid::Grid;
     pub use crate::grid::GridHeader;
+    pub use crate::grid::GridKind;
     pub use crate::grid::GridSource;
     pub use crate::grid::gravsoft;
     pub use crate::grid::grids_at;

@@ -1,4 +1,4 @@
-use super::{BaseGrid, GridHeader, GridSource};
+use super::{BaseGrid, GridHeader, GridSource, projected_hint_from_header};
 use crate::Error;
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -75,7 +75,8 @@ pub fn read_unigrid_index(paths: &[std::path::PathBuf]) -> Result<Vec<UnigridInd
             // The BaseGrid constructor takes input as a Gravsoft style header
             let header = GridHeader::new(lat_n, lat_s, lon_w, lon_e, dlat, dlon, bands)?;
             let name = format!("{grid_id}[{grid_index}]");
-            let grid = BaseGrid::new(&name, header, grid)?;
+            let projected = projected_hint_from_header(&header);
+            let grid = BaseGrid::new(&name, header, grid)?.with_projected(projected);
 
             // Parent grids (index==0) go into the grid collection, while subgrids
             // go into the `subgrids` vector of their parent
