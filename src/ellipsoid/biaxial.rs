@@ -40,6 +40,9 @@ impl Ellipsoid {
     ///
     /// As in EPSG / PROJ practice, `rf=0` is interpreted as zero flattening,
     /// i.e. a sphere with radius `a`.
+    ///
+    /// Returns an error if the resulting ellipsoid would be degenerate:
+    /// `a` must be positive, and `f` must be in `[0, 1)`.
     pub fn named(name: &str) -> Result<Ellipsoid, Error> {
         // Is it one of the few builtins?
         if let Some(index) = super::constants::ELLIPSOID_LIST
@@ -66,6 +69,16 @@ impl Ellipsoid {
             if let Ok(a) = a_and_rf[0].trim().parse::<f64>() {
                 if let Ok(rf) = a_and_rf[1].trim().parse::<f64>() {
                     let f = if rf != 0.0 { 1.0 / rf } else { 0.0 };
+                    if a <= 0.0 {
+                        return Err(Error::General(
+                            "ellipsoid semimajor axis must be positive",
+                        ));
+                    }
+                    if f < 0.0 || f >= 1.0 {
+                        return Err(Error::General(
+                            "ellipsoid flattening must be in [0, 1)",
+                        ));
+                    }
                     return Ok(Ellipsoid::new(a, f));
                 }
             }

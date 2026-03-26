@@ -35,7 +35,30 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
 /// (`ellps=GRS80`), numeric combinations (`a` + `b`, `a` + `rf`, `a` + `f`, `R`
 /// for a sphere), or named builtins with an overriding shape parameter. Geodesy
 /// only understands named builtins (passed through unchanged) or `ellps=a,rf`.
+///
+/// Also validates shape parameters and rejects degenerate combinations (e.g.
+/// `a ≤ 0`, `b ≤ 0`, `f ≥ 1`) that PROJ rejects at construction time.
 fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
+    // Convert e= (eccentricity) or es= (eccentricity squared) to f= so the
+    // main match below handles them uniformly.
+    if let Some(ei) = find_prefix(elements, "e=") {
+        let e = parse_f64(elements[ei][2..].trim(), "e")?;
+        if !(0.0..1.0).contains(&e) {
+            return Err(Error::Unsupported(format!(
+                "ellipsoid: e={e} must be in [0, 1)"
+            )));
+        }
+        elements[ei] = format!("f={}", 1.0 - (1.0 - e * e).sqrt());
+    } else if let Some(esi) = find_prefix(elements, "es=") {
+        let es = parse_f64(elements[esi][3..].trim(), "es")?;
+        if !(0.0..1.0).contains(&es) {
+            return Err(Error::Unsupported(format!(
+                "ellipsoid: es={es} must be in [0, 1)"
+            )));
+        }
+        elements[esi] = format!("f={}", 1.0 - (1.0 - es).sqrt());
+    }
+
     let named  = find_prefix(elements, "ellps=");
     let a      = find_prefix(elements, "a=");
     let b      = find_prefix(elements, "b=");
@@ -49,20 +72,31 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
         // a + rf  →  ellps=a,rf
         (None, Some(ai), _, Some(rfi), _, _) => {
             let a_val  = parse_f64(&elements[ai][2..], "a")?;
+            if a_val <= 0.0 {
+                return Err(Error::Unsupported(format!(
+                    "ellipsoid: a={a_val} must be positive"
+                )));
+            }
             let rf_val = elements[rfi][3..].trim().to_string();
             elements.push(format!("ellps={a_val},{rf_val}"));
             remove_two(elements, ai, rfi);
         }
 
-        // a + b  →  ellps=a,rf  (rf derived; only when a > 0 and 0 < b ≤ a)
+        // a + b  →  ellps=a,rf  (rf derived; only when 0 < b ≤ a)
         (None, Some(ai), Some(bi), None, _, _) => {
             let a_val = parse_f64(&elements[ai][2..], "a")?;
             let b_val = parse_f64(&elements[bi][2..], "b")?;
-            if a_val > 0.0 && b_val > 0.0 && b_val <= a_val {
+            if a_val <= 0.0 || b_val <= 0.0 {
+                return Err(Error::Unsupported(format!(
+                    "ellipsoid: a={a_val} and b={b_val} must both be positive"
+                )));
+            }
+            if b_val <= a_val {
                 let rf_val = rf_from_ab(a_val, b_val);
                 elements.push(format!("ellps={a_val},{rf_val}"));
                 remove_two(elements, ai, bi);
             }
+            // b > a: pass through unchanged — Ellipsoid::named will reject at construction time
         }
 
         // a + f  →  ellps=a,rf  (rf = 1/f, or 0 for a sphere when f = 0)
@@ -76,7 +110,12 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
 
         // R  →  ellps=R,0  (explicit sphere radius)
         (None, None, None, None, Some(ri), _) => {
-            let r_val = elements[ri][2..].to_string();
+            let r_val = parse_f64(&elements[ri][2..], "R")?;
+            if r_val <= 0.0 {
+                return Err(Error::Unsupported(format!(
+                    "ellipsoid: R={r_val} must be positive"
+                )));
+            }
             elements.push(format!("ellps={r_val},0"));
             elements.remove(ri);
         }
@@ -93,10 +132,19 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
         }
 
         // ellps=NAME + rf  →  ellps=a_from_name, rf
+        // Note: rf=0 is rejected here even though `rf=0` is a valid sphere sentinel
+        // in EPSG/PROJ database catalogs — as an *explicit user parameter* PROJ
+        // treats it as invalid_op_illegal_arg_value.
         (Some(ei), None, None, Some(rfi), _, _) => {
-            let a_val = resolve_named(elements, ei)?;
-            let rf_val     = elements[rfi][3..].trim().to_string();
-            elements.push(format!("ellps={a_val},{rf_val}"));
+            let a_val  = resolve_named(elements, ei)?;
+            let rf_str = elements[rfi][3..].trim();
+            let rf_num = parse_f64(rf_str, "rf")?;
+            if rf_num == 0.0 {
+                return Err(Error::Unsupported(
+                    "ellipsoid: rf=0 is not valid as an explicit parameter override".into(),
+                ));
+            }
+            elements.push(format!("ellps={a_val},{rf_str}"));
             remove_two(elements, ei, rfi);
         }
 
@@ -111,6 +159,28 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
 
         // Everything else: no normalisation needed (named-only, already a,rf, etc.)
         _ => {}
+    }
+
+    // Validate any shape params that were not consumed by the match above.
+    // These represent lone overrides or invalid combinations that geodesy would
+    // silently ignore; validate here to match PROJ's rejection behaviour.
+    for (prefix, label) in [("a=", "a"), ("b=", "b")] {
+        if let Some(idx) = find_prefix(elements, prefix) {
+            let val = parse_f64(&elements[idx][prefix.len()..], label)?;
+            if val <= 0.0 {
+                return Err(Error::Unsupported(format!(
+                    "ellipsoid: {label}={val} must be positive"
+                )));
+            }
+        }
+    }
+    if let Some(fi) = find_prefix(elements, "f=") {
+        let f_val = parse_f64(&elements[fi][2..], "f")?;
+        if !(0.0..1.0).contains(&f_val) {
+            return Err(Error::Unsupported(format!(
+                "ellipsoid: f={f_val} must be in [0, 1)"
+            )));
+        }
     }
 
     Ok(())
