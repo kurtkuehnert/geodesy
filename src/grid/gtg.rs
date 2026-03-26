@@ -114,12 +114,14 @@ fn decode_gtg_ifd<R: std::io::Read + std::io::Seek>(
     // Compute the minimum number of input bands required.
     let required_bands = match n_out {
         1 => meta.height_band.unwrap_or(0) + 1,
-        _ => [meta.lat_band, meta.lon_band, meta.height_band.unwrap_or(0)]
-            .iter()
-            .max()
-            .copied()
-            .unwrap_or(0)
-            + 1,
+        _ => {
+            [meta.lat_band, meta.lon_band, meta.height_band.unwrap_or(0)]
+                .iter()
+                .max()
+                .copied()
+                .unwrap_or(0)
+                + 1
+        }
     };
     if samples_per_pixel < required_bands {
         return Err(Error::Unsupported(format!(
@@ -153,9 +155,7 @@ fn decode_gtg_ifd<R: std::io::Read + std::io::Seek>(
                     tiepoint[3].to_radians() + 0.5 * dlon,
                     tiepoint[4].to_radians() + 0.5 * dlat,
                 ),
-                RasterType::PixelIsPoint => {
-                    (tiepoint[3].to_radians(), tiepoint[4].to_radians())
-                }
+                RasterType::PixelIsPoint => (tiepoint[3].to_radians(), tiepoint[4].to_radians()),
             };
             let lat_s =
                 (tiepoint[4] - (rows.saturating_sub(1) as f64) * pixel_scale[1]).to_radians();
@@ -171,10 +171,7 @@ fn decode_gtg_ifd<R: std::io::Read + std::io::Seek>(
             let dlat = -pixel_scale[1];
             let dlon = pixel_scale[0];
             let (lon_w, lat_n) = match raster_type {
-                RasterType::PixelIsArea => (
-                    tiepoint[3] + 0.5 * dlon,
-                    tiepoint[4] + 0.5 * dlat,
-                ),
+                RasterType::PixelIsArea => (tiepoint[3] + 0.5 * dlon, tiepoint[4] + 0.5 * dlat),
                 RasterType::PixelIsPoint => (tiepoint[3], tiepoint[4]),
             };
             let lat_s = tiepoint[4] - (rows.saturating_sub(1) as f64) * pixel_scale[1];
@@ -246,7 +243,7 @@ fn decode_gtg_ifd<R: std::io::Read + std::io::Seek>(
             let hb = meta.height_band.unwrap();
             let lon_plane = &values[meta.lon_band * plane_len..(meta.lon_band + 1) * plane_len];
             let lat_plane = &values[meta.lat_band * plane_len..(meta.lat_band + 1) * plane_len];
-            let h_plane   = &values[hb           * plane_len..(hb + 1)           * plane_len];
+            let h_plane = &values[hb * plane_len..(hb + 1) * plane_len];
             for i in 0..plane_len {
                 grid.push(apply_axis_polarity(lon_plane[i], meta.lon_positive_east));
                 grid.push(apply_axis_polarity(lat_plane[i], meta.lat_positive_north));
@@ -418,7 +415,8 @@ fn synthetic_parent_grid(name: &str, images: &[BaseGrid]) -> Result<BaseGrid, Er
     // intentionally NaN-filled so interpolation does not fabricate values
     // between disjoint subgrids.
     let values = vec![f32::NAN; header.rows * header.cols * header.bands];
-    BaseGrid::new(name, header, GridSource::Internal { values }).map(|grid| grid.with_kind(images[0].kind))
+    BaseGrid::new(name, header, GridSource::Internal { values })
+        .map(|grid| grid.with_kind(images[0].kind))
 }
 
 /// Merge a 2-band horizontal grid and a 1-band height grid into a 3-band grid.
@@ -428,7 +426,8 @@ fn synthetic_parent_grid(name: &str, images: &[BaseGrid]) -> Result<BaseGrid, Er
 /// The height grid may be coarser than the horizontal grid, but must be able
 /// to provide an interpolated value at every horizontal grid node.
 fn attach_height_grid(horiz: BaseGrid, height: BaseGrid) -> Result<BaseGrid, Error> {
-    if horiz.kind != GridKind::HorizontalOffset || height.kind != GridKind::EllipsoidalHeightOffset {
+    if horiz.kind != GridKind::HorizontalOffset || height.kind != GridKind::EllipsoidalHeightOffset
+    {
         return Err(Error::Unsupported(
             "GTG: attach_height_grid requires horizontal and ellipsoidal-height grids".to_string(),
         ));
@@ -715,7 +714,9 @@ impl GtgMetadata {
 
     fn grid_kind(&self) -> GridKind {
         match self.grid_type.to_ascii_lowercase().as_str() {
-            "vertical_offset_geographic_to_vertical" => GridKind::VerticalOffsetGeographicToVertical,
+            "vertical_offset_geographic_to_vertical" => {
+                GridKind::VerticalOffsetGeographicToVertical
+            }
             "ellipsoidal_height_offset" => GridKind::EllipsoidalHeightOffset,
             "geographic_3d_offset" => GridKind::Geographic3DOffset,
             _ => GridKind::HorizontalOffset,

@@ -95,20 +95,32 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     if !xy_in.is_compatible_with(xy_out) {
         return Err(Error::BadParam(
             "xy_in/xy_out".to_string(),
-            format!("{}->{}", params.text("xy_in").unwrap(), params.text("xy_out").unwrap()),
+            format!(
+                "{}->{}",
+                params.text("xy_in").unwrap(),
+                params.text("xy_out").unwrap()
+            ),
         ));
     }
     if !z_in.is_compatible_with(z_out) {
         return Err(Error::BadParam(
             "z_in/z_out".to_string(),
-            format!("{}->{}", params.text("z_in").unwrap(), params.text("z_out").unwrap()),
+            format!(
+                "{}->{}",
+                params.text("z_in").unwrap(),
+                params.text("z_out").unwrap()
+            ),
         ));
     }
 
     params.real.insert("xy_in_to_pivot", xy_in.multiplier());
-    params.real.insert("pivot_to_xy_out", 1. / xy_out.multiplier());
+    params
+        .real
+        .insert("pivot_to_xy_out", 1. / xy_out.multiplier());
     params.real.insert("z_in_to_pivot", z_in.multiplier());
-    params.real.insert("pivot_to_z_out", 1. / z_out.multiplier());
+    params
+        .real
+        .insert("pivot_to_z_out", 1. / z_out.multiplier());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
 

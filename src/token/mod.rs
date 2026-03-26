@@ -739,17 +739,26 @@ mod tests {
         // Generic axis handling should become explicit axisswap steps
         // (explicit pipeline: no degree wrapping)
         assert_eq!(
-            parse_proj("+proj=pipeline +step +inv +proj=tmerc +axis=wsu +lon_0=29", true)?,
+            parse_proj(
+                "+proj=pipeline +step +inv +proj=tmerc +axis=wsu +lon_0=29",
+                true
+            )?,
             "axisswap order=-1,-2,3 | tmerc inv lon_0=29"
         );
 
         // Normalize PROJ omerc parameters to the geodesy operator surface
         assert_eq!(
-            parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +k=1", true)?,
+            parse_proj(
+                "+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +k=1",
+                true
+            )?,
             "unitconvert xy_in=deg xy_out=rad | omerc latc=4 lonc=115 alpha=53 gamma_c=52 k_0=1 variant"
         );
         assert_eq!(
-            parse_proj("+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +no_uoff +pm=paris", true)?,
+            parse_proj(
+                "+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +no_uoff +pm=paris",
+                true
+            )?,
             "unitconvert xy_in=deg xy_out=rad | omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
         );
 

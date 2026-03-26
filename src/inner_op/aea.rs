@@ -231,7 +231,8 @@ mod tests {
     #[test]
     fn aea_inverse_matches_proj_metric_coordinates() -> Result<(), Error> {
         let mut ctx = Minimal::default();
-        let op = ctx.op("aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80")?;
+        let op =
+            ctx.op("aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80")?;
 
         let mut projected = [Coor4D::raw(0.0, -112_982.4091, 0.0, 0.0)];
         ctx.apply(op, Inv, &mut projected)?;

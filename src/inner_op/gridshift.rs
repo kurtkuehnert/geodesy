@@ -452,12 +452,7 @@ mod tests {
         let mut ctx = Plain::default();
         let grid = constant_grid(
             3,
-            vec![
-                1.0, 2.0, 5.0,
-                1.0, 2.0, 5.0,
-                1.0, 2.0, 5.0,
-                1.0, 2.0, 5.0,
-            ],
+            vec![1.0, 2.0, 5.0, 1.0, 2.0, 5.0, 1.0, 2.0, 5.0, 1.0, 2.0, 5.0],
             crate::grid::GridKind::Geographic3DOffset,
         );
         ctx.insert_grid("geographic-3d", grid);

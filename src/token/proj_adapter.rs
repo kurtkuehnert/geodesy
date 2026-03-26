@@ -59,19 +59,19 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
         elements[esi] = format!("f={}", 1.0 - (1.0 - es).sqrt());
     }
 
-    let named  = find_prefix(elements, "ellps=");
-    let a      = find_prefix(elements, "a=");
-    let b      = find_prefix(elements, "b=");
-    let rf     = find_prefix(elements, "rf=");
+    let named = find_prefix(elements, "ellps=");
+    let a = find_prefix(elements, "a=");
+    let b = find_prefix(elements, "b=");
+    let rf = find_prefix(elements, "rf=");
     let sphere = find_prefix(elements, "R=");
-    let f      = find_prefix(elements, "f=");
+    let f = find_prefix(elements, "f=");
 
     match (named, a, b, rf, sphere, f) {
         // ── anonymous ellipsoid defined by two numeric shape params ──────────
 
         // a + rf  →  ellps=a,rf
         (None, Some(ai), _, Some(rfi), _, _) => {
-            let a_val  = parse_f64(&elements[ai][2..], "a")?;
+            let a_val = parse_f64(&elements[ai][2..], "a")?;
             if a_val <= 0.0 {
                 return Err(Error::Unsupported(format!(
                     "ellipsoid: a={a_val} must be positive"
@@ -101,8 +101,8 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
 
         // a + f  →  ellps=a,rf  (rf = 1/f, or 0 for a sphere when f = 0)
         (None, Some(ai), None, None, _, Some(fi)) => {
-            let a_val  = elements[ai][2..].to_string();
-            let f_val  = parse_f64(&elements[fi][2..], "f")?;
+            let a_val = elements[ai][2..].to_string();
+            let f_val = parse_f64(&elements[fi][2..], "f")?;
             let rf_val = rf_from_f(f_val);
             elements.push(format!("ellps={a_val},{rf_val}"));
             remove_two(elements, ai, fi);
@@ -125,8 +125,8 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
         // ellps=NAME + b  →  ellps=a_from_name, rf derived from a and b
         (Some(ei), None, Some(bi), None, _, _) => {
             let a_val = resolve_named(elements, ei)?;
-            let b_val      = parse_f64(&elements[bi][2..], "b")?;
-            let rf_val     = rf_from_ab(a_val, b_val);
+            let b_val = parse_f64(&elements[bi][2..], "b")?;
+            let rf_val = rf_from_ab(a_val, b_val);
             elements.push(format!("ellps={a_val},{rf_val}"));
             remove_two(elements, ei, bi);
         }
@@ -136,7 +136,7 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
         // in EPSG/PROJ database catalogs — as an *explicit user parameter* PROJ
         // treats it as invalid_op_illegal_arg_value.
         (Some(ei), None, None, Some(rfi), _, _) => {
-            let a_val  = resolve_named(elements, ei)?;
+            let a_val = resolve_named(elements, ei)?;
             let rf_str = elements[rfi][3..].trim();
             let rf_num = parse_f64(rf_str, "rf")?;
             if rf_num == 0.0 {
@@ -151,8 +151,8 @@ fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
         // ellps=NAME + f  →  ellps=a_from_name, rf = 1/f
         (Some(ei), None, None, None, _, Some(fi)) => {
             let a_val = resolve_named(elements, ei)?;
-            let f_val      = parse_f64(&elements[fi][2..], "f")?;
-            let rf_val     = rf_from_f(f_val);
+            let f_val = parse_f64(&elements[fi][2..], "f")?;
+            let rf_val = rf_from_f(f_val);
             elements.push(format!("ellps={a_val},{rf_val}"));
             remove_two(elements, ei, fi);
         }
@@ -210,7 +210,11 @@ fn resolve_named(elements: &[String], idx: usize) -> Result<f64, Error> {
 
 /// Reciprocal flattening from semi-major and semi-minor axes (`0` for a sphere).
 fn rf_from_ab(a: f64, b: f64) -> f64 {
-    if (a - b).abs() < f64::EPSILON { 0.0 } else { a / (a - b) }
+    if (a - b).abs() < f64::EPSILON {
+        0.0
+    } else {
+        a / (a - b)
+    }
 }
 
 /// Reciprocal flattening from flattening `f` (`0` for a sphere when `f = 0`).
@@ -220,9 +224,9 @@ fn rf_from_f(f: f64) -> f64 {
 
 /// Parse a float from a string slice, returning a descriptive error on failure.
 fn parse_f64(s: &str, param: &str) -> Result<f64, Error> {
-    s.trim().parse().map_err(|_| {
-        Error::Unsupported(format!("parse_proj cannot parse {param}= value: {s}"))
-    })
+    s.trim()
+        .parse()
+        .map_err(|_| Error::Unsupported(format!("parse_proj cannot parse {param}= value: {s}")))
 }
 
 // ── sphere reduction ─────────────────────────────────────────────────────────
@@ -293,10 +297,14 @@ fn normalize_sphere_reductions(elements: &mut Vec<String>) -> Result<(), Error> 
             };
             let phi = parse_f64(prefix, "R_lat latitude")?.to_radians();
             let sin_phi = phi.sin();
-            let denom   = 1.0 - e2 * sin_phi * sin_phi;
+            let denom = 1.0 - e2 * sin_phi * sin_phi;
             let n = a / denom.sqrt();
             let m = a * (1.0 - e2) / (denom * denom.sqrt());
-            if is_arith { (n + m) / 2.0 } else { (n * m).sqrt() }
+            if is_arith {
+                (n + m) / 2.0
+            } else {
+                (n * m).sqrt()
+            }
         }
     };
 
@@ -312,8 +320,7 @@ fn authalic_radius(ellps: &impl EllipsoidBase) -> f64 {
         return a;
     }
     let one_minus_es = 1.0 - ellps.eccentricity_squared();
-    let qp = one_minus_es
-        * (1.0 / one_minus_es - (0.5 / e) * ((1.0 - e) / (1.0 + e)).ln());
+    let qp = one_minus_es * (1.0 / one_minus_es - (0.5 / e) * ((1.0 - e) / (1.0 + e)).ln());
     a * (0.5 * qp).sqrt()
 }
 

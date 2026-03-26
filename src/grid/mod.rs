@@ -435,7 +435,11 @@ fn interpolate(
     let lon = if base.is_projected() {
         at[0]
     } else {
-        wrap_longitude_to_interval(at[0], head.lon_w.min(head.lon_e), head.lon_w.max(head.lon_e))
+        wrap_longitude_to_interval(
+            at[0],
+            head.lon_w.min(head.lon_e),
+            head.lon_w.max(head.lon_e),
+        )
     };
 
     // The interpolation coordinate relative to the grid origin

@@ -32,7 +32,12 @@ impl BuiltinOp {
         name: &'static str,
         ctor: fn(&RawParameters, &dyn Context) -> Result<Op, Error>,
     ) -> Self {
-        Self { name, constructor: OpConstructor(ctor), input_domain: None, output_domain: None }
+        Self {
+            name,
+            constructor: OpConstructor(ctor),
+            input_domain: None,
+            output_domain: None,
+        }
     }
 
     const fn with_domains(

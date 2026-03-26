@@ -23,16 +23,32 @@ pub struct Unit {
 
 impl Unit {
     const fn linear(name: &'static str, description: &'static str, multiplier: f64) -> Self {
-        Self { name, description, multiplier, kind: UnitKind::Linear }
+        Self {
+            name,
+            description,
+            multiplier,
+            kind: UnitKind::Linear,
+        }
     }
 
     const fn angular(name: &'static str, description: &'static str, multiplier: f64) -> Self {
-        Self { name, description, multiplier, kind: UnitKind::Angular }
+        Self {
+            name,
+            description,
+            multiplier,
+            kind: UnitKind::Angular,
+        }
     }
 
-    pub fn name(self) -> &'static str { self.name }
-    pub fn multiplier(self) -> f64 { self.multiplier }
-    pub fn kind(self) -> UnitKind { self.kind }
+    pub fn name(self) -> &'static str {
+        self.name
+    }
+    pub fn multiplier(self) -> f64 {
+        self.multiplier
+    }
+    pub fn kind(self) -> UnitKind {
+        self.kind
+    }
 }
 
 /// A resolved unit parameter: either a named unit with known kind, or a raw numeric scale factor.
