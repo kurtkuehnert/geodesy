@@ -377,7 +377,14 @@ fn resolve_ellipsoid_for_sphere_reduction(
         }
         (Some(base), Some(ai), None, None, None) => {
             let a = parse_f64(&elements[ai][2..], "a")?;
-            Ellipsoid::named(&format!("{a},{}", if base.flattening() == 0.0 { 0.0 } else { 1.0 / base.flattening() }))
+            Ellipsoid::named(&format!(
+                "{a},{}",
+                if base.flattening() == 0.0 {
+                    0.0
+                } else {
+                    1.0 / base.flattening()
+                }
+            ))
         }
         (Some(base), None, None, None, None) => Ok(base),
         (None, Some(ai), Some(bi), None, None) => {

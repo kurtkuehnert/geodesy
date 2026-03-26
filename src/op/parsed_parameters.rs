@@ -427,7 +427,8 @@ impl ParsedParameters {
 fn validate_ellipsoid_text_params(text: &BTreeMap<&'static str, String>) -> Result<(), Error> {
     for (key, value) in text {
         if *key == "ellps" || key.starts_with("ellps_") {
-            Ellipsoid::named(value).map_err(|_| Error::BadParam((*key).to_string(), value.clone()))?;
+            Ellipsoid::named(value)
+                .map_err(|_| Error::BadParam((*key).to_string(), value.clone()))?;
         }
     }
     Ok(())
@@ -641,6 +642,8 @@ mod tests {
         let invocation = String::from("cucumber ellps_0=6378137,-1");
         let raw = RawParameters::new(&invocation, &globals);
         let err = ParsedParameters::new(&raw, &GAMUT).unwrap_err();
-        assert!(matches!(err, Error::BadParam(key, value) if key == "ellps_0" && value == "6378137,-1"));
+        assert!(
+            matches!(err, Error::BadParam(key, value) if key == "ellps_0" && value == "6378137,-1")
+        );
     }
 }
