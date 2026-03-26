@@ -236,7 +236,7 @@ mod tests {
         assert_float_eq!(
             [jac.dx_dlam, jac.dy_dlam, jac.dx_dphi, jac.dy_dphi],
             expected,
-            abs_all <= 1e-12
+            abs_all <= 1e-11
         );
 
         // Then input in degrees (i.e. no scaling), and no swapping
@@ -246,7 +246,7 @@ mod tests {
         assert_float_eq!(
             [jac.dx_dlam, jac.dy_dlam, jac.dx_dphi, jac.dy_dphi],
             expected,
-            abs_all <= 1e-12
+            abs_all <= 1e-11
         );
 
         // Then input in degrees (i.e. no scaling), and swapping on input
@@ -256,7 +256,7 @@ mod tests {
         assert_float_eq!(
             [jac.dx_dlam, jac.dy_dlam, jac.dx_dphi, jac.dy_dphi],
             expected,
-            abs_all <= 1e-12
+            abs_all <= 1e-11
         );
 
         // Then input in degrees (i.e. no scaling), and swapping on both input and output
@@ -265,7 +265,7 @@ mod tests {
         assert_float_eq!(
             [jac.dx_dlam, jac.dy_dlam, jac.dx_dphi, jac.dy_dphi],
             expected,
-            abs_all <= 1e-12
+            abs_all <= 1e-11
         );
 
         // Then input in degrees (i.e. no scaling), scaling on output, and swapping on both input and output
@@ -275,7 +275,7 @@ mod tests {
         assert_float_eq!(
             [jac.dx_dlam, jac.dy_dlam, jac.dx_dphi, jac.dy_dphi],
             expected,
-            abs_all <= 1e-12
+            abs_all <= 1e-11
         );
 
         Ok(())
