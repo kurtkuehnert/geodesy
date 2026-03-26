@@ -7,71 +7,13 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
         elements[0] = "gridshift".to_string();
     }
 
-    // Geodesy only supports ellipsoid definitions as named builtins or ellps=a,rf
-    // PROJ has richer support which we try navigate here
-    // First we find the indices of ellps, a, rf and R elements
-    let mut ellps_def: [Option<usize>; 5] = [None; 5];
-    for (i, element) in elements.iter().enumerate() {
-        if element.starts_with("ellps=") {
-            ellps_def[0] = Some(i);
-        }
-        if element.starts_with("a=") {
-            ellps_def[1] = Some(i);
-        }
-        if element.starts_with("b=") {
-            ellps_def[2] = Some(i);
-        }
-        if element.starts_with("rf=") {
-            ellps_def[3] = Some(i);
-        }
-        if element.starts_with("R=") {
-            ellps_def[4] = Some(i);
-        }
-    }
+    // Sphere reduction modifiers (R_A, R_V, R_a, …) must run first so that
+    // the named ellipsoid is still in resolvable form when the radius is computed.
+    normalize_sphere_reductions(elements)?;
 
-    if let [None, Some(a_idx), _, Some(rf_idx), _] = ellps_def {
-        let a = elements[a_idx][2..].to_string();
-        let rf = elements[rf_idx][3..].to_string();
-        elements.push(format!("ellps={a},{rf}").to_string());
-
-        if a_idx > rf_idx {
-            elements.remove(a_idx);
-            elements.remove(rf_idx);
-        } else {
-            elements.remove(rf_idx);
-            elements.remove(a_idx);
-        }
-    }
-
-    if let [None, Some(a_idx), Some(b_idx), None, _] = ellps_def {
-        let a = elements[a_idx][2..].trim().parse::<f64>();
-        let b = elements[b_idx][2..].trim().parse::<f64>();
-        if let (Ok(a), Ok(b)) = (a, b) {
-            if a > 0.0 && b > 0.0 && b <= a {
-                let rf = if (a - b).abs() < f64::EPSILON {
-                    0.0
-                } else {
-                    a / (a - b)
-                };
-                elements.push(format!("ellps={a},{rf}"));
-                if a_idx > b_idx {
-                    elements.remove(a_idx);
-                    elements.remove(b_idx);
-                } else {
-                    elements.remove(b_idx);
-                    elements.remove(a_idx);
-                }
-            }
-        }
-    }
-
-    if let [None, None, None, None, Some(r_idx)] = ellps_def {
-        let radius = elements[r_idx][2..].to_string();
-        elements.push(format!("ellps={radius},0"));
-        elements.remove(r_idx);
-    }
-
-    normalize_authalic_sphere(elements)?;
+    // Collapse all PROJ ellipsoid parameter variants into geodesy's canonical
+    // `ellps=<semimajor_axis>,<reciprocal_flattening>` form.
+    normalize_ellipsoid_params(elements)?;
 
     for (i, element) in elements.iter().enumerate() {
         if let Some(stripped) = element.strip_prefix("k=") {
@@ -86,26 +28,210 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     Ok(())
 }
 
-fn normalize_authalic_sphere(elements: &mut Vec<String>) -> Result<(), Error> {
-    let Some(r_a_idx) = elements.iter().position(|e| e == "R_A") else {
+/// Collapse all PROJ-style ellipsoid parameter combinations into geodesy's single
+/// canonical form: `ellps=<semimajor_axis>,<reciprocal_flattening>`.
+///
+/// PROJ allows many equivalent ways to define an ellipsoid — named builtins
+/// (`ellps=GRS80`), numeric combinations (`a` + `b`, `a` + `rf`, `a` + `f`, `R`
+/// for a sphere), or named builtins with an overriding shape parameter. Geodesy
+/// only understands named builtins (passed through unchanged) or `ellps=a,rf`.
+fn normalize_ellipsoid_params(elements: &mut Vec<String>) -> Result<(), Error> {
+    let named  = find_prefix(elements, "ellps=");
+    let a      = find_prefix(elements, "a=");
+    let b      = find_prefix(elements, "b=");
+    let rf     = find_prefix(elements, "rf=");
+    let sphere = find_prefix(elements, "R=");
+    let f      = find_prefix(elements, "f=");
+
+    match (named, a, b, rf, sphere, f) {
+        // ── anonymous ellipsoid defined by two numeric shape params ──────────
+
+        // a + rf  →  ellps=a,rf
+        (None, Some(ai), _, Some(rfi), _, _) => {
+            let a_val  = parse_f64(&elements[ai][2..], "a")?;
+            let rf_val = elements[rfi][3..].trim().to_string();
+            elements.push(format!("ellps={a_val},{rf_val}"));
+            remove_two(elements, ai, rfi);
+        }
+
+        // a + b  →  ellps=a,rf  (rf derived; only when a > 0 and 0 < b ≤ a)
+        (None, Some(ai), Some(bi), None, _, _) => {
+            let a_val = parse_f64(&elements[ai][2..], "a")?;
+            let b_val = parse_f64(&elements[bi][2..], "b")?;
+            if a_val > 0.0 && b_val > 0.0 && b_val <= a_val {
+                let rf_val = rf_from_ab(a_val, b_val);
+                elements.push(format!("ellps={a_val},{rf_val}"));
+                remove_two(elements, ai, bi);
+            }
+        }
+
+        // a + f  →  ellps=a,rf  (rf = 1/f, or 0 for a sphere when f = 0)
+        (None, Some(ai), None, None, _, Some(fi)) => {
+            let a_val  = elements[ai][2..].to_string();
+            let f_val  = parse_f64(&elements[fi][2..], "f")?;
+            let rf_val = rf_from_f(f_val);
+            elements.push(format!("ellps={a_val},{rf_val}"));
+            remove_two(elements, ai, fi);
+        }
+
+        // R  →  ellps=R,0  (explicit sphere radius)
+        (None, None, None, None, Some(ri), _) => {
+            let r_val = elements[ri][2..].to_string();
+            elements.push(format!("ellps={r_val},0"));
+            elements.remove(ri);
+        }
+
+        // ── named ellipsoid with an overriding shape parameter ───────────────
+
+        // ellps=NAME + b  →  ellps=a_from_name, rf derived from a and b
+        (Some(ei), None, Some(bi), None, _, _) => {
+            let a_val = resolve_named(elements, ei)?;
+            let b_val      = parse_f64(&elements[bi][2..], "b")?;
+            let rf_val     = rf_from_ab(a_val, b_val);
+            elements.push(format!("ellps={a_val},{rf_val}"));
+            remove_two(elements, ei, bi);
+        }
+
+        // ellps=NAME + rf  →  ellps=a_from_name, rf
+        (Some(ei), None, None, Some(rfi), _, _) => {
+            let a_val = resolve_named(elements, ei)?;
+            let rf_val     = elements[rfi][3..].trim().to_string();
+            elements.push(format!("ellps={a_val},{rf_val}"));
+            remove_two(elements, ei, rfi);
+        }
+
+        // ellps=NAME + f  →  ellps=a_from_name, rf = 1/f
+        (Some(ei), None, None, None, _, Some(fi)) => {
+            let a_val = resolve_named(elements, ei)?;
+            let f_val      = parse_f64(&elements[fi][2..], "f")?;
+            let rf_val     = rf_from_f(f_val);
+            elements.push(format!("ellps={a_val},{rf_val}"));
+            remove_two(elements, ei, fi);
+        }
+
+        // Everything else: no normalisation needed (named-only, already a,rf, etc.)
+        _ => {}
+    }
+
+    Ok(())
+}
+
+// ── ellipsoid helpers ────────────────────────────────────────────────────────
+
+/// Return the index of the first element that starts with `prefix`, if any.
+fn find_prefix(elements: &[String], prefix: &str) -> Option<usize> {
+    elements.iter().position(|e| e.starts_with(prefix))
+}
+
+/// Remove two elements at distinct indices `i` and `j` (order-independent).
+fn remove_two(elements: &mut Vec<String>, i: usize, j: usize) {
+    let (hi, lo) = if i > j { (i, j) } else { (j, i) };
+    elements.remove(hi);
+    elements.remove(lo);
+}
+
+/// Resolve a named ellipsoid (`ellps=NAME`) at index `idx` and return its semi-major axis.
+fn resolve_named(elements: &[String], idx: usize) -> Result<f64, Error> {
+    let name = elements[idx][6..].trim();
+    Ellipsoid::named(name)
+        .map(|e| e.semimajor_axis())
+        .map_err(|_| Error::Unsupported(format!("parse_proj cannot resolve ellipsoid: {name}")))
+}
+
+/// Reciprocal flattening from semi-major and semi-minor axes (`0` for a sphere).
+fn rf_from_ab(a: f64, b: f64) -> f64 {
+    if (a - b).abs() < f64::EPSILON { 0.0 } else { a / (a - b) }
+}
+
+/// Reciprocal flattening from flattening `f` (`0` for a sphere when `f = 0`).
+fn rf_from_f(f: f64) -> f64 {
+    if f.abs() < f64::EPSILON { 0.0 } else { 1.0 / f }
+}
+
+/// Parse a float from a string slice, returning a descriptive error on failure.
+fn parse_f64(s: &str, param: &str) -> Result<f64, Error> {
+    s.trim().parse().map_err(|_| {
+        Error::Unsupported(format!("parse_proj cannot parse {param}= value: {s}"))
+    })
+}
+
+// ── sphere reduction ─────────────────────────────────────────────────────────
+
+/// Replace a PROJ sphere-reduction modifier with `ellps=<radius>,0`.
+///
+/// PROJ supports several ways to reduce a reference ellipsoid to an equivalent
+/// sphere for operators that only support spherical geometry. The supported
+/// modifiers are:
+///
+/// | Modifier       | Sphere radius                              |
+/// |----------------|--------------------------------------------|
+/// | `R_A`          | Authalic (equal-area) radius               |
+/// | `R_V`          | Volumetric radius `(a²b)^(1/3)`            |
+/// | `R_a`          | Arithmetic mean `(a + b) / 2`              |
+/// | `R_g`          | Geometric mean `√(a·b)`                    |
+/// | `R_h`          | Harmonic mean `2ab / (a + b)`              |
+/// | `R_lat_a=φ`    | Arithmetic mean of N and M at latitude φ   |
+/// | `R_lat_g=φ`    | Geometric mean of N and M at latitude φ    |
+///
+/// Must be called before [`normalize_ellipsoid_params`] so that the named
+/// ellipsoid is still in resolvable (`ellps=NAME`) form.
+fn normalize_sphere_reductions(elements: &mut Vec<String>) -> Result<(), Error> {
+    let mod_idx = elements.iter().position(|e| {
+        matches!(e.as_str(), "R_A" | "R_V" | "R_a" | "R_g" | "R_h")
+            || e.starts_with("R_lat_a=")
+            || e.starts_with("R_lat_g=")
+    });
+
+    let Some(mod_idx) = mod_idx else {
         return Ok(());
     };
 
-    let Some(ellps_idx) = elements.iter().position(|e| e.starts_with("ellps=")) else {
-        return Err(Error::Unsupported(
-            "parse_proj does not support +R_A without a resolvable ellipsoid".to_string(),
-        ));
-    };
+    let modifier = elements[mod_idx].clone();
 
-    let definition = elements[ellps_idx][6..].trim();
-    let ellps = Ellipsoid::named(definition).map_err(|_| {
+    let ellps_idx = find_prefix(elements, "ellps=").ok_or_else(|| {
         Error::Unsupported(format!(
-            "parse_proj cannot derive authalic sphere from ellipsoid definition: {definition}"
+            "parse_proj does not support +{modifier} without a resolvable ellipsoid"
         ))
     })?;
-    let radius = authalic_radius(&ellps);
+
+    let definition = elements[ellps_idx][6..].trim().to_string();
+    let ellps = Ellipsoid::named(&definition).map_err(|_| {
+        Error::Unsupported(format!(
+            "parse_proj cannot derive sphere radius from ellipsoid definition: {definition}"
+        ))
+    })?;
+
+    let a = ellps.semimajor_axis();
+    let b = ellps.semiminor_axis();
+    let e2 = ellps.eccentricity_squared();
+
+    let radius = match modifier.as_str() {
+        "R_A" => authalic_radius(&ellps),
+        "R_V" => (a * a * b).cbrt(),
+        "R_a" => (a + b) / 2.0,
+        "R_g" => (a * b).sqrt(),
+        "R_h" => 2.0 * a * b / (a + b),
+        _ => {
+            let (prefix, is_arith) = if let Some(s) = modifier.strip_prefix("R_lat_a=") {
+                (s, true)
+            } else if let Some(s) = modifier.strip_prefix("R_lat_g=") {
+                (s, false)
+            } else {
+                return Err(Error::Unsupported(format!(
+                    "parse_proj does not support sphere reduction modifier: {modifier}"
+                )));
+            };
+            let phi = parse_f64(prefix, "R_lat latitude")?.to_radians();
+            let sin_phi = phi.sin();
+            let denom   = 1.0 - e2 * sin_phi * sin_phi;
+            let n = a / denom.sqrt();
+            let m = a * (1.0 - e2) / (denom * denom.sqrt());
+            if is_arith { (n + m) / 2.0 } else { (n * m).sqrt() }
+        }
+    };
+
     elements[ellps_idx] = format!("ellps={radius},0");
-    elements.remove(r_a_idx);
+    elements.remove(mod_idx);
     Ok(())
 }
 
@@ -115,12 +241,13 @@ fn authalic_radius(ellps: &impl EllipsoidBase) -> f64 {
     if e == 0.0 {
         return a;
     }
-
     let one_minus_es = 1.0 - ellps.eccentricity_squared();
     let qp = one_minus_es
         * (1.0 / one_minus_es - (0.5 / e) * ((1.0 - e) / (1.0 + e)).ln());
     a * (0.5 * qp).sqrt()
 }
+
+// ── axis / parameter normalisation ──────────────────────────────────────────
 
 pub fn extract_axis_step(elements: &mut Vec<String>) -> Result<Option<String>, Error> {
     let Some(axis_idx) = elements.iter().position(|e| e.starts_with("axis=")) else {
