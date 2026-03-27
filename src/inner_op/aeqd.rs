@@ -197,6 +197,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let lat_0 = params.lat(0).to_radians();
     let lon_0 = params.lon(0).to_radians();
+    if lat_0.abs() > FRAC_PI_2 + EPS10 {
+        return Err(Error::BadParam("lat_0".to_string(), def.clone()));
+    }
     params.real.insert("lat_0", lat_0);
     params.real.insert("lon_0", lon_0);
 
@@ -269,5 +272,11 @@ mod tests {
         ctx.apply(op, Fwd, &mut operands)?;
         assert!(operands[0].hypot2(&projected[0]) < 1e-3);
         Ok(())
+    }
+
+    #[test]
+    fn aeqd_rejects_invalid_lat_0() {
+        let mut ctx = Minimal::default();
+        assert!(matches!(ctx.op("aeqd R=1 lat_0=91"), Err(Error::BadParam(_, _))));
     }
 }

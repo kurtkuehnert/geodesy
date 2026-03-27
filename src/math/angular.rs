@@ -100,6 +100,16 @@ pub fn parse_sexagesimal(angle: &str) -> f64 {
         angle = &angle[..n - 1];
     }
 
+    let normalized = angle
+        .replace('d', ":")
+        .replace('D', ":")
+        .replace(['\'', '"'], ":");
+    let angle = normalized.trim_matches(':');
+    if angle.is_empty() {
+        warn!("Cannot parse sexagesimal angle from empty input");
+        return f64::NAN;
+    }
+
     // Split into as many elements as given: D, D:M, D:M:S
     for (i, element) in angle.split(':').enumerate() {
         if i < 3 {
@@ -191,6 +201,8 @@ mod tests {
         assert_eq!(-1.51, parse_sexagesimal("1:30:36S"));
         assert_eq!(1.51, parse_sexagesimal("1:30:36e"));
         assert_eq!(-1.51, parse_sexagesimal("1:30:36w"));
+        assert_eq!(44.183_333_333_333_33, parse_sexagesimal("44d11'N"));
+        assert_eq!(-84.333_333_333_333_33, parse_sexagesimal("84d20'W"));
         assert!(parse_sexagesimal("q1:30:36w").is_nan());
     }
 

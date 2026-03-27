@@ -18,6 +18,31 @@ fn helmert_common(
     operands: &mut dyn CoordinateSet,
     direction: Direction,
 ) -> usize {
+    if op.params.boolean("fourparam") {
+        let tx = op.params.real("T2D_X").unwrap();
+        let ty = op.params.real("T2D_Y").unwrap();
+        let theta = op.params.real("THETA").unwrap();
+        let scale = op.params.real("S").unwrap();
+        let (sin_theta, cos_theta) = theta.sin_cos();
+
+        for i in 0..operands.len() {
+            let mut c = operands.get_coord(i);
+            let x = c[0];
+            let y = c[1];
+            if direction == Direction::Fwd {
+                c[0] = scale * (cos_theta * x + sin_theta * y) + tx;
+                c[1] = scale * (-sin_theta * x + cos_theta * y) + ty;
+            } else {
+                let dx = x - tx;
+                let dy = y - ty;
+                c[0] = dx * cos_theta / scale - dy * sin_theta / scale;
+                c[1] = dx * sin_theta / scale + dy * cos_theta / scale;
+            }
+            operands.set_coord(i, &c);
+        }
+        return operands.len();
+    }
+
     // Translation, Rotation, Scale
     let T = op.params.series("T").unwrap();
     let R = op.params.series("R").unwrap();
@@ -129,8 +154,9 @@ fn helmert_inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) ->
 // ----- C O N S T R U C T O R ------------------------------------------------------
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 27] = [
+pub const GAMUT: [OpParameter; 30] = [
     OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "transpose" },
 
     // Translation
     OpParameter::Series { key: "translation", default: Some("0,0,0") },
@@ -167,6 +193,8 @@ pub const GAMUT: [OpParameter; 27] = [
     OpParameter::Real { key: "s",  default: Some(0f64) },
     OpParameter::Real { key: "scale_rate", default: Some(0f64) },
     OpParameter::Real { key: "ds", default: Some(0f64) },  // TODO: scale by 1e-6
+    OpParameter::Series { key: "towgs84", default: Some("") },
+    OpParameter::Real { key: "theta", default: Some(0f64) },
 
     // Epoch - "beginning of time for this transformation"
     OpParameter::Real { key: "t_epoch", default: Some(f64::NAN) },
@@ -178,6 +206,39 @@ pub const GAMUT: [OpParameter; 27] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+
+    if params.boolean("transpose") {
+        return Err(Error::BadParam("transpose".to_string(), def.clone()));
+    }
+
+    let theta_given = params.given.contains_key("theta");
+    if theta_given {
+        let theta = params.real("theta")? * std::f64::consts::PI / (3600.0 * 180.0);
+        let scale = if params.real("s")? != 0.0 {
+            params.real("s")?
+        } else if params.real("scale")? != 0.0 {
+            params.real("scale")?
+        } else {
+            1.0
+        };
+        if scale == 0.0 {
+            return Err(Error::BadParam("s".to_string(), def.clone()));
+        }
+        params.boolean.insert("fourparam");
+        params.real.insert("T2D_X", params.real("x")?);
+        params.real.insert("T2D_Y", params.real("y")?);
+        params.real.insert("THETA", theta);
+        params.real.insert("S", scale);
+
+        let fwd = InnerOp(helmert_fwd);
+        let inv = InnerOp(helmert_inv);
+        let descriptor = OpDescriptor::new(def, fwd, Some(inv));
+        return Ok(Op {
+            descriptor,
+            params,
+            steps: None,
+        });
+    }
 
     // Parameter units:
 
@@ -311,6 +372,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     }
     if position_vector {
         params.boolean.insert("position_vector");
+    }
+    if params.given.contains_key("towgs84") && params.text("convention").ok().as_deref() == Some("coordinate_frame") {
+        return Err(Error::BadParam("towgs84".to_string(), def.clone()));
     }
 
     // Scale and its time evolution
@@ -650,5 +714,29 @@ mod tests {
         assert!(ITRF2014.hypot3(&operands[0]) < 40e-8);
 
         Ok(())
+    }
+
+    #[test]
+    fn helmert_four_parameter_2d() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("helmert x=-9597.3572 y=.6112 s=0.304794780637 theta=-1.244048")?;
+        let mut operands = [Coor4D::raw(2546506.957, 542256.609, 0.0, 0.0)];
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!((operands[0][0] - 766563.675).abs() < 1e-3);
+        assert!((operands[0][1] - 165282.277).abs() < 1e-3);
+        Ok(())
+    }
+
+    #[test]
+    fn helmert_rejects_transpose_and_invalid_towgs84_convention() {
+        let mut ctx = Minimal::default();
+        assert!(matches!(
+            ctx.op("helmert transpose"),
+            Err(Error::BadParam(_, _))
+        ));
+        assert!(matches!(
+            ctx.op("helmert towgs84=1,2,3,4,5,6,7 convention=coordinate_frame"),
+            Err(Error::BadParam(_, _))
+        ));
     }
 }

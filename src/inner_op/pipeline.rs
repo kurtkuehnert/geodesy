@@ -67,6 +67,9 @@ pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
 
     for step in thesteps {
         let step_parameters = RawParameters::new(&step, &parameters.globals);
+        if step_parameters.instantiated_as.operator_name() == "pipeline" {
+            return Err(Error::BadParam("pipeline".to_string(), step));
+        }
         steps.push(Op::op(step_parameters, ctx)?);
     }
 
@@ -199,6 +202,12 @@ mod tests {
         assert!(matches!(
             ctx.op("addone|addone|_garbage"),
             Err(Error::NotFound(_, _))
+        ));
+
+        // Nested pipelines are rejected to match PROJ malformed-pipeline handling
+        assert!(matches!(
+            ctx.op("pipeline | pipeline | addone"),
+            Err(Error::BadParam(_, _))
         ));
 
         Ok(())

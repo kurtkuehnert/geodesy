@@ -504,6 +504,36 @@ fn extract_linear_output_scale(definition: &mut String) -> Result<Option<f64>, E
             })?);
             continue;
         }
+        if let Some(value) = token.strip_prefix("units=") {
+            scale = Some(match value {
+                "km" => 1000.0,
+                "m" => 1.0,
+                "dm" => 0.1,
+                "cm" => 0.01,
+                "mm" => 0.001,
+                "kmi" => 1852.0,
+                "in" => 0.0254,
+                "ft" => 0.3048,
+                "yd" => 0.9144,
+                "mi" => 1609.344,
+                "fath" => 1.8288,
+                "ch" => 20.1168,
+                "link" => 0.201168,
+                "us-in" => 100.0 / 3937.0,
+                "us-ft" => 1200.0 / 3937.0,
+                "us-yd" => 3600.0 / 3937.0,
+                "us-ch" => 79200.0 / 3937.0,
+                "us-mi" => 6336000.0 / 3937.0,
+                "ind-yd" => 0.91439523,
+                "ind-ft" => 0.30479841,
+                "ind-ch" => 20.11669506,
+                _ => {
+                    kept.push(token.to_string());
+                    continue;
+                }
+            });
+            continue;
+        }
         kept.push(token.to_string());
     }
     *definition = kept.join(" ");

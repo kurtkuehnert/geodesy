@@ -152,7 +152,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 51] = [
     BuiltinOp::new("gridshift",   gridshift::new),
     BuiltinOp::new("helmert",     helmert::new),
     BuiltinOp::new("latitude",    latitude::new),
-    BuiltinOp::new("molodensky",  molodensky::new),
+    BuiltinOp::with_domains("molodensky",  molodensky::new, Geographic, Geographic),
     BuiltinOp::new("permtide",    permtide::new),
     BuiltinOp::new("unitconvert", unitconvert::new),
 

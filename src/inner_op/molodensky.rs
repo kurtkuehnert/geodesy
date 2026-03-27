@@ -110,6 +110,20 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
 
+    let has_ellipsoid_pair = params.given.contains_key("ellps_0") && params.given.contains_key("ellps_1");
+    for key in ["dx", "dy", "dz"] {
+        if !params.given.contains_key(key) {
+            return Err(Error::MissingParam(key.to_string()));
+        }
+    }
+    if !has_ellipsoid_pair {
+        for key in ["da", "df"] {
+            if !params.given.contains_key(key) {
+                return Err(Error::MissingParam(key.to_string()));
+            }
+        }
+    }
+
     let ellps_0 = params.ellps(0);
     let ellps_1 = params.ellps(1);
 
@@ -273,5 +287,18 @@ mod tests {
         // Heights are worse in the abridged case
         assert!((WGS84[2] - operands[0][2]).abs() < 0.075);
         Ok(())
+    }
+
+    #[test]
+    fn molodensky_requires_all_shift_terms() {
+        let mut ctx = Minimal::default();
+        assert!(matches!(
+            ctx.op("molodensky a=6378160 rf=298.25"),
+            Err(Error::MissingParam(_))
+        ));
+        assert!(matches!(
+            ctx.op("molodensky a=6378160 rf=298.25 dx=0"),
+            Err(Error::MissingParam(_))
+        ));
     }
 }
