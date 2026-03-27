@@ -1,27 +1,88 @@
-//! Oblique Stereographic Alternative.
+//! Oblique Stereographic Alternative, closely following PROJ's implementation.
 use crate::authoring::*;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 const DEL_TOL: f64 = 1e-14;
 const MAX_ITER: usize = 20;
 
-fn w(sinphi: f64, e: f64, n: f64, c: f64) -> f64 {
+fn srat(esinp: f64, ratexp: f64) -> f64 {
+    ((1.0 - esinp) / (1.0 + esinp)).powf(ratexp)
+}
+
+fn legacy_w(sinphi: f64, e: f64, n: f64, c: f64) -> f64 {
     let s1 = (1.0 + sinphi) / (1.0 - sinphi);
     let s2 = (1.0 - e * sinphi) / (1.0 + e * sinphi);
     c * (s1 * s2.powf(e)).powf(n)
 }
 
+fn gauss_ini(e: f64, phi0: f64) -> Option<(f64, f64, f64, f64, f64)> {
+    let es = e * e;
+    let sphi = phi0.sin();
+    let cphi2 = phi0.cos().powi(2);
+    let rc = (1.0 - es).sqrt() / (1.0 - es * sphi * sphi);
+    let c = (1.0 + es * cphi2 * cphi2 / (1.0 - es)).sqrt();
+    if c == 0.0 {
+        return None;
+    }
+    let chi = (sphi / c).asin();
+    let ratexp = 0.5 * c * e;
+    let srat_val = srat(e * sphi, ratexp);
+    if srat_val == 0.0 {
+        return None;
+    }
+    let k = if 0.5 * phi0 + FRAC_PI_4 < 1e-10 {
+        1.0 / srat_val
+    } else {
+        (0.5 * chi + FRAC_PI_4).tan() / ((0.5 * phi0 + FRAC_PI_4).tan().powf(c) * srat_val)
+    };
+    Some((c, k, ratexp, chi, rc))
+}
+
+fn gauss(lon: f64, lat: f64, c: f64, k: f64, e: f64, ratexp: f64) -> (f64, f64) {
+    if (lat.abs() - FRAC_PI_2).abs() < 1e-14 {
+        return (c * lon, lat.signum() * FRAC_PI_2);
+    }
+    let phi = 2.0 * (k * (0.5 * lat + FRAC_PI_4).tan().powf(c) * srat(e * lat.sin(), ratexp)).atan() - FRAC_PI_2;
+    let lam = c * lon;
+    (lam, phi)
+}
+
+fn inv_gauss(lon: f64, lat: f64, c: f64, k: f64, e: f64) -> Option<(f64, f64)> {
+    let lam = lon / c;
+    let num = ((0.5 * lat + FRAC_PI_4).tan() / k).powf(1.0 / c);
+    let mut slp_phi = lat;
+    for _ in 0..MAX_ITER {
+        let phi = 2.0 * (num * srat(e * slp_phi.sin(), -0.5 * e)).atan() - FRAC_PI_2;
+        if (phi - slp_phi).abs() < DEL_TOL {
+            return Some((lam, phi));
+        }
+        slp_phi = phi;
+    }
+    None
+}
+
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let Ok(n) = op.params.real("n") else { return 0 };
-    let Ok(c) = op.params.real("c") else { return 0 };
+    if !op.params.boolean("proj_polar") {
+        return legacy_fwd(op, operands);
+    }
+
+    let Ok(gauss_c) = op.params.real("gauss_c") else {
+        return 0;
+    };
+    let Ok(gauss_k) = op.params.real("gauss_k") else {
+        return 0;
+    };
+    let Ok(ratexp) = op.params.real("gauss_ratexp") else {
+        return 0;
+    };
     let k0 = op.params.k(0);
     let Ok(r2) = op.params.real("r2") else {
         return 0;
     };
-    let Ok(sin_chi0) = op.params.real("sin_chi0") else {
+    let Ok(sinc0) = op.params.real("sinc0") else {
         return 0;
     };
-    let Ok(cos_chi0) = op.params.real("cos_chi0") else {
+    let Ok(cosc0) = op.params.real("cosc0") else {
         return 0;
     };
     let lon_0 = op.params.lon(0);
@@ -34,8 +95,133 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
+        let (lam, phi) = gauss(lon - lon_0, lat, gauss_c, gauss_k, e, ratexp);
+        let sinc = phi.sin();
+        let cosc = phi.cos();
+        let cosl = lam.cos();
+        let denom = 1.0 + sinc0 * sinc + cosc0 * cosc * cosl;
+        if denom == 0.0 {
+            operands.set_coord(i, &Coor4D::nan());
+            continue;
+        }
+        let scale = a * k0 * r2 / denom;
+        let x = x_0 + scale * cosc * lam.sin();
+        let y = y_0 + scale * (cosc0 * sinc - sinc0 * cosc * cosl);
+        operands.set_xy(i, x, y);
+        successes += 1;
+    }
+    successes
+}
+
+fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    if !op.params.boolean("proj_polar") {
+        return legacy_inv(op, operands);
+    }
+
+    let Ok(gauss_c) = op.params.real("gauss_c") else {
+        return 0;
+    };
+    let Ok(gauss_k) = op.params.real("gauss_k") else {
+        return 0;
+    };
+    let k0 = op.params.k(0);
+    let Ok(r2) = op.params.real("r2") else {
+        return 0;
+    };
+    let Ok(phic0) = op.params.real("phic0") else {
+        return 0;
+    };
+    let Ok(sinc0) = op.params.real("sinc0") else {
+        return 0;
+    };
+    let Ok(cosc0) = op.params.real("cosc0") else {
+        return 0;
+    };
+    let lon_0 = op.params.lon(0);
+    let x_0 = op.params.x(0);
+    let y_0 = op.params.y(0);
+    let ellps = op.params.ellps(0);
+    let a = ellps.semimajor_axis();
+    let e = ellps.eccentricity();
+
+    let mut successes = 0_usize;
+    for i in 0..operands.len() {
+        let (mut x, mut y) = operands.xy(i);
+        x = (x - x_0) / (a * k0);
+        y = (y - y_0) / (a * k0);
+        let rho = x.hypot(y);
+
+        let (lam, phi) = if rho != 0.0 {
+            let c = 2.0 * rho.atan2(r2);
+            let sinc = c.sin();
+            let cosc = c.cos();
+            let phi = (cosc * sinc0 + y * sinc * cosc0 / rho).asin();
+            let lam = (x * sinc).atan2(rho * cosc0 * cosc - y * sinc0 * sinc);
+            (lam, phi)
+        } else {
+            (0.0, phic0)
+        };
+
+        let Some((lam, phi)) = inv_gauss(lam, phi, gauss_c, gauss_k, e) else {
+            operands.set_coord(i, &Coor4D::nan());
+            continue;
+        };
+
+        operands.set_xy(i, lon_0 + lam, phi);
+        successes += 1;
+    }
+    successes
+}
+
+fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
+    let Ok(n) = op.params.real("legacy_n") else {
+        return 0;
+    };
+    let Ok(c) = op.params.real("legacy_c") else {
+        return 0;
+    };
+    let k0 = op.params.k(0);
+    let Ok(r2) = op.params.real("legacy_r2") else {
+        return 0;
+    };
+    let Ok(sin_chi0) = op.params.real("legacy_sin_chi0") else {
+        return 0;
+    };
+    let Ok(cos_chi0) = op.params.real("legacy_cos_chi0") else {
+        return 0;
+    };
+    let lon_0 = op.params.lon(0);
+    let x_0 = op.params.x(0);
+    let y_0 = op.params.y(0);
+    let ellps = op.params.ellps(0);
+    let a = ellps.semimajor_axis();
+    let e = ellps.eccentricity();
+    let gauss_c = op.params.real("gauss_c").unwrap_or(0.0);
+    let gauss_k = op.params.real("gauss_k").unwrap_or(0.0);
+    let gauss_ratexp = op.params.real("gauss_ratexp").unwrap_or(0.0);
+    let sinc0 = op.params.real("sinc0").unwrap_or(0.0);
+    let cosc0 = op.params.real("cosc0").unwrap_or(0.0);
+    let proj_r2 = op.params.real("r2").unwrap_or(0.0);
+
+    let mut successes = 0_usize;
+    for i in 0..operands.len() {
+        let (lon, lat) = operands.xy(i);
+        if (lat.abs() - FRAC_PI_2).abs() < 1e-14 {
+            let sign = lat.signum();
+            let denom = 1.0 + sinc0 * sign;
+            if denom == 0.0 {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
+            }
+            let scale = a * k0 * proj_r2 / denom;
+            let x = x_0;
+            let y = y_0 + scale * cosc0 * sign;
+            operands.set_xy(i, x, y);
+            successes += 1;
+            continue;
+        }
         let sinphi = lat.sin();
-        let ww = w(sinphi, e, n, c);
+        let ww = legacy_w(sinphi, e, n, c);
         let sin_chi = (ww - 1.0) / (ww + 1.0);
         let chi = sin_chi.asin();
         let cos_chi = chi.cos();
@@ -55,20 +241,24 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     successes
 }
 
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let Ok(n) = op.params.real("n") else { return 0 };
-    let Ok(c) = op.params.real("c") else { return 0 };
+fn legacy_inv(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
+    let Ok(n) = op.params.real("legacy_n") else {
+        return 0;
+    };
+    let Ok(c) = op.params.real("legacy_c") else {
+        return 0;
+    };
     let k0 = op.params.k(0);
-    let Ok(r2) = op.params.real("r2") else {
+    let Ok(r2) = op.params.real("legacy_r2") else {
         return 0;
     };
-    let Ok(chi0) = op.params.real("chi0") else {
+    let Ok(chi0) = op.params.real("legacy_chi0") else {
         return 0;
     };
-    let Ok(g) = op.params.real("g") else {
+    let Ok(g) = op.params.real("legacy_g") else {
         return 0;
     };
-    let Ok(h) = op.params.real("h") else {
+    let Ok(h) = op.params.real("legacy_h") else {
         return 0;
     };
     let lon_0 = op.params.lon(0);
@@ -133,40 +323,51 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let lon_0 = params.lon(0).to_radians();
     let ellps = params.ellps(0);
     let e = ellps.eccentricity();
+    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
     let sphi0 = lat_0.sin();
     let cphi0 = lat_0.cos();
-    let a = ellps.semimajor_axis();
+
+    let Some((gauss_c, gauss_k, gauss_ratexp, phic0, rc)) = gauss_ini(e, lat_0) else {
+        return Err(Error::Unsupported("sterea gauss setup failed".into()));
+    };
 
     let rho0 = a * (1.0 - es) / (1.0 - es * sphi0 * sphi0).powf(1.5);
     let nu0 = a / (1.0 - es * sphi0 * sphi0).sqrt();
     let r = (rho0 * nu0).sqrt();
-    let n = (1.0 + es * cphi0.powi(4) / (1.0 - es)).sqrt();
-
+    let legacy_n = (1.0 + es * cphi0.powi(4) / (1.0 - es)).sqrt();
     let s1 = (1.0 + sphi0) / (1.0 - sphi0);
     let s2 = (1.0 - e * sphi0) / (1.0 + e * sphi0);
-    let w1 = (s1 * s2.powf(e)).powf(n);
+    let w1 = (s1 * s2.powf(e)).powf(legacy_n);
     let sin_chi00 = (w1 - 1.0) / (w1 + 1.0);
-    let c = ((n + sphi0) * (1.0 - sin_chi00)) / ((n - sphi0) * (1.0 + sin_chi00));
-    let w2 = c * w1;
-    let chi0 = ((w2 - 1.0) / (w2 + 1.0)).asin();
-    let sin_chi0 = chi0.sin();
-    let cos_chi0 = chi0.cos();
-    let r2 = 2.0 * r / a;
+    let legacy_c = ((legacy_n + sphi0) * (1.0 - sin_chi00)) / ((legacy_n - sphi0) * (1.0 + sin_chi00));
+    let w2 = legacy_c * w1;
+    let legacy_chi0 = ((w2 - 1.0) / (w2 + 1.0)).asin();
+    let legacy_r2 = 2.0 * r / a;
     let k0 = params.k(0);
-    let g = a * k0 * r2 * (FRAC_PI_4 - 0.5 * chi0).tan();
-    let h = 2.0 * a * k0 * r2 * chi0.tan() + g;
+    let legacy_g = a * k0 * legacy_r2 * (FRAC_PI_4 - 0.5 * legacy_chi0).tan();
+    let legacy_h = 2.0 * a * k0 * legacy_r2 * legacy_chi0.tan() + legacy_g;
 
     params.real.insert("lat_0", lat_0);
     params.real.insert("lon_0", lon_0);
-    params.real.insert("n", n);
-    params.real.insert("c", c);
-    params.real.insert("chi0", chi0);
-    params.real.insert("sin_chi0", sin_chi0);
-    params.real.insert("cos_chi0", cos_chi0);
-    params.real.insert("r2", r2);
-    params.real.insert("g", g);
-    params.real.insert("h", h);
+    if (lat_0.abs() - FRAC_PI_2).abs() < 1e-12 {
+        params.boolean.insert("proj_polar");
+    }
+    params.real.insert("gauss_c", gauss_c);
+    params.real.insert("gauss_k", gauss_k);
+    params.real.insert("gauss_ratexp", gauss_ratexp);
+    params.real.insert("phic0", phic0);
+    params.real.insert("sinc0", phic0.sin());
+    params.real.insert("cosc0", phic0.cos());
+    params.real.insert("r2", 2.0 * rc);
+    params.real.insert("legacy_n", legacy_n);
+    params.real.insert("legacy_c", legacy_c);
+    params.real.insert("legacy_chi0", legacy_chi0);
+    params.real.insert("legacy_sin_chi0", legacy_chi0.sin());
+    params.real.insert("legacy_cos_chi0", legacy_chi0.cos());
+    params.real.insert("legacy_r2", legacy_r2);
+    params.real.insert("legacy_g", legacy_g);
+    params.real.insert("legacy_h", legacy_h);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

@@ -73,12 +73,6 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         lat += dc[0];
         lon += dc[1];
 
-        // Don't wanna play if we're too far from the center meridian
-        if lon.abs() > 2.623395162778 {
-            operands.set_xy(i, f64::NAN, f64::NAN);
-            continue;
-        }
-
         // --- 4. ellipsoidal normalized N, E -> metric N, E
 
         let easting = qs * lon + x_0; // Easting
@@ -126,12 +120,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         let mut lon = (x - x_0) / qs;
         let mut lat = (y - zb) / qs;
-
-        // Don't wanna play if we're too far from the center meridian
-        if lon.abs() > 2.623395162778 {
-            operands.set_xy(i, f64::NAN, f64::NAN);
-            continue;
-        }
 
         // --- 2. Normalized N, E -> complex spherical LAT, LNG
 
@@ -188,6 +176,17 @@ pub const UTM_GAMUT: [OpParameter; 4] = [
 
 pub fn utm(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
+    let tokens: Vec<&str> = parameters.instantiated_as.split_whitespace().collect();
+    let has_named = tokens.iter().any(|t| t.starts_with("ellps="));
+    let has_a = tokens.iter().any(|t| t.starts_with("a="));
+    let has_b = tokens.iter().any(|t| t.starts_with("b="));
+    let has_rf = tokens.iter().any(|t| t.starts_with("rf="));
+    let has_f = tokens.iter().any(|t| t.starts_with("f="));
+    let has_r = tokens.iter().any(|t| t.starts_with("R="));
+    if has_r || (has_a && !has_b && !has_rf && !has_f && !has_named) {
+        return Err(Error::General("UTM: spherical form is unsupported"));
+    }
+
     let mut params = ParsedParameters::new(parameters, &UTM_GAMUT)?;
 
     // The UTM zone should be an integer between 1 and 60

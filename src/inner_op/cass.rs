@@ -9,6 +9,25 @@ const C5: f64 = 1.0 / 15.0;
 const INV_TOL: f64 = 1e-12;
 const INV_ITER: usize = 12;
 
+fn normalize_inverse_seed(mut lon: f64, mut lat: f64) -> (f64, f64) {
+    if lat > std::f64::consts::FRAC_PI_2 {
+        lat = std::f64::consts::PI - lat;
+        lon += std::f64::consts::PI;
+    } else if lat < -std::f64::consts::FRAC_PI_2 {
+        lat = -std::f64::consts::PI - lat;
+        lon += std::f64::consts::PI;
+    }
+
+    while lon > std::f64::consts::PI {
+        lon -= std::f64::consts::TAU;
+    }
+    while lon < -std::f64::consts::PI {
+        lon += std::f64::consts::TAU;
+    }
+
+    (lon, lat)
+}
+
 fn fwd_ellipsoidal(
     ellps: &Ellipsoid,
     lon_0: f64,
@@ -24,7 +43,7 @@ fn fwd_ellipsoidal(
     let one_es = 1.0 - es;
     let lam = lon - lon_0;
     let (sinphi, cosphi) = lat.sin_cos();
-    let m = ellps.meridian_latitude_to_distance(lat);
+    let m = ellps.meridian_latitude_to_distance(lat) / a;
     let nu_sq = 1.0 / (1.0 - es * sinphi * sinphi);
     let nu = nu_sq.sqrt();
     let tanphi = lat.tan();
@@ -32,14 +51,13 @@ fn fwd_ellipsoidal(
     let a1 = lam * cosphi;
     let c = es * cosphi * cosphi / one_es;
     let a2 = a1 * a1;
-    let x = x_0 + a * nu * a1 * (1.0 - a2 * t * (C1 + (8.0 - t + 8.0 * c) * a2 * C2));
-    let mut y = y_0 + (m - m0) + a * nu * tanphi * a2 * (0.5 + (5.0 - t + 6.0 * c) * a2 * C3);
+    let x_norm = nu * a1 * (1.0 - a2 * t * (C1 + (8.0 - t + 8.0 * c) * a2 * C2));
+    let mut y_norm = (m - m0) + nu * tanphi * a2 * (0.5 + (5.0 - t + 6.0 * c) * a2 * C3);
     if hyperbolic {
         let rho = nu_sq * one_es * nu;
-        let dy = y - y_0;
-        y -= dy * dy * dy / (6.0 * a * a * rho * nu);
+        y_norm -= y_norm * y_norm * y_norm / (6.0 * rho * nu);
     }
-    (x, y)
+    (x_0 + a * x_norm, y_0 + a * y_norm)
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -99,7 +117,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 (dd.sin() * (x / a).cos()).asin(),
             )
         } else {
-            let phi1 = ellps.meridian_distance_to_latitude(m0 + y);
+            let phi1 = ellps.meridian_distance_to_latitude(a * (m0 + y / a));
             let tanphi1 = phi1.tan();
             let t1 = tanphi1 * tanphi1;
             let sinphi1 = phi1.sin();
@@ -108,9 +126,15 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let rho1 = nu1_sq * (1.0 - es) * nu1;
             let d = x / (a * nu1);
             let d2 = d * d;
-            let mut lon =
+            let hyperbolic = op.params.boolean("hyperbolic");
+            let lon =
                 lon_0 + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
-            let mut lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
+            let lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
+            let (mut lon, mut lat) = if hyperbolic {
+                (lon, lat)
+            } else {
+                normalize_inverse_seed(lon, lat)
+            };
 
             for _ in 0..INV_ITER {
                 let (fx, fy) = fwd_ellipsoidal(
@@ -119,7 +143,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     x_0,
                     y_0,
                     m0,
-                    op.params.boolean("hyperbolic"),
+                    hyperbolic,
                     lon,
                     lat,
                 );
@@ -131,7 +155,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
                 let h_lon = 1e-8;
                 let h_lat = 1e-8;
-                let hyperbolic = op.params.boolean("hyperbolic");
                 let (fx_lon, fy_lon) =
                     fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon + h_lon, lat);
                 let (fx_lat, fy_lat) =
@@ -146,6 +169,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 }
                 lon += (dx * j22 - dy * j12) / det;
                 lat += (dy * j11 - dx * j21) / det;
+                if !hyperbolic {
+                    (lon, lat) = normalize_inverse_seed(lon, lat);
+                }
             }
 
             (lon, lat)
@@ -182,7 +208,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     } else {
         params
             .real
-            .insert("m0", ellps.meridian_latitude_to_distance(lat_0));
+            .insert("m0", ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis());
     }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
@@ -231,6 +257,19 @@ mod tests {
         assert!((projected[0][1].to_degrees() + 16.25).abs() < 1e-10);
         assert!((projected[1][0].to_degrees() - 179.42679063431376).abs() < 1e-10);
         assert!((projected[1][1].to_degrees() + 16.06923331216869).abs() < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn cass_world_inverse_matches_proj_far_from_central_meridian() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("cass lat_0=0 lon_0=0 ellps=WGS84")?;
+
+        let mut projected = [Coor4D::raw(-58044.692087790158, 10667870.723512903, 0.0, 0.0)];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert!((projected[0][0].to_degrees() - 179.0).abs() < 1e-8);
+        assert!((projected[0][1].to_degrees() - 80.0).abs() < 1e-8);
         Ok(())
     }
 }

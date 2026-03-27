@@ -6,6 +6,10 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     if elements.first().map(String::as_str) == Some("hgridshift") {
         elements[0] = "gridshift".to_string();
     }
+    if elements.first().map(String::as_str) == Some("etmerc") {
+        elements[0] = "tmerc".to_string();
+    }
+    normalize_ups(elements)?;
 
     // Sphere reduction modifiers (R_A, R_V, R_a, …) must run first so that
     // the named ellipsoid is still in resolvable form when the radius is computed.
@@ -25,6 +29,39 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     normalize_prime_meridian(elements)?;
     normalize_omerc(elements);
 
+    Ok(())
+}
+
+fn normalize_ups(elements: &mut Vec<String>) -> Result<(), Error> {
+    if elements.first().map(String::as_str) != Some("ups") {
+        return Ok(());
+    }
+
+    let ellps_idx = find_prefix(elements, "ellps=");
+    let a_idx = find_prefix(elements, "a=");
+    let b_idx = find_prefix(elements, "b=");
+    let rf_idx = find_prefix(elements, "rf=");
+    let f_idx = find_prefix(elements, "f=");
+    let r_idx = find_prefix(elements, "R=");
+    let south = remove_parameter_flag(elements, "south");
+
+    if r_idx.is_some() || (a_idx.is_some() && b_idx.is_none() && rf_idx.is_none() && f_idx.is_none()) {
+        return Err(Error::Unsupported(
+            "ups requires an ellipsoidal definition; spherical UPS is not supported".into(),
+        ));
+    }
+
+    elements[0] = "stere".to_string();
+    elements.push(format!("lat_0={}", if south { -90 } else { 90 }));
+    elements.push("lon_0=0".to_string());
+    elements.push("k_0=0.994".to_string());
+    elements.push("x_0=2000000".to_string());
+    elements.push("y_0=2000000".to_string());
+
+    // Keep existing ellipsoid params in place for downstream normalization.
+    if ellps_idx.is_none() && a_idx.is_none() && b_idx.is_none() && rf_idx.is_none() && f_idx.is_none() {
+        elements.push("ellps=GRS80".to_string());
+    }
     Ok(())
 }
 

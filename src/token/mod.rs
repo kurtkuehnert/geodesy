@@ -506,21 +506,6 @@ fn extract_linear_output_scale(definition: &mut String) -> Result<Option<f64>, E
         }
         kept.push(token.to_string());
     }
-    if let Some(scale) = scale {
-        for token in &mut kept {
-            if let Some(value) = token.strip_prefix("x_0=") {
-                let parsed = value.parse::<f64>().map_err(|_| {
-                    Error::Unsupported(format!("parse_proj cannot parse x_0 offset: {value}"))
-                })?;
-                *token = format!("x_0={}", parsed * scale);
-            } else if let Some(value) = token.strip_prefix("y_0=") {
-                let parsed = value.parse::<f64>().map_err(|_| {
-                    Error::Unsupported(format!("parse_proj cannot parse y_0 offset: {value}"))
-                })?;
-                *token = format!("y_0={}", parsed * scale);
-            }
-        }
-    }
     *definition = kept.join(" ");
     Ok(scale.filter(|value| (*value - 1.0).abs() > f64::EPSILON))
 }
@@ -793,12 +778,24 @@ mod tests {
                 "+proj=cass +lat_0=10.4416666666667 +lon_0=-61.3333333333333 +x_0=86501.46392052 +y_0=65379.0134283 +to_meter=0.201166195164 +a=6378293.64520876 +rf=294.2606763692733",
                 true
             )?,
-            "unitconvert xy_in=deg xy_out=rad | cass lat_0=10.4416666666667 lon_0=-61.3333333333333 x_0=17401.17037300703 y_0=13152.047374947175 ellps=6378293.64520876,294.2606763692733 | unitconvert xy_in=m xy_out=0.201166195164"
+            "unitconvert xy_in=deg xy_out=rad | cass lat_0=10.4416666666667 lon_0=-61.3333333333333 x_0=86501.46392052 y_0=65379.0134283 ellps=6378293.64520876,294.2606763692733 | unitconvert xy_in=m xy_out=0.201166195164"
         );
 
         assert_eq!(
             parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449", true)?,
             "unitconvert xy_in=deg xy_out=rad | stere lat_0=90 ellps=6378273,298.279411123064"
+        );
+        assert_eq!(
+            parse_proj("+proj=etmerc +ellps=GRS80", true)?,
+            "unitconvert xy_in=deg xy_out=rad | tmerc ellps=GRS80"
+        );
+        assert_eq!(
+            parse_proj("+proj=ups +ellps=GRS80", true)?,
+            "unitconvert xy_in=deg xy_out=rad | stere ellps=GRS80 lat_0=90 lon_0=0 k_0=0.994 x_0=2000000 y_0=2000000"
+        );
+        assert_eq!(
+            parse_proj("+proj=ups +south +ellps=GRS80", true)?,
+            "unitconvert xy_in=deg xy_out=rad | stere ellps=GRS80 lat_0=-90 lon_0=0 k_0=0.994 x_0=2000000 y_0=2000000"
         );
 
         // Generic axis handling should become explicit axisswap steps

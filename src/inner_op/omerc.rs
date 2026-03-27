@@ -25,6 +25,14 @@ fn aasin(value: f64) -> f64 {
     value.clamp(-1.0, 1.0).asin()
 }
 
+fn fwd_central_with_ctx(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    fwd_central(op, operands)
+}
+
+fn inv_central_with_ctx(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    inv_central(op, operands)
+}
+
 #[allow(non_snake_case)]
 fn fwd_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
@@ -232,9 +240,6 @@ fn inv_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
 
 #[allow(non_snake_case)]
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    if op.params.real["alpha"].is_finite() || op.params.real["gamma_c"].is_finite() {
-        return fwd_central(op, operands);
-    }
     let ellps = op.params.ellps(0);
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
@@ -304,9 +309,6 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 #[allow(non_snake_case)]
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    if op.params.real["alpha"].is_finite() || op.params.real["gamma_c"].is_finite() {
-        return inv_central(op, operands);
-    }
     let ellps = op.params.ellps(0);
     let e = ellps.eccentricity();
     let false_easting = op.params.x(0);
@@ -387,6 +389,40 @@ pub const GAMUT: [OpParameter; 18] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+    let given = parameters.instantiated_as.split_into_parameters();
+    if given.contains_key("a") && !given.contains_key("ellps") {
+        let a = given["a"]
+            .parse::<f64>()
+            .map_err(|_| Error::MissingParam("a".to_string()))?;
+        if a <= 0.0 {
+            return Err(Error::General("Omerc: Invalid value for a: a must be positive"));
+        }
+
+        let rf = if let Some(rf) = given.get("rf") {
+            rf.parse::<f64>()
+                .map_err(|_| Error::MissingParam("rf".to_string()))?
+        } else if let Some(f) = given.get("f") {
+            let f = f
+                .parse::<f64>()
+                .map_err(|_| Error::MissingParam("f".to_string()))?;
+            if f == 0.0 { 0.0 } else { 1.0 / f }
+        } else if let Some(b) = given.get("b") {
+            let b = b
+                .parse::<f64>()
+                .map_err(|_| Error::MissingParam("b".to_string()))?;
+            if b <= 0.0 {
+                return Err(Error::General("Omerc: Invalid value for b: b must be positive"));
+            }
+            if (a - b).abs() < f64::EPSILON {
+                0.0
+            } else {
+                a / (a - b)
+            }
+        } else {
+            0.0
+        };
+        params.text.insert("ellps", format!("{a},{rf}"));
+    }
     let ellps = params.ellps(0);
     let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
@@ -539,7 +575,15 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     if no_rot {
         params.boolean.insert("no_rot");
     }
-    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
+    let descriptor = if has_alpha || has_gamma {
+        OpDescriptor::new(
+            def,
+            InnerOp(fwd_central_with_ctx),
+            Some(InnerOp(inv_central_with_ctx)),
+        )
+    } else {
+        OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)))
+    };
 
     Ok(Op {
         descriptor,
@@ -598,6 +642,19 @@ mod tests {
         for i in 0..operands.len() {
             assert!(operands[i].hypot2(&geo[i]) < 1e-9);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn omerc_spherical_alpha_matches_proj_sample() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("omerc a=6400000 latc=45 alpha=35.264383770917604")?;
+
+        let mut operands = [Coor4D::geo(1., 2., 0., 0.)];
+        assert_eq!(1, ctx.apply(op, Fwd, &mut operands)?);
+        assert_float_eq!(operands[0][0], -3569.825230822232, abs_all <= 1e-3);
+        assert_float_eq!(operands[0][1], -5093592.310871849768, abs_all <= 1e-3);
 
         Ok(())
     }

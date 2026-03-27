@@ -101,7 +101,7 @@ mod webmerc;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 49] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 51] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
     BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
@@ -110,6 +110,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 49] = [
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
+    BuiltinOp::with_domains("etmerc",      tmerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("gstmerc",     gstmerc::new,     Geographic, Projected),
     BuiltinOp::with_domains("krovak",      krovak::new,      Geographic, Projected),
     BuiltinOp::with_domains("laea",        laea::new,        Geographic, Projected),
@@ -125,6 +126,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 49] = [
     BuiltinOp::with_domains("sterea",      sterea::new,      Geographic, Projected),
     BuiltinOp::with_domains("tmerc",       tmerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("utm",         tmerc::utm,       Geographic, Projected),
+    BuiltinOp::with_domains("ups",         stere::ups,       Geographic, Projected),
     BuiltinOp::with_domains("webmerc",     webmerc::new,     Geographic, Projected),
 
     // Geographic identity: lon/lat degrees in and out
