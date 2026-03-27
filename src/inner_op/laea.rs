@@ -8,19 +8,20 @@ const EPS10: f64 = 1e-10;
 // ----- F O R W A R D -----------------------------------------------------------------
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    // Oblique aspect: [IOGP, 2019](crate::Bibliography::Iogp19), pp. 78-80
-    let Ok(xi_0) = op.params.real("xi_0") else {
-        return 0;
-    };
     let Ok(qp) = op.params.real("qp") else {
         return 0;
     };
-    let Ok(rq) = op.params.real("rq") else {
+    let Ok(xmf) = op.params.real("xmf") else {
         return 0;
     };
-    let Ok(d) = op.params.real("d") else { return 0 };
+    let Ok(ymf) = op.params.real("ymf") else {
+        return 0;
+    };
+    let sinb1 = op.params.real("sinb1").unwrap_or(0.0);
+    let cosb1 = op.params.real("cosb1").unwrap_or(1.0);
 
     let oblique = op.params.boolean("oblique");
+    let equatorial = op.params.boolean("equatorial");
     let north_polar = op.params.boolean("north_polar");
     let south_polar = op.params.boolean("south_polar");
 
@@ -31,48 +32,53 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let e = ellps.eccentricity();
     let a = ellps.semimajor_axis();
 
-    let (sin_xi_0, cos_xi_0) = xi_0.sin_cos();
-
     let mut successes = 0_usize;
     let n = operands.len();
 
-    // The polar aspects are fairly simple
-    if north_polar || south_polar {
-        let sign = if north_polar { -1.0 } else { 1.0 };
-        for i in 0..n {
-            let (lon, lat) = operands.xy(i);
-            let (sin_lon, cos_lon) = (lon - lon_0).sin_cos();
-
-            let q = ancillary::qs(lat.sin(), e);
-            let rho = a * (qp + sign * q).sqrt();
-
-            let easting = x_0 + rho * sin_lon;
-            let northing = y_0 + sign * rho * cos_lon;
-            operands.set_xy(i, easting, northing);
-            successes += 1;
-        }
-        return successes;
-    }
-
-    // Either equatorial or oblique aspects
     for i in 0..n {
         let (lon, lat) = operands.xy(i);
         let (sin_lon, cos_lon) = (lon - lon_0).sin_cos();
 
-        // Authalic latitude, 𝜉
         let xi = (ancillary::qs(lat.sin(), e) / qp).asin();
         let (sin_xi, cos_xi) = xi.sin_cos();
 
-        let b = if oblique {
-            let factor = 1.0 + sin_xi_0 * sin_xi + (cos_xi_0 * cos_xi * cos_lon);
-            rq * (2.0 / factor).sqrt()
-        } else {
-            1.0
+        let mut q = sin_xi * qp;
+        let mut b = match () {
+            _ if oblique => 1.0 + sinb1 * sin_xi + cosb1 * cos_xi * cos_lon,
+            _ if equatorial => 1.0 + cos_xi * cos_lon,
+            _ if north_polar => {
+                q = qp - q;
+                FRAC_PI_2 + lat
+            }
+            _ => {
+                q = qp + q;
+                lat - FRAC_PI_2
+            }
         };
 
-        let easting = x_0 + (b * d) * (cos_xi * sin_lon);
-        let northing = y_0 + (b / d) * (cos_xi_0 * sin_xi - sin_xi_0 * cos_xi * cos_lon);
-        operands.set_xy(i, easting, northing);
+        if b.abs() < EPS10 {
+            operands.set_xy(i, f64::NAN, f64::NAN);
+            continue;
+        }
+
+        let (x, y) = if oblique {
+            b = (2.0 / b).sqrt();
+            (
+                xmf * b * cos_xi * sin_lon,
+                ymf * b * (cosb1 * sin_xi - sinb1 * cos_xi * cos_lon),
+            )
+        } else if equatorial {
+            b = (2.0 / b).sqrt();
+            (xmf * b * cos_xi * sin_lon, ymf * b * sin_xi)
+        } else if q >= 1.0e-15 {
+            let root_q = q.sqrt();
+            let y = cos_lon * if south_polar { root_q } else { -root_q };
+            (root_q * sin_lon, y)
+        } else {
+            (0.0, 0.0)
+        };
+
+        operands.set_xy(i, x_0 + a * x, y_0 + a * y);
         successes += 1;
     }
 
@@ -82,23 +88,23 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 // ----- I N V E R S E -----------------------------------------------------------------
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    // Oblique aspect: [IOGP, 2019](crate::Bibliography::Iogp19), pp. 78-80
-    let Ok(xi_0) = op.params.real("xi_0") else {
-        return 0;
-    };
     let Ok(qp) = op.params.real("qp") else {
         return 0;
     };
     let Ok(rq) = op.params.real("rq") else {
         return 0;
     };
-    let Ok(d) = op.params.real("d") else { return 0 };
+    let Ok(dd) = op.params.real("dd") else { return 0 };
     let Ok(authalic) = op.params.fourier_coefficients("authalic") else {
         return 0;
     };
 
+    let oblique = op.params.boolean("oblique");
+    let equatorial = op.params.boolean("equatorial");
     let north_polar = op.params.boolean("north_polar");
     let south_polar = op.params.boolean("south_polar");
+    let sinb1 = op.params.real("sinb1").unwrap_or(0.0);
+    let cosb1 = op.params.real("cosb1").unwrap_or(1.0);
 
     let lon_0 = op.params.real("lon_0").unwrap_or(0.).to_radians();
     let lat_0 = op.params.real("lat_0").unwrap_or(0.).to_radians();
@@ -108,77 +114,66 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
     let a = ellps.semimajor_axis();
 
-    let (sin_xi_0, cos_xi_0) = xi_0.sin_cos();
-
     let mut successes = 0_usize;
     let n = operands.len();
 
-    // The polar aspects are not quite as simple as in the forward case
-    if north_polar || south_polar {
-        let sign = if north_polar { -1.0 } else { 1.0 };
-        for i in 0..n {
-            let (x, y) = operands.xy(i);
-            let x = x - x_0;
-            let y = y - y_0;
-            let q = x * x + y * y;
+    for i in 0..n {
+        let (mut x, mut y) = operands.xy(i);
+        x = (x - x_0) / a;
+        y = (y - y_0) / a;
 
-            if q < EPS10 {
+        let (ab, lam) = if oblique || equatorial {
+            x /= dd;
+            y *= dd;
+            let rho = x.hypot(y);
+            if rho < EPS10 {
                 operands.set_xy(i, lon_0, lat_0);
                 successes += 1;
                 continue;
             }
 
-            let mut authalic_sine = 1.0 - q / (a * a * qp);
-            if south_polar {
-                authalic_sine = -authalic_sine;
-            }
-
-            if authalic_sine.abs() > 1.0 + EPS10 {
-                debug!("LAEA: ({x}, {y}) outside polar domain");
+            let asin_argument = 0.5 * rho / rq;
+            if asin_argument > 1.0 {
                 operands.set_xy(i, f64::NAN, f64::NAN);
                 continue;
             }
 
-            let authalic_lat = authalic_sine.clamp(-1.0, 1.0).asin();
-            let lon = lon_0 + x.atan2(sign * y);
-            let lat = ellps.latitude_authalic_to_geographic(authalic_lat, &authalic);
-            operands.set_xy(i, lon, lat);
-            successes += 1;
-        }
-        return successes;
-    }
+            let c = 2.0 * asin_argument.asin();
+            let (s_ce, c_ce) = c.sin_cos();
+            x *= s_ce;
+            if oblique {
+                let ab = c_ce * sinb1 + y * s_ce * cosb1 / rho;
+                y = rho * cosb1 * c_ce - y * sinb1 * s_ce;
+                (ab, x.atan2(y))
+            } else {
+                let ab = y * s_ce / rho;
+                y = rho * c_ce;
+                (ab, x.atan2(y))
+            }
+        } else {
+            if north_polar {
+                y = -y;
+            }
+            let q = x * x + y * y;
+            if q == 0.0 {
+                operands.set_xy(i, lon_0, lat_0);
+                successes += 1;
+                continue;
+            }
+            let mut ab = 1.0 - q / qp;
+            if south_polar {
+                ab = -ab;
+            }
+            (ab, x.atan2(y))
+        };
 
-    // Either equatorial or oblique aspects
-    for i in 0..n {
-        let (x, y) = operands.xy(i);
-        let rho = ((x - x_0) / d).hypot(d * (y - y_0));
-
-        // A bit of reality hardening ported from the PROJ implementation
-        if rho < EPS10 {
-            operands.set_xy(i, lon_0, lat_0);
-            successes += 1;
-            continue;
-        }
-
-        // Another case of PROJ reality hardening
-        let asin_argument = 0.5 * rho / rq;
-        if asin_argument.abs() > 1.0 {
-            debug!("LAEA: ({x}, {y}) outside domain");
+        if ab.abs() > 1.0 + EPS10 {
             operands.set_xy(i, f64::NAN, f64::NAN);
             continue;
         }
 
-        let c = 2.0 * asin_argument.asin();
-        let (sin_c, cos_c) = c.sin_cos();
-
-        // The authalic latitude, 𝜉
-        let xi = (cos_c * sin_xi_0 + (d * (y - y_0) * sin_c * cos_xi_0) / rho).asin();
-
-        let lat = ellps.latitude_authalic_to_geographic(xi, &authalic);
-
-        let num = (x - x_0) * sin_c;
-        let denom = d * rho * cos_xi_0 * cos_c - d * d * (y - y_0) * sin_xi_0 * sin_c;
-        let lon = num.atan2(denom) + lon_0;
+        let lat = ellps.latitude_authalic_to_geographic(ab.clamp(-1.0, 1.0).asin(), &authalic);
+        let lon = lon_0 + lam;
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -220,7 +215,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let polar = (t - FRAC_PI_2).abs() < EPS10;
     let north = polar && (lat_0 > 0.0);
     let equatorial = !polar && t < EPS10;
-    let oblique = !polar && !equatorial;
     match (polar, equatorial, north) {
         (true, _, true) => params.boolean.insert("north_polar"),
         (true, _, false) => params.boolean.insert("south_polar"),
@@ -228,36 +222,37 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         _ => params.boolean.insert("oblique"),
     };
 
-    // --- Precompute some latitude invariant factors ---
-
     let ellps = params.ellps(0);
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
-    let (sin_phi_0, cos_phi_0) = lat_0.sin_cos();
-
-    // qs for the central parallel
-    let q0 = ancillary::qs(sin_phi_0, e);
-    // qs for the North Pole
     let qp = ancillary::qs(1.0, e);
-    // Authalic latitude of the central parallel - 𝛽₀ in the IOGP text
-    let xi_0 = (q0 / qp).asin();
-    // Rq in the IOGP text
-    let rq = a * (0.5 * qp).sqrt();
-    // D in the IOGP text
-    let d = if oblique {
-        a * (cos_phi_0 / (1.0 - es * sin_phi_0 * sin_phi_0).sqrt()) / (rq * xi_0.cos())
-    } else if equatorial {
-        rq.recip()
-    } else {
-        a
-    };
-
-    params.real.insert("xi_0", xi_0);
-    params.real.insert("q0", q0);
+    let rq = (0.5 * qp).sqrt();
     params.real.insert("qp", qp);
     params.real.insert("rq", rq);
-    params.real.insert("d", d);
+
+    match (polar, equatorial, north) {
+        (true, _, _) => {
+            params.real.insert("dd", 1.0);
+            params.real.insert("xmf", 1.0);
+            params.real.insert("ymf", 1.0);
+        }
+        (_, true, _) => {
+            params.real.insert("dd", rq.recip());
+            params.real.insert("xmf", 1.0);
+            params.real.insert("ymf", 0.5 * qp);
+        }
+        _ => {
+            let (sin_phi_0, cos_phi_0) = lat_0.sin_cos();
+            let xi_0 = (ancillary::qs(sin_phi_0, e) / qp).asin();
+            let (sinb1, cosb1) = xi_0.sin_cos();
+            let dd = cos_phi_0 / ((1.0 - es * sin_phi_0 * sin_phi_0).sqrt() * rq * cosb1);
+            params.real.insert("sinb1", sinb1);
+            params.real.insert("cosb1", cosb1);
+            params.real.insert("dd", dd);
+            params.real.insert("xmf", rq * dd);
+            params.real.insert("ymf", rq / dd);
+        }
+    }
 
     let authalic = ellps.coefficients_for_authalic_latitude_computations();
     params.fourier_coefficients.insert("authalic", authalic);

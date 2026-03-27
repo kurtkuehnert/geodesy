@@ -279,11 +279,17 @@ fn normalize_sphere_reductions(elements: &mut Vec<String>) -> Result<(), Error> 
         "R_A" => authalic_radius(&ellps),
         "R_V" => (a * a * b).cbrt(),
         "R_C" => {
-            let phi0 = find_prefix(elements, "lat_0=")
-                .map(|idx| parse_f64(&elements[idx][6..], "lat_0"))
-                .transpose()?
-                .unwrap_or(0.0)
-                .to_radians();
+            // PROJ's current Mercator runtime behavior effectively uses the default
+            // latitude of origin here, even when a non-zero lat_0 is supplied.
+            let phi0 = if elements.first().map(String::as_str) == Some("merc") {
+                0.0
+            } else {
+                find_prefix(elements, "lat_0=")
+                    .map(|idx| parse_f64(&elements[idx][6..], "lat_0"))
+                    .transpose()?
+                    .unwrap_or(0.0)
+                    .to_radians()
+            };
             let sin_phi0 = phi0.sin();
             let denom = 1.0 - e2 * sin_phi0 * sin_phi0;
             a * (1.0 - e2).sqrt() / denom
@@ -547,6 +553,9 @@ fn normalize_omerc(elements: &mut Vec<String>) {
         remove_parameter_flag(elements, "no_uoff") || remove_parameter_flag(elements, "no_off");
     let has_variant = elements.iter().any(|e| e == "variant");
     let has_central_point_form = elements.iter().any(|e| e.starts_with("lonc="));
+    if no_uoff {
+        elements.push("no_off".to_string());
+    }
     if has_central_point_form && !no_uoff && !has_variant {
         elements.push("variant".to_string());
     }

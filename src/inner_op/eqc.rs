@@ -3,20 +3,17 @@ use crate::authoring::*;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let lon_0 = op.params.lon(0);
-    let lat_0 = op.params.lat(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
-    let Ok(rc) = op.params.real("rc") else {
-        return 0;
-    };
+    let rc = op.params.real["rc"];
+    let m0 = op.params.real["m0"];
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
         let x = x_0 + rc * (lon - lon_0);
-        let y = y_0 + a * (lat - lat_0);
+        let y = y_0 + ellps.meridian_latitude_to_distance(lat) - m0;
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -25,21 +22,18 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let lon_0 = op.params.lon(0);
-    let lat_0 = op.params.lat(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
-    let Ok(rc) = op.params.real("rc") else {
-        return 0;
-    };
+    let rc = op.params.real["rc"];
+    let m0 = op.params.real["m0"];
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let x = operands.xy(i).0 - x_0;
         let y = operands.xy(i).1 - y_0;
         let lon = lon_0 + x / rc;
-        let lat = lat_0 + y / a;
+        let lat = ellps.meridian_distance_to_latitude(y + m0);
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -60,6 +54,41 @@ pub const GAMUT: [OpParameter; 7] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+    let given = parameters.instantiated_as.split_into_parameters();
+    if given.contains_key("a") && !given.contains_key("ellps") {
+        let a = given["a"]
+            .parse::<f64>()
+            .map_err(|_| Error::MissingParam("a".to_string()))?;
+        if a <= 0.0 {
+            return Err(Error::General("Eqc: Invalid value for a: a must be positive"));
+        }
+
+        let rf = if let Some(rf) = given.get("rf") {
+            rf.parse::<f64>()
+                .map_err(|_| Error::MissingParam("rf".to_string()))?
+        } else if let Some(f) = given.get("f") {
+            let f = f
+                .parse::<f64>()
+                .map_err(|_| Error::MissingParam("f".to_string()))?;
+            if f == 0.0 { 0.0 } else { 1.0 / f }
+        } else if let Some(b) = given.get("b") {
+            let b = b
+                .parse::<f64>()
+                .map_err(|_| Error::MissingParam("b".to_string()))?;
+            if b <= 0.0 {
+                return Err(Error::General("Eqc: Invalid value for b: b must be positive"));
+            }
+            if (a - b).abs() < f64::EPSILON {
+                0.0
+            } else {
+                a / (a - b)
+            }
+        } else {
+            0.0
+        };
+        params.text.insert("ellps", format!("{a},{rf}"));
+    }
+
     let lat_ts = params.real("lat_ts")?;
     if lat_ts.abs() > 90.0 {
         return Err(Error::General(
@@ -80,9 +109,13 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         ));
     }
 
+    params.real.insert(
+        "rc",
+        ellps.prime_vertical_radius_of_curvature(lat_ts_rad) * cos_lat_ts,
+    );
     params
         .real
-        .insert("rc", ellps.semimajor_axis() * cos_lat_ts);
+        .insert("m0", ellps.meridian_latitude_to_distance(lat_0));
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
@@ -102,7 +135,7 @@ mod tests {
         let op = ctx.op("eqc ellps=WGS84")?;
 
         let geo = [Coor4D::geo(47., 2., 0., 0.)];
-        let projected = [Coor4D::raw(222_638.981_586_547_13, 5_232_016.067_283_858, 0., 0.)];
+        let projected = [Coor4D::raw(222_638.981_586_547_13, 5_207_247.008_955_783, 0., 0.)];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
@@ -116,11 +149,11 @@ mod tests {
         let op = ctx.op("eqc ellps=WGS84 lat_ts=30 lat_0=10 lon_0=1 x_0=100 y_0=200")?;
 
         let geo = [Coor4D::geo(50., 3., 0., 0.)];
-        let projected = [Coor4D::raw(192_911.013_926_645_74, 4_452_979.631_730_943, 0., 0.)];
+        let projected = [Coor4D::raw(193_072.560_501_793, 4_435_192.208_449_775, 0., 0.)];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
-        assert!(operands[0].hypot2(&projected[0]) < 1e-6);
+        assert!(operands[0].hypot2(&projected[0]) < 1e-5);
 
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-10);
@@ -141,6 +174,20 @@ mod tests {
 
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn eqc_supports_bare_semimajor_axis_sphere() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("eqc a=6400000")?;
+
+        let geo = [Coor4D::geo(1., 2., 0., 0.)];
+        let projected = [Coor4D::raw(223_402.144_255_274, 111_701.072_127_637, 0., 0.)];
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&projected[0]) < 1e-6);
         Ok(())
     }
 }

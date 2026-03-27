@@ -458,7 +458,7 @@ pub fn parse_proj(definition: &str, proj_degrees: bool) -> Result<String, Error>
             }
         }
     }
-    let result = geodesy_steps.join(" | ").trim().to_string();
+    let mut result = geodesy_steps.join(" | ").trim().to_string();
 
     // For a single-step non-pipeline PROJ string that represents a geographic operator,
     // inject degree↔radian conversion so the resulting geodesy pipeline matches PROJ's
@@ -468,22 +468,61 @@ pub fn parse_proj(definition: &str, proj_degrees: bool) -> Result<String, Error>
     // PROJ's internal radian convention and include explicit unitconvert steps where needed.
     // Multi-step strings (unofficial extension) are excluded by the steps.len() == 1 guard.
     if proj_degrees && steps.len() == 1 && !is_explicit_pipeline && !result.is_empty() {
+        let linear_scale = extract_linear_output_scale(&mut result)?;
         if let Some(op) = primary_op.as_deref() {
             let (input, output) = crate::inner_op::op_domains(op);
             let wrap_input = input == Some(crate::inner_op::CoordDomain::Geographic);
             let wrap_output = output == Some(crate::inner_op::CoordDomain::Geographic);
+            let mut wrapped = result.clone();
             if wrap_input {
-                let wrapped = format!("unitconvert xy_in=deg xy_out=rad | {result}");
-                return Ok(if wrap_output {
-                    format!("{wrapped} | unitconvert xy_in=rad xy_out=deg")
-                } else {
-                    wrapped
-                });
+                wrapped = format!("unitconvert xy_in=deg xy_out=rad | {wrapped}");
             }
+            if output == Some(crate::inner_op::CoordDomain::Projected)
+                && let Some(scale) = linear_scale
+            {
+                wrapped = format!("{wrapped} | unitconvert xy_in=m xy_out={scale}");
+            }
+            return Ok(if wrap_output {
+                format!("{wrapped} | unitconvert xy_in=rad xy_out=deg")
+            } else {
+                wrapped
+            });
         }
     }
 
     Ok(result)
+}
+
+fn extract_linear_output_scale(definition: &mut String) -> Result<Option<f64>, Error> {
+    let mut scale = None;
+    let mut kept = Vec::new();
+    let tokens: Vec<_> = definition.split_whitespace().collect();
+    for token in tokens {
+        if let Some(value) = token.strip_prefix("to_meter=") {
+            scale = Some(value.parse::<f64>().map_err(|_| {
+                Error::Unsupported(format!("parse_proj cannot parse to_meter scale: {value}"))
+            })?);
+            continue;
+        }
+        kept.push(token.to_string());
+    }
+    if let Some(scale) = scale {
+        for token in &mut kept {
+            if let Some(value) = token.strip_prefix("x_0=") {
+                let parsed = value.parse::<f64>().map_err(|_| {
+                    Error::Unsupported(format!("parse_proj cannot parse x_0 offset: {value}"))
+                })?;
+                *token = format!("x_0={}", parsed * scale);
+            } else if let Some(value) = token.strip_prefix("y_0=") {
+                let parsed = value.parse::<f64>().map_err(|_| {
+                    Error::Unsupported(format!("parse_proj cannot parse y_0 offset: {value}"))
+                })?;
+                *token = format!("y_0={}", parsed * scale);
+            }
+        }
+    }
+    *definition = kept.join(" ");
+    Ok(scale.filter(|value| (*value - 1.0).abs() > f64::EPSILON))
 }
 
 /// Inspect a pipeline definition and return one grid dependency chain per step.
@@ -744,6 +783,18 @@ mod tests {
             parse_proj("+proj=merc +R_C +R=6378136.6 +lat_0=0", true)?,
             "unitconvert xy_in=deg xy_out=rad | merc lat_0=0 ellps=6378136.6,0"
         );
+        assert_eq!(
+            parse_proj("+proj=merc +R_C +ellps=WGS84 +lat_0=45", true)?,
+            "unitconvert xy_in=deg xy_out=rad | merc ellps=6356752.314245179,0 lat_0=45"
+        );
+
+        assert_eq!(
+            parse_proj(
+                "+proj=cass +lat_0=10.4416666666667 +lon_0=-61.3333333333333 +x_0=86501.46392052 +y_0=65379.0134283 +to_meter=0.201166195164 +a=6378293.64520876 +rf=294.2606763692733",
+                true
+            )?,
+            "unitconvert xy_in=deg xy_out=rad | cass lat_0=10.4416666666667 lon_0=-61.3333333333333 x_0=17401.17037300703 y_0=13152.047374947175 ellps=6378293.64520876,294.2606763692733 | unitconvert xy_in=m xy_out=0.201166195164"
+        );
 
         assert_eq!(
             parse_proj("+proj=stere +lat_0=90 +a=6378273 +b=6356889.449", true)?,
@@ -773,7 +824,7 @@ mod tests {
                 "+proj=omerc +lat_0=4 +lonc=115 +alpha=53 +gamma=52 +no_uoff +pm=paris",
                 true
             )?,
-            "unitconvert xy_in=deg xy_out=rad | omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52"
+            "unitconvert xy_in=deg xy_out=rad | omerc latc=4 lonc=117.33722916666667 alpha=53 gamma_c=52 no_off"
         );
 
         assert_eq!(

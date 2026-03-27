@@ -69,17 +69,21 @@ mod deformation;
 mod eqearth;
 mod eqc;
 mod geodesic;
+mod gstmerc;
 mod gravity;
 mod gridshift;
 mod helmert;
 mod iso6709;
+mod krovak;
 mod laea;
+mod labrd;
 mod latitude;
 mod lcc;
 mod longlat;
 mod merc;
 mod molodensky;
 mod noop;
+mod nzmg;
 mod omerc;
 mod permtide;
 pub(crate) mod pipeline; // Needed by Op for instantiation
@@ -97,7 +101,7 @@ mod webmerc;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 44] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 49] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
     BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
@@ -106,11 +110,16 @@ const BUILTIN_OPERATORS: [BuiltinOp; 44] = [
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
+    BuiltinOp::with_domains("gstmerc",     gstmerc::new,     Geographic, Projected),
+    BuiltinOp::with_domains("krovak",      krovak::new,      Geographic, Projected),
     BuiltinOp::with_domains("laea",        laea::new,        Geographic, Projected),
+    BuiltinOp::with_domains("labrd",       labrd::new,       Geographic, Projected),
     BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),
     BuiltinOp::with_domains("merc",        merc::new,        Geographic, Projected),
+    BuiltinOp::with_domains("nzmg",        nzmg::new,        Geographic, Projected),
     BuiltinOp::with_domains("omerc",       omerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("poly",        poly::new,        Geographic, Projected),
+    BuiltinOp::with_domains("mod_krovak",  krovak::modified, Geographic, Projected),
     BuiltinOp::with_domains("somerc",      somerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("stere",       stere::new,       Geographic, Projected),
     BuiltinOp::with_domains("sterea",      sterea::new,      Geographic, Projected),
