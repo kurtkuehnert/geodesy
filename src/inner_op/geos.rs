@@ -24,11 +24,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let phi_gc = (radius_p2 * lat.tan()).atan();
             let (sin_gc, cos_gc) = phi_gc.sin_cos();
             let r = radius_p / (radius_p * cos_gc).hypot(sin_gc);
-            (
-                r * cos_lam * cos_gc,
-                r * sin_lam * cos_gc,
-                r * sin_gc,
-            )
+            (r * cos_lam * cos_gc, r * sin_lam * cos_gc, r * sin_gc)
         } else {
             (cos_lam * cos_phi, sin_lam * cos_phi, sin_phi)
         };
@@ -151,5 +147,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }

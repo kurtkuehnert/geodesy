@@ -60,7 +60,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
             .parse::<f64>()
             .map_err(|_| Error::MissingParam("a".to_string()))?;
         if a <= 0.0 {
-            return Err(Error::General("Eqc: Invalid value for a: a must be positive"));
+            return Err(Error::General(
+                "Eqc: Invalid value for a: a must be positive",
+            ));
         }
 
         let rf = if let Some(rf) = given.get("rf") {
@@ -76,7 +78,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
                 .parse::<f64>()
                 .map_err(|_| Error::MissingParam("b".to_string()))?;
             if b <= 0.0 {
-                return Err(Error::General("Eqc: Invalid value for b: b must be positive"));
+                return Err(Error::General(
+                    "Eqc: Invalid value for b: b must be positive",
+                ));
             }
             if (a - b).abs() < f64::EPSILON {
                 0.0
@@ -135,7 +139,12 @@ mod tests {
         let op = ctx.op("eqc ellps=WGS84")?;
 
         let geo = [Coor4D::geo(47., 2., 0., 0.)];
-        let projected = [Coor4D::raw(222_638.981_586_547_13, 5_207_247.008_955_783, 0., 0.)];
+        let projected = [Coor4D::raw(
+            222_638.981_586_547_13,
+            5_207_247.008_955_783,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
@@ -149,7 +158,12 @@ mod tests {
         let op = ctx.op("eqc ellps=WGS84 lat_ts=30 lat_0=10 lon_0=1 x_0=100 y_0=200")?;
 
         let geo = [Coor4D::geo(50., 3., 0., 0.)];
-        let projected = [Coor4D::raw(193_072.560_501_793, 4_435_192.208_449_775, 0., 0.)];
+        let projected = [Coor4D::raw(
+            193_072.560_501_793,
+            4_435_192.208_449_775,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
@@ -166,7 +180,12 @@ mod tests {
         let op = ctx.op("eqc ellps=6371000,0 lat_ts=60")?;
 
         let geo = [Coor4D::geo(30., 10., 0., 0.)];
-        let projected = [Coor4D::raw(555_974.633_222_793_7, 3_335_847.799_336_7617, 0., 0.)];
+        let projected = [Coor4D::raw(
+            555_974.633_222_793_7,
+            3_335_847.799_336_7617,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
@@ -183,7 +202,12 @@ mod tests {
         let op = ctx.op("eqc a=6400000")?;
 
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(223_402.144_255_274, 111_701.072_127_637, 0., 0.)];
+        let projected = [Coor4D::raw(
+            223_402.144_255_274,
+            111_701.072_127_637,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

@@ -127,8 +127,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let d = x / (a * nu1);
             let d2 = d * d;
             let hyperbolic = op.params.boolean("hyperbolic");
-            let lon =
-                lon_0 + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
+            let lon = lon_0 + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
             let lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
             let (mut lon, mut lat) = if hyperbolic {
                 (lon, lat)
@@ -137,16 +136,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             };
 
             for _ in 0..INV_ITER {
-                let (fx, fy) = fwd_ellipsoidal(
-                    &ellps,
-                    lon_0,
-                    x_0,
-                    y_0,
-                    m0,
-                    hyperbolic,
-                    lon,
-                    lat,
-                );
+                let (fx, fy) = fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat);
                 let dx = x + x_0 - fx;
                 let dy = y + y_0 - fy;
                 if dx.hypot(dy) < INV_TOL {
@@ -206,9 +196,10 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.boolean.insert("spherical");
         params.real.insert("m0", lat_0);
     } else {
-        params
-            .real
-            .insert("m0", ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis());
+        params.real.insert(
+            "m0",
+            ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis(),
+        );
     }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
@@ -265,7 +256,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("cass lat_0=0 lon_0=0 ellps=WGS84")?;
 
-        let mut projected = [Coor4D::raw(-58044.692087790158, 10667870.723512903, 0.0, 0.0)];
+        let mut projected = [Coor4D::raw(
+            -58044.692087790158,
+            10667870.723512903,
+            0.0,
+            0.0,
+        )];
         ctx.apply(op, Inv, &mut projected)?;
 
         assert!((projected[0][0].to_degrees() - 179.0).abs() < 1e-8);

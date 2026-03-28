@@ -13,11 +13,17 @@ struct Complex {
 
 impl Complex {
     fn add(self, rhs: Self) -> Self {
-        Self { r: self.r + rhs.r, i: self.i + rhs.i }
+        Self {
+            r: self.r + rhs.r,
+            i: self.i + rhs.i,
+        }
     }
 
     fn sub(self, rhs: Self) -> Self {
-        Self { r: self.r - rhs.r, i: self.i - rhs.i }
+        Self {
+            r: self.r - rhs.r,
+            i: self.i - rhs.i,
+        }
     }
 
     fn mul(self, rhs: Self) -> Self {
@@ -51,12 +57,30 @@ fn zpolyd1(z: Complex, coeffs: &[Complex]) -> (Complex, Complex) {
 }
 
 const BF: [Complex; 6] = [
-    Complex { r: 0.755_785_322_8, i: 0.0 },
-    Complex { r: 0.249_204_646, i: 0.003_371_507 },
-    Complex { r: -0.001_541_739, i: 0.041_058_56 },
-    Complex { r: -0.101_629_07, i: 0.017_276_09 },
-    Complex { r: -0.266_234_89, i: -0.362_492_18 },
-    Complex { r: -0.687_098_3, i: -1.165_196_7 },
+    Complex {
+        r: 0.755_785_322_8,
+        i: 0.0,
+    },
+    Complex {
+        r: 0.249_204_646,
+        i: 0.003_371_507,
+    },
+    Complex {
+        r: -0.001_541_739,
+        i: 0.041_058_56,
+    },
+    Complex {
+        r: -0.101_629_07,
+        i: 0.017_276_09,
+    },
+    Complex {
+        r: -0.266_234_89,
+        i: -0.362_492_18,
+    },
+    Complex {
+        r: -0.687_098_3,
+        i: -1.165_196_7,
+    },
 ];
 
 const TPSI: [f64; 10] = [
@@ -99,7 +123,10 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         for coeff in TPSI[..TPSI.len() - 1].iter().rev() {
             pr = coeff + dphi * pr;
         }
-        let p = Complex { r: dphi * pr, i: lon - lon_0 };
+        let p = Complex {
+            r: dphi * pr,
+            i: lon - lon_0,
+        };
         let z = zpoly1(p, &BF);
         operands.set_xy(i, x_0 + a * z.i, y_0 + a * z.r);
         successes += 1;
@@ -175,7 +202,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("y_0", 6_023_150.0);
     params.real.insert("a", 6_378_388.0);
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 #[cfg(test)]
@@ -188,7 +219,12 @@ mod tests {
         let op = ctx.op("nzmg")?;
 
         let geo = [Coor4D::geo(1.0, 2.0, 0.0, 0.0)];
-        let expected = [Coor4D::raw(3_352_675_144.747_425, -7_043_205_391.100_244, 0.0, 0.0)];
+        let expected = [Coor4D::raw(
+            3_352_675_144.747_425,
+            -7_043_205_391.100_244,
+            0.0,
+            0.0,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

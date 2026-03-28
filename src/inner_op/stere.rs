@@ -8,7 +8,8 @@ const CONV: f64 = 1e-10;
 const NITER: usize = 8;
 
 fn ssfn(phi: f64, sinphi: f64, eccen: f64) -> f64 {
-    (0.5 * (FRAC_PI_2 + phi)).tan() * ((1.0 - eccen * sinphi) / (1.0 + eccen * sinphi)).powf(0.5 * eccen)
+    (0.5 * (FRAC_PI_2 + phi)).tan()
+        * ((1.0 - eccen * sinphi) / (1.0 + eccen * sinphi)).powf(0.5 * eccen)
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -189,7 +190,11 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 } else {
                     cosc.asin()
                 };
-                let lon = if x == 0.0 && y == 0.0 { 0.0 } else { x.atan2(y) };
+                let lon = if x == 0.0 && y == 0.0 {
+                    0.0
+                } else {
+                    x.atan2(y)
+                };
                 (lon, lat)
             }
         } else {
@@ -231,7 +236,11 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 continue;
             }
             let lat = if south_polar { -lat } else { lat };
-            let lon = if x == 0.0 && y == 0.0 { 0.0 } else { x.atan2(y) };
+            let lon = if x == 0.0 && y == 0.0 {
+                0.0
+            } else {
+                x.atan2(y)
+            };
             (lon, lat)
         };
 
@@ -433,7 +442,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("stere ellps=GRS80")?;
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(222_644.854_550_117, 110_610.883_474_174, 0., 0.)];
+        let projected = [Coor4D::raw(
+            222_644.854_550_117,
+            110_610.883_474_174,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

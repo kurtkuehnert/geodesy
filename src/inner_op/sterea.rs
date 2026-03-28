@@ -42,7 +42,9 @@ fn gauss(lon: f64, lat: f64, c: f64, k: f64, e: f64, ratexp: f64) -> (f64, f64) 
     if (lat.abs() - FRAC_PI_2).abs() < 1e-14 {
         return (c * lon, lat.signum() * FRAC_PI_2);
     }
-    let phi = 2.0 * (k * (0.5 * lat + FRAC_PI_4).tan().powf(c) * srat(e * lat.sin(), ratexp)).atan() - FRAC_PI_2;
+    let phi = 2.0
+        * (k * (0.5 * lat + FRAC_PI_4).tan().powf(c) * srat(e * lat.sin(), ratexp)).atan()
+        - FRAC_PI_2;
     let lam = c * lon;
     (lam, phi)
 }
@@ -340,7 +342,8 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let s2 = (1.0 - e * sphi0) / (1.0 + e * sphi0);
     let w1 = (s1 * s2.powf(e)).powf(legacy_n);
     let sin_chi00 = (w1 - 1.0) / (w1 + 1.0);
-    let legacy_c = ((legacy_n + sphi0) * (1.0 - sin_chi00)) / ((legacy_n - sphi0) * (1.0 + sin_chi00));
+    let legacy_c =
+        ((legacy_n + sphi0) * (1.0 - sin_chi00)) / ((legacy_n - sphi0) * (1.0 + sin_chi00));
     let w2 = legacy_c * w1;
     let legacy_chi0 = ((w2 - 1.0) / (w2 + 1.0)).asin();
     let legacy_r2 = 2.0 * r / a;

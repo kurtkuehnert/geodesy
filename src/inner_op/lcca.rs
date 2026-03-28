@@ -121,7 +121,10 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("lat_0", phi0);
     params.real.insert("lon_0", params.lon(0).to_radians());
     params.real.insert("l", sinphi0);
-    params.real.insert("m0", ellps.meridian_latitude_to_distance(phi0) / ellps.semimajor_axis());
+    params.real.insert(
+        "m0",
+        ellps.meridian_latitude_to_distance(phi0) / ellps.semimajor_axis(),
+    );
     params.real.insert("r0", n0 / tan0);
     params.real.insert("c", 1.0 / (6.0 * r0m * n0));
 

@@ -33,9 +33,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let s2 = s * s;
         let al = (lon - lon_0) * cp / (1.0 - es * sp * sp).sqrt();
         let al2 = al * al;
-        let x = k_0
-            * al
-            * (1.0 + s2 * (a1 + s2 * a4) - al2 * (a2 + s * a3 + s2 * a5 + al2 * a6));
+        let x = k_0 * al * (1.0 + s2 * (a1 + s2 * a4) - al2 * (a2 + s * a3 + s2 * a5 + al2 * a6));
         let y = k_0
             * (al2 * (b1 + al2 * b4)
                 + s * (1.0
@@ -84,16 +82,14 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let x2 = x * x;
         let y2 = y * y;
         let al = x
-            * (1.0
-                - c1 * y2
+            * (1.0 - c1 * y2
                 + x2 * (c2 + c3 * y - c4 * x2 + c5 * y2 - c7 * x2 * y)
                 + y2 * (c6 * y2 - c8 * x2 * y));
         let s = s0
             + y * (1.0 + y2 * (-d2 + d8 * y2))
-            + x2
-                * (-d1
-                    + y * (-d3 + y * (-d5 + y * (-d7 + y * d11)))
-                    + x2 * (d4 + y * (d6 + y * d10) - x2 * d9));
+            + x2 * (-d1
+                + y * (-d3 + y * (-d5 + y * (-d7 + y * d11)))
+                + x2 * (d4 + y * (d6 + y * d10) - x2 * d9));
         let lat = ellps.meridian_distance_to_latitude(s * a);
         let sp = lat.sin();
         let lon = lon_0 + al * (1.0 - es * sp * sp).sqrt() / lat.cos();
@@ -134,41 +130,97 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     params.real.insert("lat_0", phi0);
     params.real.insert("lon_0", params.lon(0).to_radians());
-    params.real.insert("s0", ellps.meridian_latitude_to_distance(phi0) / ellps.semimajor_axis());
+    params.real.insert(
+        "s0",
+        ellps.meridian_latitude_to_distance(phi0) / ellps.semimajor_axis(),
+    );
     params.real.insert("a1", rr0_2 / 4.0);
-    params.real.insert("a2", rr0_2 * (2.0 * tan2 - 1.0 - 2.0 * es2) / 12.0);
-    params.real.insert("a3", rr0_2 * tan_phi0 * (1.0 + 4.0 * tan2) / (12.0 * n0));
+    params
+        .real
+        .insert("a2", rr0_2 * (2.0 * tan2 - 1.0 - 2.0 * es2) / 12.0);
+    params
+        .real
+        .insert("a3", rr0_2 * tan_phi0 * (1.0 + 4.0 * tan2) / (12.0 * n0));
     params.real.insert("a4", rr0_4 / 24.0);
-    params.real.insert("a5", rr0_4 * (-1.0 + tan2 * (11.0 + 12.0 * tan2)) / 24.0);
-    params.real.insert("a6", rr0_4 * (-2.0 + tan2 * (11.0 - 2.0 * tan2)) / 240.0);
+    params
+        .real
+        .insert("a5", rr0_4 * (-1.0 + tan2 * (11.0 + 12.0 * tan2)) / 24.0);
+    params
+        .real
+        .insert("a6", rr0_4 * (-2.0 + tan2 * (11.0 - 2.0 * tan2)) / 240.0);
     params.real.insert("b1", tan_phi0 / (2.0 * n0));
     params.real.insert("b2", rr0_2 / 12.0);
-    params.real.insert("b3", rr0_2 * (1.0 + 2.0 * tan2 - 2.0 * es2) / 4.0);
-    params.real.insert("b4", rr0_2 * tan_phi0 * (2.0 - tan2) / (24.0 * n0));
-    params.real.insert("b5", rr0_2 * tan_phi0 * (5.0 + 4.0 * tan2) / (8.0 * n0));
-    params.real.insert("b6", rr0_4 * (-2.0 + tan2 * (-5.0 + 6.0 * tan2)) / 48.0);
-    params.real.insert("b7", rr0_4 * (5.0 + tan2 * (19.0 + 12.0 * tan2)) / 24.0);
+    params
+        .real
+        .insert("b3", rr0_2 * (1.0 + 2.0 * tan2 - 2.0 * es2) / 4.0);
+    params
+        .real
+        .insert("b4", rr0_2 * tan_phi0 * (2.0 - tan2) / (24.0 * n0));
+    params
+        .real
+        .insert("b5", rr0_2 * tan_phi0 * (5.0 + 4.0 * tan2) / (8.0 * n0));
+    params
+        .real
+        .insert("b6", rr0_4 * (-2.0 + tan2 * (-5.0 + 6.0 * tan2)) / 48.0);
+    params
+        .real
+        .insert("b7", rr0_4 * (5.0 + tan2 * (19.0 + 12.0 * tan2)) / 24.0);
     params.real.insert("b8", rr0_4 / 120.0);
     params.real.insert("c1", rr0_2 / 4.0);
-    params.real.insert("c2", rr0_2 * (2.0 * tan2 - 1.0 - 2.0 * es2) / 12.0);
-    params.real.insert("c3", rr0_2 * tan_phi0 * (1.0 + tan2) / (3.0 * n0));
-    params.real.insert("c4", rr0_4 * (-3.0 + tan2 * (34.0 + 22.0 * tan2)) / 240.0);
-    params.real.insert("c5", rr0_4 * (4.0 + tan2 * (13.0 + 12.0 * tan2)) / 24.0);
+    params
+        .real
+        .insert("c2", rr0_2 * (2.0 * tan2 - 1.0 - 2.0 * es2) / 12.0);
+    params
+        .real
+        .insert("c3", rr0_2 * tan_phi0 * (1.0 + tan2) / (3.0 * n0));
+    params
+        .real
+        .insert("c4", rr0_4 * (-3.0 + tan2 * (34.0 + 22.0 * tan2)) / 240.0);
+    params
+        .real
+        .insert("c5", rr0_4 * (4.0 + tan2 * (13.0 + 12.0 * tan2)) / 24.0);
     params.real.insert("c6", rr0_4 / 16.0);
-    params.real.insert("c7", rr0_4 * tan_phi0 * (11.0 + tan2 * (33.0 + 16.0 * tan2)) / (48.0 * n0));
-    params.real.insert("c8", rr0_4 * tan_phi0 * (1.0 + 4.0 * tan2) / (36.0 * n0));
+    params.real.insert(
+        "c7",
+        rr0_4 * tan_phi0 * (11.0 + tan2 * (33.0 + 16.0 * tan2)) / (48.0 * n0),
+    );
+    params
+        .real
+        .insert("c8", rr0_4 * tan_phi0 * (1.0 + 4.0 * tan2) / (36.0 * n0));
     params.real.insert("d1", tan_phi0 / (2.0 * n0));
     params.real.insert("d2", rr0_2 / 12.0);
-    params.real.insert("d3", rr0_2 * (2.0 * tan2 + 1.0 - 2.0 * es2) / 4.0);
-    params.real.insert("d4", rr0_2 * tan_phi0 * (1.0 + tan2) / (8.0 * n0));
-    params.real.insert("d5", rr0_2 * tan_phi0 * (1.0 + 2.0 * tan2) / (4.0 * n0));
-    params.real.insert("d6", rr0_4 * (1.0 + tan2 * (6.0 + 6.0 * tan2)) / 16.0);
-    params.real.insert("d7", rr0_4 * tan2 * (3.0 + 4.0 * tan2) / 8.0);
+    params
+        .real
+        .insert("d3", rr0_2 * (2.0 * tan2 + 1.0 - 2.0 * es2) / 4.0);
+    params
+        .real
+        .insert("d4", rr0_2 * tan_phi0 * (1.0 + tan2) / (8.0 * n0));
+    params
+        .real
+        .insert("d5", rr0_2 * tan_phi0 * (1.0 + 2.0 * tan2) / (4.0 * n0));
+    params
+        .real
+        .insert("d6", rr0_4 * (1.0 + tan2 * (6.0 + 6.0 * tan2)) / 16.0);
+    params
+        .real
+        .insert("d7", rr0_4 * tan2 * (3.0 + 4.0 * tan2) / 8.0);
     params.real.insert("d8", rr0_4 / 80.0);
-    params.real.insert("d9", rr0_4 * tan_phi0 * (-21.0 + tan2 * (178.0 - 26.0 * tan2)) / 720.0);
-    params.real.insert("d10", rr0_4 * tan_phi0 * (29.0 + tan2 * (86.0 + 48.0 * tan2)) / (96.0 * n0));
-    params.real.insert("d11", rr0_4 * tan_phi0 * (37.0 + 44.0 * tan2) / (96.0 * n0));
+    params.real.insert(
+        "d9",
+        rr0_4 * tan_phi0 * (-21.0 + tan2 * (178.0 - 26.0 * tan2)) / 720.0,
+    );
+    params.real.insert(
+        "d10",
+        rr0_4 * tan_phi0 * (29.0 + tan2 * (86.0 + 48.0 * tan2)) / (96.0 * n0),
+    );
+    params
+        .real
+        .insert("d11", rr0_4 * tan_phi0 * (37.0 + 44.0 * tan2) / (96.0 * n0));
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }

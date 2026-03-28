@@ -160,7 +160,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("ocea a=6400000 lat_1=0.5 lat_2=2 lon_1=0 lon_2=0")?;
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(19_994_423.837_934_088, 223_322.760_576_728, 0., 0.)];
+        let projected = [Coor4D::raw(
+            19_994_423.837_934_088,
+            223_322.760_576_728,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

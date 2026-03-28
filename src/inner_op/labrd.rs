@@ -33,8 +33,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let i3 = i2 * a_coeff * a_coeff * (5.0 * cosps2 - sinps2) / 12.0;
         let i6_base = i4 * a_coeff * a_coeff;
         let i5 = i6_base * (cosps2 - sinps2) / 6.0;
-        let i6 =
-            i6_base * a_coeff * a_coeff * (5.0 * cosps2 * cosps2 + sinps2 * (sinps2 - 18.0 * cosps2)) / 120.0;
+        let i6 = i6_base
+            * a_coeff
+            * a_coeff
+            * (5.0 * cosps2 * cosps2 + sinps2 * (sinps2 - 18.0 * cosps2))
+            / 120.0;
         let lam = lon - lon_0;
         let t2 = lam * lam;
         let mut x = k_rg * lam * (i4 + t2 * (i5 + t2 * i6));
@@ -148,7 +151,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let lat_0 = params.real["lat_0"].to_radians();
     let lon_0 = params.real["lon_0"].to_radians();
     if lat_0 == 0.0 {
-        return Err(Error::General("Labrd: Invalid value for lat_0: lat_0 should be different from 0"));
+        return Err(Error::General(
+            "Labrd: Invalid value for lat_0: lat_0 should be different from 0",
+        ));
     }
     let az = params.real["azi"].to_radians();
     let k_0 = params.real["k_0"];
@@ -183,7 +188,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("cd", cd);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 #[cfg(test)]
@@ -196,7 +205,12 @@ mod tests {
         let op = ctx.op("labrd ellps=GRS80 lon_0=0.5 lat_0=2")?;
 
         let geo = [Coor4D::geo(1.0, 2.0, 0.0, 0.0)];
-        let expected = [Coor4D::raw(166_973.166_090_228, -110_536.912_730_266, 0.0, 0.0)];
+        let expected = [Coor4D::raw(
+            166_973.166_090_228,
+            -110_536.912_730_266,
+            0.0,
+            0.0,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

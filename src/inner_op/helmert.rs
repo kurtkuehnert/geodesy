@@ -373,7 +373,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     if position_vector {
         params.boolean.insert("position_vector");
     }
-    if params.given.contains_key("towgs84") && params.text("convention").ok().as_deref() == Some("coordinate_frame") {
+    if params.given.contains_key("towgs84")
+        && params.text("convention").ok().as_deref() == Some("coordinate_frame")
+    {
         return Err(Error::BadParam("towgs84".to_string(), def.clone()));
     }
 

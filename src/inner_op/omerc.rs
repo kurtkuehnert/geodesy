@@ -117,11 +117,7 @@ fn fwd_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
         }
 
         if ninety {
-            let base_u = if lon == lambda_0 {
-                0.0
-            } else {
-                base_u
-            };
+            let base_u = if lon == lambda_0 { 0.0 } else { base_u };
             let (x, y) = if no_rot {
                 (base_u + ec, v_coord + nc)
             } else {
@@ -227,7 +223,8 @@ fn inv_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
             (8.0 * chi).sin(),
         ];
 
-        let lat = chi + es * (f[0] * sines[0] + f[1] * sines[1] + f[2] * sines[2] + f[3] * sines[3]);
+        let lat =
+            chi + es * (f[0] * sines[0] + f[1] * sines[1] + f[2] * sines[2] + f[3] * sines[3]);
         let lon = lambda_0 - (s * c0 - v * s0).atan2((b * u_coord / a).cos()) / b;
         operands.set_xy(i, lon, lat);
         successes += 1;
@@ -333,10 +330,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (u, v) = if no_rot {
             (x, y)
         } else {
-            (
-                y * cosrot + x * sinrot + u_0,
-                x * cosrot - y * sinrot,
-            )
+            (y * cosrot + x * sinrot + u_0, x * cosrot - y * sinrot)
         };
         let q = (-BrA * v).exp();
         if q == 0.0 {
@@ -395,7 +389,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
             .parse::<f64>()
             .map_err(|_| Error::MissingParam("a".to_string()))?;
         if a <= 0.0 {
-            return Err(Error::General("Omerc: Invalid value for a: a must be positive"));
+            return Err(Error::General(
+                "Omerc: Invalid value for a: a must be positive",
+            ));
         }
 
         let rf = if let Some(rf) = given.get("rf") {
@@ -411,7 +407,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
                 .parse::<f64>()
                 .map_err(|_| Error::MissingParam("b".to_string()))?;
             if b <= 0.0 {
-                return Err(Error::General("Omerc: Invalid value for b: b must be positive"));
+                return Err(Error::General(
+                    "Omerc: Invalid value for b: b must be positive",
+                ));
             }
             if (a - b).abs() < f64::EPSILON {
                 0.0
@@ -444,23 +442,35 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     if has_alpha || has_gamma {
         if phi0.abs() >= FRAC_PI_2 - TOL {
-            return Err(Error::General("Omerc: Invalid value for lat_0: |lat_0| should be < 90°"));
+            return Err(Error::General(
+                "Omerc: Invalid value for lat_0: |lat_0| should be < 90°",
+            ));
         }
     } else {
         if phi1.abs() > FRAC_PI_2 - TOL {
-            return Err(Error::General("Omerc: Invalid value for lat_1: |lat_1| should be < 90°"));
+            return Err(Error::General(
+                "Omerc: Invalid value for lat_1: |lat_1| should be < 90°",
+            ));
         }
         if phi2.abs() > FRAC_PI_2 - TOL {
-            return Err(Error::General("Omerc: Invalid value for lat_2: |lat_2| should be < 90°"));
+            return Err(Error::General(
+                "Omerc: Invalid value for lat_2: |lat_2| should be < 90°",
+            ));
         }
         if (phi1 - phi2).abs() <= TOL {
-            return Err(Error::General("Omerc: Invalid value for lat_1/lat_2: lat_1 should be different from lat_2"));
+            return Err(Error::General(
+                "Omerc: Invalid value for lat_1/lat_2: lat_1 should be different from lat_2",
+            ));
         }
         if phi1.abs() <= TOL {
-            return Err(Error::General("Omerc: Invalid value for lat_1: lat_1 should be different from 0"));
+            return Err(Error::General(
+                "Omerc: Invalid value for lat_1: lat_1 should be different from 0",
+            ));
         }
         if phi0.abs() >= FRAC_PI_2 - TOL {
-            return Err(Error::General("Omerc: Invalid value for lat_0: |lat_0| should be < 90°"));
+            return Err(Error::General(
+                "Omerc: Invalid value for lat_0: |lat_0| should be < 90°",
+            ));
         }
     }
 
@@ -524,8 +534,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         } else if con > std::f64::consts::PI {
             lam2 += TAU;
         }
-        let lam0_raw =
-            0.5 * (lam1 + lam2) - (j * (0.5 * B * (lam1 - lam2)).tan() / p).atan() / B;
+        let lam0_raw = 0.5 * (lam1 + lam2) - (j * (0.5 * B * (lam1 - lam2)).tan() / p).atan() / B;
         lam0 = adjlon(lam0_raw);
         let denom = f - 1.0 / f;
         if denom == 0.0 {

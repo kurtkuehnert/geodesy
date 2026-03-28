@@ -45,7 +45,9 @@ fn normalize_ups(elements: &mut Vec<String>) -> Result<(), Error> {
     let r_idx = find_prefix(elements, "R=");
     let south = remove_parameter_flag(elements, "south");
 
-    if r_idx.is_some() || (a_idx.is_some() && b_idx.is_none() && rf_idx.is_none() && f_idx.is_none()) {
+    if r_idx.is_some()
+        || (a_idx.is_some() && b_idx.is_none() && rf_idx.is_none() && f_idx.is_none())
+    {
         return Err(Error::Unsupported(
             "ups requires an ellipsoidal definition; spherical UPS is not supported".into(),
         ));
@@ -59,7 +61,12 @@ fn normalize_ups(elements: &mut Vec<String>) -> Result<(), Error> {
     elements.push("y_0=2000000".to_string());
 
     // Keep existing ellipsoid params in place for downstream normalization.
-    if ellps_idx.is_none() && a_idx.is_none() && b_idx.is_none() && rf_idx.is_none() && f_idx.is_none() {
+    if ellps_idx.is_none()
+        && a_idx.is_none()
+        && b_idx.is_none()
+        && rf_idx.is_none()
+        && f_idx.is_none()
+    {
         elements.push("ellps=GRS80".to_string());
     }
     Ok(())
@@ -363,7 +370,11 @@ fn normalize_sphere_reductions(elements: &mut Vec<String>) -> Result<(), Error> 
         elements.push(format!("ellps={radius},0"));
     }
     let mut indices_to_remove = vec![mod_idx];
-    indices_to_remove.extend([a_idx, b_idx, rf_idx, sphere_idx, f_idx].into_iter().flatten());
+    indices_to_remove.extend(
+        [a_idx, b_idx, rf_idx, sphere_idx, f_idx]
+            .into_iter()
+            .flatten(),
+    );
     indices_to_remove.sort_unstable();
     indices_to_remove.dedup();
     for idx in indices_to_remove.into_iter().rev() {

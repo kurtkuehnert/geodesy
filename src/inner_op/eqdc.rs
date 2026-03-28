@@ -173,7 +173,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("eqdc ellps=GRS80 lat_1=0.5 lat_2=2")?;
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(222_588.440_269_286, 110_659.134_907_347, 0., 0.)];
+        let projected = [Coor4D::raw(
+            222_588.440_269_286,
+            110_659.134_907_347,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

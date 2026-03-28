@@ -80,7 +80,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("tcea a=6400000")?;
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(223_322.760_576_727, 111_769.145_040_586, 0., 0.)];
+        let projected = [Coor4D::raw(
+            223_322.760_576_727,
+            111_769.145_040_586,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

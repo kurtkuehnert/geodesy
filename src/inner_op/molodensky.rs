@@ -110,7 +110,8 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
 
-    let has_ellipsoid_pair = params.given.contains_key("ellps_0") && params.given.contains_key("ellps_1");
+    let has_ellipsoid_pair =
+        params.given.contains_key("ellps_0") && params.given.contains_key("ellps_1");
     for key in ["dx", "dy", "dz"] {
         if !params.given.contains_key(key) {
             return Err(Error::MissingParam(key.to_string()));

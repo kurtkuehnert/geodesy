@@ -13,10 +13,16 @@ struct Complex {
 
 impl Complex {
     fn add(self, rhs: Self) -> Self {
-        Self { r: self.r + rhs.r, i: self.i + rhs.i }
+        Self {
+            r: self.r + rhs.r,
+            i: self.i + rhs.i,
+        }
     }
     fn sub(self, rhs: Self) -> Self {
-        Self { r: self.r - rhs.r, i: self.i - rhs.i }
+        Self {
+            r: self.r - rhs.r,
+            i: self.i - rhs.i,
+        }
     }
     fn mul(self, rhs: Self) -> Self {
         Self {
@@ -70,49 +76,151 @@ fn zpolyd1(z: Complex, coeffs: &[Complex]) -> (Complex, Complex) {
 const GS48: [Complex; 5] = [
     Complex { r: 0.98879, i: 0.0 },
     Complex { r: 0.0, i: 0.0 },
-    Complex { r: -0.050909, i: 0.0 },
+    Complex {
+        r: -0.050909,
+        i: 0.0,
+    },
     Complex { r: 0.0, i: 0.0 },
-    Complex { r: 0.075528, i: 0.0 },
+    Complex {
+        r: 0.075528,
+        i: 0.0,
+    },
 ];
 const ALSK_E: [Complex; 6] = [
-    Complex { r: 0.9945303, i: 0.0 },
-    Complex { r: 0.0052083, i: -0.0027404 },
-    Complex { r: 0.0072721, i: 0.0048181 },
-    Complex { r: -0.0151089, i: -0.1932526 },
-    Complex { r: 0.0642675, i: -0.1381226 },
-    Complex { r: 0.3582802, i: -0.2884586 },
+    Complex {
+        r: 0.9945303,
+        i: 0.0,
+    },
+    Complex {
+        r: 0.0052083,
+        i: -0.0027404,
+    },
+    Complex {
+        r: 0.0072721,
+        i: 0.0048181,
+    },
+    Complex {
+        r: -0.0151089,
+        i: -0.1932526,
+    },
+    Complex {
+        r: 0.0642675,
+        i: -0.1381226,
+    },
+    Complex {
+        r: 0.3582802,
+        i: -0.2884586,
+    },
 ];
 const ALSK_S: [Complex; 6] = [
-    Complex { r: 0.9972523, i: 0.0 },
-    Complex { r: 0.0052513, i: -0.0041175 },
-    Complex { r: 0.0074606, i: 0.0048125 },
-    Complex { r: -0.0153783, i: -0.1968253 },
-    Complex { r: 0.0636871, i: -0.1408027 },
-    Complex { r: 0.3660976, i: -0.2937382 },
+    Complex {
+        r: 0.9972523,
+        i: 0.0,
+    },
+    Complex {
+        r: 0.0052513,
+        i: -0.0041175,
+    },
+    Complex {
+        r: 0.0074606,
+        i: 0.0048125,
+    },
+    Complex {
+        r: -0.0153783,
+        i: -0.1968253,
+    },
+    Complex {
+        r: 0.0636871,
+        i: -0.1408027,
+    },
+    Complex {
+        r: 0.3660976,
+        i: -0.2937382,
+    },
 ];
 const GS50_E: [Complex; 10] = [
-    Complex { r: 0.9827497, i: 0.0 },
-    Complex { r: 0.0210669, i: 0.0053804 },
-    Complex { r: -0.1031415, i: -0.0571664 },
-    Complex { r: -0.0323337, i: -0.0322847 },
-    Complex { r: 0.0502303, i: 0.1211983 },
-    Complex { r: 0.0251805, i: 0.0895678 },
-    Complex { r: -0.0012315, i: -0.1416121 },
-    Complex { r: 0.0072202, i: -0.1317091 },
-    Complex { r: -0.0194029, i: 0.0759677 },
-    Complex { r: -0.0210072, i: 0.0834037 },
+    Complex {
+        r: 0.9827497,
+        i: 0.0,
+    },
+    Complex {
+        r: 0.0210669,
+        i: 0.0053804,
+    },
+    Complex {
+        r: -0.1031415,
+        i: -0.0571664,
+    },
+    Complex {
+        r: -0.0323337,
+        i: -0.0322847,
+    },
+    Complex {
+        r: 0.0502303,
+        i: 0.1211983,
+    },
+    Complex {
+        r: 0.0251805,
+        i: 0.0895678,
+    },
+    Complex {
+        r: -0.0012315,
+        i: -0.1416121,
+    },
+    Complex {
+        r: 0.0072202,
+        i: -0.1317091,
+    },
+    Complex {
+        r: -0.0194029,
+        i: 0.0759677,
+    },
+    Complex {
+        r: -0.0210072,
+        i: 0.0834037,
+    },
 ];
 const GS50_S: [Complex; 10] = [
-    Complex { r: 0.9842990, i: 0.0 },
-    Complex { r: 0.0211642, i: 0.0037608 },
-    Complex { r: -0.1036018, i: -0.0575102 },
-    Complex { r: -0.0329095, i: -0.0320119 },
-    Complex { r: 0.0499471, i: 0.1223335 },
-    Complex { r: 0.0260460, i: 0.0899805 },
-    Complex { r: 0.0007388, i: -0.1435792 },
-    Complex { r: 0.0075848, i: -0.1334108 },
-    Complex { r: -0.0216473, i: 0.0776645 },
-    Complex { r: -0.0225161, i: 0.0853673 },
+    Complex {
+        r: 0.9842990,
+        i: 0.0,
+    },
+    Complex {
+        r: 0.0211642,
+        i: 0.0037608,
+    },
+    Complex {
+        r: -0.1036018,
+        i: -0.0575102,
+    },
+    Complex {
+        r: -0.0329095,
+        i: -0.0320119,
+    },
+    Complex {
+        r: 0.0499471,
+        i: 0.1223335,
+    },
+    Complex {
+        r: 0.0260460,
+        i: 0.0899805,
+    },
+    Complex {
+        r: 0.0007388,
+        i: -0.1435792,
+    },
+    Complex {
+        r: 0.0075848,
+        i: -0.1334108,
+    },
+    Complex {
+        r: -0.0216473,
+        i: 0.0776645,
+    },
+    Complex {
+        r: -0.0225161,
+        i: 0.0853673,
+    },
 ];
 
 fn coeffs_for(key: &str) -> &'static [Complex] {
@@ -216,7 +324,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let z = 2.0 * (0.5 * rh).atan();
         let sinz = z.sin();
         let cosz = z.cos();
-        let chi = (cosz * schio + p.i * sinz * cchio / rh).clamp(-1.0, 1.0).asin();
+        let chi = (cosz * schio + p.i * sinz * cchio / rh)
+            .clamp(-1.0, 1.0)
+            .asin();
         let mut phi = chi;
         for _ in 0..20 {
             if e == 0.0 {
@@ -224,7 +334,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
             let esphi = e * phi.sin();
             let dphi = 2.0
-                * (((FRAC_PI_2 + chi) * 0.5).tan() * ((1.0 + esphi) / (1.0 - esphi)).powf(0.5 * e)).atan()
+                * (((FRAC_PI_2 + chi) * 0.5).tan() * ((1.0 + esphi) / (1.0 - esphi)).powf(0.5 * e))
+                    .atan()
                 - FRAC_PI_2
                 - phi;
             phi += dphi;
@@ -264,7 +375,11 @@ fn build(def: &str, coeffs: &str, a: f64, es: f64, lon0: f64, phi0: f64) -> Resu
     params.real.insert("schio", chi0.sin());
     params.real.insert("cchio", chi0.cos());
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 pub fn gs48(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {

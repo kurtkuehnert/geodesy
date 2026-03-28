@@ -37,10 +37,11 @@ fn seraz0(
     let lam = lam_deg.to_radians();
     let sd = lam.sin();
     let sdsq = sd * sd;
-    let s = p22 * sa * lam.cos() * ((1.0 + t * sdsq) / ((1.0 + w * sdsq) * (1.0 + q * sdsq))).sqrt();
+    let s =
+        p22 * sa * lam.cos() * ((1.0 + t * sdsq) / ((1.0 + w * sdsq) * (1.0 + q * sdsq))).sqrt();
     let d1 = 1.0 + q * sdsq;
-    let h = ((1.0 + q * sdsq) / (1.0 + w * sdsq)).sqrt()
-        * ((1.0 + w * sdsq) / (d1 * d1) - p22 * ca);
+    let h =
+        ((1.0 + q * sdsq) / (1.0 + w * sdsq)).sqrt() * ((1.0 + w * sdsq) / (d1 * d1) - p22 * ca);
     let sq = (xj * xj + s * s).sqrt();
     let fc = mult * (h * xj - s * s) / sq;
     coeffs[2] += fc;
@@ -76,7 +77,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (mut lon, mut phi) = operands.xy(i);
         lon -= op.params.real["asc_lon"];
         phi = phi.clamp(-FRAC_PI_2, FRAC_PI_2);
-        let mut lampp = if phi >= 0.0 { FRAC_PI_2 } else { PI + FRAC_PI_2 };
+        let mut lampp = if phi >= 0.0 {
+            FRAC_PI_2
+        } else {
+            PI + FRAC_PI_2
+        };
         let tanphi = phi.tan();
         let mut lamt = 0.0;
         let mut lamdp = 0.0;
@@ -95,7 +100,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let mut l_ok = false;
             for _ in 0..=50 {
                 lamt = lon + p22 * sav;
-                let c = if lamt.cos().abs() < TOL { lamt.cos().signum() * TOL } else { lamt.cos() };
+                let c = if lamt.cos().abs() < TOL {
+                    lamt.cos().signum() * TOL
+                } else {
+                    lamt.cos()
+                };
                 let xlam = (one_es * tanphi * sa + lamt.sin() * ca) / c;
                 lamdp = xlam.atan() + fac;
                 if (sav.abs() - lamdp.abs()).abs() < TOL {
@@ -109,20 +118,28 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 break;
             }
             nn += 1;
-            lampp = if lamdp <= rlm { 2.0 * PI + FRAC_PI_2 } else { FRAC_PI_2 };
+            lampp = if lamdp <= rlm {
+                2.0 * PI + FRAC_PI_2
+            } else {
+                FRAC_PI_2
+            };
         }
         if !found {
             operands.set_coord(i, &Coor4D::nan());
             continue;
         }
         let sp = phi.sin();
-        let phidp = ((one_es * ca * sp - sa * phi.cos() * lamt.sin()) / (1.0 - es * sp * sp).sqrt())
-            .clamp(-1.0, 1.0)
-            .asin();
+        let phidp = ((one_es * ca * sp - sa * phi.cos() * lamt.sin())
+            / (1.0 - es * sp * sp).sqrt())
+        .clamp(-1.0, 1.0)
+        .asin();
         let tanph = (FRAC_PI_4 + 0.5 * phidp).tan().ln();
         let sd = lamdp.sin();
         let sdsq = sd * sd;
-        let s = p22 * sa * lamdp.cos() * ((1.0 + t * sdsq) / ((1.0 + w * sdsq) * (1.0 + q * sdsq))).sqrt();
+        let s = p22
+            * sa
+            * lamdp.cos()
+            * ((1.0 + t * sdsq) / ((1.0 + w * sdsq) * (1.0 + q * sdsq))).sqrt();
         let d = (xj * xj + s * s).sqrt();
         let x = b * lamdp + a2 * (2.0 * lamdp).sin() + a4 * (4.0 * lamdp).sin() - tanph * s / d;
         let y = c1 * sd + c3 * (3.0 * lamdp).sin() + tanph * xj / d;
@@ -163,18 +180,28 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let sav = lamdp;
             sd = lamdp.sin();
             let sdsq = sd * sd;
-            s = p22 * sa * lamdp.cos() * ((1.0 + t * sdsq) / ((1.0 + w * sdsq) * (1.0 + q * sdsq))).sqrt();
-            lamdp = (x + y * s / xj - a2 * (2.0 * lamdp).sin() - a4 * (4.0 * lamdp).sin()
+            s = p22
+                * sa
+                * lamdp.cos()
+                * ((1.0 + t * sdsq) / ((1.0 + w * sdsq) * (1.0 + q * sdsq))).sqrt();
+            lamdp = (x + y * s / xj
+                - a2 * (2.0 * lamdp).sin()
+                - a4 * (4.0 * lamdp).sin()
                 - s / xj * (c1 * lamdp.sin() + c3 * (3.0 * lamdp).sin()))
                 / b;
             if (lamdp - sav).abs() < TOL {
                 break;
             }
         }
-        let fac = ((1.0 + s * s / (xj * xj)).sqrt() * (y - c1 * sd - c3 * (3.0 * lamdp).sin())).exp();
+        let fac =
+            ((1.0 + s * s / (xj * xj)).sqrt() * (y - c1 * sd - c3 * (3.0 * lamdp).sin())).exp();
         let phidp = 2.0 * (fac.atan() - FRAC_PI_4);
         let dd = sd * sd;
-        let lamdp_safe = if lamdp.cos().abs() < TOL { lamdp - TOL } else { lamdp };
+        let lamdp_safe = if lamdp.cos().abs() < TOL {
+            lamdp - TOL
+        } else {
+            lamdp
+        };
         let spp = phidp.sin();
         let sppsq = spp * spp;
         let denom = 1.0 - sppsq * (1.0 + u);
@@ -191,7 +218,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let lamt = lamt - FRAC_PI_2 * (1.0 - scl) * sl;
         let lon = lamt - p22 * lamdp + op.params.real["asc_lon"];
         let lat = if sa.abs() < TOL {
-            (spp / (one_es * one_es + es * sppsq).sqrt()).clamp(-1.0, 1.0).asin()
+            (spp / (one_es * one_es + es * sppsq).sqrt())
+                .clamp(-1.0, 1.0)
+                .asin()
         } else {
             ((lamdp.tan() * lamt.cos() - ca * lamt.sin()) / (one_es * sa)).atan()
         };
@@ -211,7 +240,13 @@ pub const GAMUT: [OpParameter; 6] = [
     OpParameter::Natural { key: "path", default: None },
 ];
 
-fn setup(def: &str, params: &mut ParsedParameters, alf: f64, p22: f64, rlm: f64) -> Result<Op, Error> {
+fn setup(
+    def: &str,
+    params: &mut ParsedParameters,
+    alf: f64,
+    p22: f64,
+    rlm: f64,
+) -> Result<Op, Error> {
     if !(0.0..=PI).contains(&alf) {
         return Err(Error::BadParam("inc_angle".to_string(), def.to_string()));
     }
@@ -261,29 +296,45 @@ fn setup(def: &str, params: &mut ParsedParameters, alf: f64, p22: f64, rlm: f64)
     params.real.insert("rlm", rlm);
     params.real.insert("rlm2", rlm2);
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params: params.clone(), steps: None })
+    Ok(Op {
+        descriptor,
+        params: params.clone(),
+        steps: None,
+    })
 }
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &[
-        OpParameter::Flag { key: "inv" },
-        OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    ])?;
+    let mut params = ParsedParameters::new(
+        parameters,
+        &[
+            OpParameter::Flag { key: "inv" },
+            OpParameter::Text {
+                key: "ellps",
+                default: Some("GRS80"),
+            },
+        ],
+    )?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let alf = parse_angle(
-        given.get("inc_angle").ok_or_else(|| Error::MissingParam("inc_angle".to_string()))?,
+        given
+            .get("inc_angle")
+            .ok_or_else(|| Error::MissingParam("inc_angle".to_string()))?,
         def,
         "inc_angle",
     )?;
     let p22 = parse_real(
-        given.get("ps_rev").ok_or_else(|| Error::MissingParam("ps_rev".to_string()))?,
+        given
+            .get("ps_rev")
+            .ok_or_else(|| Error::MissingParam("ps_rev".to_string()))?,
         def,
         "ps_rev",
     )?;
     let asc_lon = parse_angle(
-        given.get("asc_lon").ok_or_else(|| Error::MissingParam("asc_lon".to_string()))?,
+        given
+            .get("asc_lon")
+            .ok_or_else(|| Error::MissingParam("asc_lon".to_string()))?,
         def,
         "asc_lon",
     )?;
@@ -293,29 +344,59 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
 pub fn misr(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &[
-        OpParameter::Flag { key: "inv" },
-        OpParameter::Text { key: "ellps", default: Some("GRS80") },
-        OpParameter::Natural { key: "path", default: None },
-    ])?;
+    let mut params = ParsedParameters::new(
+        parameters,
+        &[
+            OpParameter::Flag { key: "inv" },
+            OpParameter::Text {
+                key: "ellps",
+                default: Some("GRS80"),
+            },
+            OpParameter::Natural {
+                key: "path",
+                default: None,
+            },
+        ],
+    )?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let path = params.natural("path")?;
     if path == 0 || path > 233 {
         return Err(Error::BadParam("path".to_string(), def.clone()));
     }
-    params.real.insert("asc_lon", (129.3056f64).to_radians() - 2.0 * PI / 233.0 * path as f64);
-    setup(def, &mut params, (98.30382f64).to_radians(), 98.88 / 1440.0, 0.0)
+    params.real.insert(
+        "asc_lon",
+        (129.3056f64).to_radians() - 2.0 * PI / 233.0 * path as f64,
+    );
+    setup(
+        def,
+        &mut params,
+        (98.30382f64).to_radians(),
+        98.88 / 1440.0,
+        0.0,
+    )
 }
 
 pub fn lsat(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &[
-        OpParameter::Flag { key: "inv" },
-        OpParameter::Text { key: "ellps", default: Some("GRS80") },
-        OpParameter::Natural { key: "lsat", default: None },
-        OpParameter::Natural { key: "path", default: None },
-    ])?;
+    let mut params = ParsedParameters::new(
+        parameters,
+        &[
+            OpParameter::Flag { key: "inv" },
+            OpParameter::Text {
+                key: "ellps",
+                default: Some("GRS80"),
+            },
+            OpParameter::Natural {
+                key: "lsat",
+                default: None,
+            },
+            OpParameter::Natural {
+                key: "path",
+                default: None,
+            },
+        ],
+    )?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let land = params.natural("lsat")?;

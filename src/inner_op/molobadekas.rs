@@ -109,9 +109,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     let has_transform = t != [0.0, 0.0, 0.0] || r != [0.0, 0.0, 0.0] || scale != 1.0;
     if !has_transform {
-        return Err(Error::MissingParam(
-            "x/y/z/rx/ry/rz/s".to_string(),
-        ));
+        return Err(Error::MissingParam("x/y/z/rx/ry/rz/s".to_string()));
     }
 
     let convention = params.text("convention")?;

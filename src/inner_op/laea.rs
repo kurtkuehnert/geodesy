@@ -94,7 +94,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(rq) = op.params.real("rq") else {
         return 0;
     };
-    let Ok(dd) = op.params.real("dd") else { return 0 };
+    let Ok(dd) = op.params.real("dd") else {
+        return 0;
+    };
     let Ok(authalic) = op.params.fourier_coefficients("authalic") else {
         return 0;
     };

@@ -77,8 +77,8 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     let n1 = (1.0 + es * lat_0.cos().powi(4) / (1.0 - es)).sqrt();
     let phic = (lat_0.sin() / n1).asin();
-    let c = ancillary::ts((-phic).sin_cos(), 0.0).ln()
-        - n1 * ancillary::ts((-lat_0).sin_cos(), e).ln();
+    let c =
+        ancillary::ts((-phic).sin_cos(), 0.0).ln() - n1 * ancillary::ts((-lat_0).sin_cos(), e).ln();
     let n2 = k_0 * a * (1.0 - es).sqrt() / (1.0 - es * lat_0.sin().powi(2));
     let xs = 0.0;
     let ys = -n2 * phic;
@@ -92,7 +92,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("ys", ys);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 #[cfg(test)]
@@ -105,7 +109,12 @@ mod tests {
         let op = ctx.op("gstmerc ellps=6400000,0")?;
 
         let geo = [Coor4D::geo(1.0, 2.0, 0.0, 0.0)];
-        let expected = [Coor4D::raw(223_413.466_406_322, 111_769.145_040_586, 0.0, 0.0)];
+        let expected = [Coor4D::raw(
+            223_413.466_406_322,
+            111_769.145_040_586,
+            0.0,
+            0.0,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

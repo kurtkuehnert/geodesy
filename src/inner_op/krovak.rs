@@ -32,7 +32,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let a = op.params.real["a"];
     let e = op.params.real["e"];
     let modified = op.params.boolean("modified");
-    let easting_northing = !matches!(op.params.text("axis"), Ok(axis) if axis.eq_ignore_ascii_case("swu"));
+    let easting_northing =
+        !matches!(op.params.text("axis"), Ok(axis) if axis.eq_ignore_ascii_case("swu"));
 
     let mut successes = 0usize;
     for i in 0..operands.len() {
@@ -50,8 +51,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         }
         let d = (u.cos() * deltav.sin() / cos_s).asin();
         let eps = n * d;
-        let rho =
-            rho0 * (S0 * 0.5 + FRAC_PI_4).tan().powf(n) / (s * 0.5 + FRAC_PI_4).tan().powf(n);
+        let rho = rho0 * (S0 * 0.5 + FRAC_PI_4).tan().powf(n) / (s * 0.5 + FRAC_PI_4).tan().powf(n);
 
         let mut southing = a * rho * eps.cos();
         let mut westing = a * rho * eps.sin();
@@ -87,7 +87,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let a = op.params.real["a"];
     let e = op.params.real["e"];
     let modified = op.params.boolean("modified");
-    let easting_northing = !matches!(op.params.text("axis"), Ok(axis) if axis.eq_ignore_ascii_case("swu"));
+    let easting_northing =
+        !matches!(op.params.text("axis"), Ok(axis) if axis.eq_ignore_ascii_case("swu"));
 
     let mut successes = 0usize;
     for i in 0..operands.len() {
@@ -151,10 +152,7 @@ fn mod_krovak_dx_dy(xr: f64, yr: f64) -> (f64, f64) {
     let yr2 = yr * yr;
     let xr4 = xr2 * xr2;
     let yr4 = yr2 * yr2;
-    let dx = MOD_C1
-        + MOD_C3 * xr
-        - MOD_C4 * yr
-        - 2.0 * MOD_C6 * xr * yr
+    let dx = MOD_C1 + MOD_C3 * xr - MOD_C4 * yr - 2.0 * MOD_C6 * xr * yr
         + MOD_C5 * (xr2 - yr2)
         + MOD_C7 * xr * (xr2 - 3.0 * yr2)
         - MOD_C8 * yr * (3.0 * xr2 - yr2)
@@ -228,7 +226,11 @@ fn new_inner(parameters: &RawParameters, modified: bool) -> Result<Op, Error> {
     params.real.insert("e", e);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
@@ -251,7 +253,12 @@ mod tests {
         )?;
 
         let geo = [Coor4D::geo(50.0833, 14.417, 0., 0.)];
-        let expected = [Coor4D::raw(-743_263.655_907_14, -1_043_505.836_542_498_3, 0., 0.)];
+        let expected = [Coor4D::raw(
+            -743_263.655_907_14,
+            -1_043_505.836_542_498_3,
+            0.,
+            0.,
+        )];
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
         assert!(operands[0].hypot2(&expected[0]) < 1e-6);
@@ -266,7 +273,12 @@ mod tests {
         )?;
 
         let geo = [Coor4D::geo(50.0833, 14.417, 0., 0.)];
-        let expected = [Coor4D::raw(1_043_505.836_542_498_3, 743_263.655_907_14, 0., 0.)];
+        let expected = [Coor4D::raw(
+            1_043_505.836_542_498_3,
+            743_263.655_907_14,
+            0.,
+            0.,
+        )];
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
         assert!(operands[0].hypot2(&expected[0]) < 1e-6);
@@ -281,7 +293,12 @@ mod tests {
         )?;
 
         let geo = [Coor4D::geo(50.0833, 14.417, 0., 0.)];
-        let expected = [Coor4D::raw(-5_743_263.678_112_479, -6_043_505.811_232_34, 0., 0.)];
+        let expected = [Coor4D::raw(
+            -5_743_263.678_112_479,
+            -6_043_505.811_232_34,
+            0.,
+            0.,
+        )];
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
         assert!(operands[0].hypot2(&expected[0]) < 1e-6);

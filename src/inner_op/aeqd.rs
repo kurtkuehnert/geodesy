@@ -277,6 +277,9 @@ mod tests {
     #[test]
     fn aeqd_rejects_invalid_lat_0() {
         let mut ctx = Minimal::default();
-        assert!(matches!(ctx.op("aeqd R=1 lat_0=91"), Err(Error::BadParam(_, _))));
+        assert!(matches!(
+            ctx.op("aeqd R=1 lat_0=91"),
+            Err(Error::BadParam(_, _))
+        ));
     }
 }

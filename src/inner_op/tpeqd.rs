@@ -135,7 +135,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let sc = sp1 * cp2;
     let ccs = cp1 * cp2 * dlam2.sin();
     let cs_minus_sc_cos_dlam = cs - sc * dlam2.cos();
-    let mut z02 = (cp2 * dlam2.sin()).hypot(cs_minus_sc_cos_dlam).atan2(sp1 * sp2 + cp1 * cp2 * dlam2.cos());
+    let mut z02 = (cp2 * dlam2.sin())
+        .hypot(cs_minus_sc_cos_dlam)
+        .atan2(sp1 * sp2 + cp1 * cp2 * dlam2.cos());
     if z02 == 0.0 {
         return Err(Error::General(
             "Tpeqd: Invalid value for lat_1 and lat_2: their absolute value should be < 90°.",
@@ -195,7 +197,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("tpeqd ellps=GRS80 lat_1=0.5 lat_2=2")?;
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(-27_750.758_831_679, -222_599.403_691_777, 0., 0.)];
+        let projected = [Coor4D::raw(
+            -27_750.758_831_679,
+            -222_599.403_691_777,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

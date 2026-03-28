@@ -80,7 +80,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 if lon >= FRAC_PI_4 && lon <= FRAC_PI_2 + FRAC_PI_4 {
                     (lon - FRAC_PI_2, phi, Area::Zero)
                 } else if lon > FRAC_PI_2 + FRAC_PI_4 || lon <= -(FRAC_PI_2 + FRAC_PI_4) {
-                    ((if lon > 0.0 { lon - PI } else { lon + PI }), phi, Area::One)
+                    (
+                        (if lon > 0.0 { lon - PI } else { lon + PI }),
+                        phi,
+                        Area::One,
+                    )
                 } else if lon > -(FRAC_PI_2 + FRAC_PI_4) && lon <= -FRAC_PI_4 {
                     (lon + FRAC_PI_2, phi, Area::Two)
                 } else {
@@ -96,7 +100,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 } else if lon < -FRAC_PI_4 && lon >= -(FRAC_PI_2 + FRAC_PI_4) {
                     (-lon - FRAC_PI_2, phi, Area::Two)
                 } else {
-                    ((if lon > 0.0 { -lon + PI } else { -lon - PI }), phi, Area::Three)
+                    (
+                        (if lon > 0.0 { -lon + PI } else { -lon - PI }),
+                        phi,
+                        Area::Three,
+                    )
                 }
             }
             _ => {
@@ -137,8 +145,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
         };
 
-        let mut mu = ((12.0 / PI) * (theta + (theta.sin() * FRAC_PI_4.cos()).acos() - FRAC_PI_2)).atan();
-        let t = ((1.0 - phi.cos()) / (mu.cos() * mu.cos()) / (1.0 - (1.0 / theta.cos()).atan().cos())).sqrt();
+        let mut mu =
+            ((12.0 / PI) * (theta + (theta.sin() * FRAC_PI_4.cos()).acos() - FRAC_PI_2)).atan();
+        let t =
+            ((1.0 - phi.cos()) / (mu.cos() * mu.cos()) / (1.0 - (1.0 / theta.cos()).atan().cos()))
+                .sqrt();
         match area {
             Area::One => mu += FRAC_PI_2,
             Area::Two => mu += PI,
@@ -189,7 +200,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let theta = (t.sin() / (t.cos() - FRAC_1_SQRT_2)).atan();
         let cosmu = mu.cos();
         let tannu = nu.tan();
-        let mut cosphi = 1.0 - cosmu * cosmu * tannu * tannu * (1.0 - (1.0 / theta.cos()).atan().cos());
+        let mut cosphi =
+            1.0 - cosmu * cosmu * tannu * tannu * (1.0 - (1.0 / theta.cos()).atan().cos());
         cosphi = cosphi.clamp(-1.0, 1.0);
 
         let (mut lon, mut lat) = match face {
@@ -198,7 +210,13 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let lat = FRAC_PI_2 - phi;
                 let lon = match area {
                     Area::Zero => theta + FRAC_PI_2,
-                    Area::One => if theta < 0.0 { theta + PI } else { theta - PI },
+                    Area::One => {
+                        if theta < 0.0 {
+                            theta + PI
+                        } else {
+                            theta - PI
+                        }
+                    }
                     Area::Two => theta - FRAC_PI_2,
                     Area::Three => theta,
                 };
@@ -211,43 +229,65 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     Area::Zero => -theta + FRAC_PI_2,
                     Area::One => -theta,
                     Area::Two => -theta - FRAC_PI_2,
-                    Area::Three => if theta < 0.0 { -theta - PI } else { -theta + PI },
+                    Area::Three => {
+                        if theta < 0.0 {
+                            -theta - PI
+                        } else {
+                            -theta + PI
+                        }
+                    }
                 };
                 (lon, lat)
             }
             _ => {
                 let q = cosphi;
                 let mut t = q * q;
-                let mut s = if t >= 1.0 { 0.0 } else { (1.0 - t).sqrt() * theta.sin() };
+                let mut s = if t >= 1.0 {
+                    0.0
+                } else {
+                    (1.0 - t).sqrt() * theta.sin()
+                };
                 t += s * s;
                 let mut r = if t >= 1.0 { 0.0 } else { (1.0 - t).sqrt() };
                 match area {
                     Area::One => {
-                        let tmp = r; r = -s; s = tmp;
+                        let tmp = r;
+                        r = -s;
+                        s = tmp;
                     }
                     Area::Two => {
-                        r = -r; s = -s;
+                        r = -r;
+                        s = -s;
                     }
                     Area::Three => {
-                        let tmp = r; r = s; s = -tmp;
+                        let tmp = r;
+                        r = s;
+                        s = -tmp;
                     }
                     Area::Zero => {}
                 }
                 match face {
                     Face::Right => {
-                        let tmp = q; let q2 = -r; r = tmp; let q = q2; 
+                        let tmp = q;
+                        let q2 = -r;
+                        r = tmp;
+                        let q = q2;
                         let lat = (-s).acos() - FRAC_PI_2;
                         let lon = shift_longitude_origin(r.atan2(q), -FRAC_PI_2);
                         (lon, lat)
                     }
                     Face::Back => {
-                        let q = -q; let r = -r;
+                        let q = -q;
+                        let r = -r;
                         let lat = (-s).acos() - FRAC_PI_2;
                         let lon = shift_longitude_origin(r.atan2(q), -PI);
                         (lon, lat)
                     }
                     Face::Left => {
-                        let tmp = q; let q2 = r; r = -tmp; let q = q2;
+                        let tmp = q;
+                        let q2 = r;
+                        r = -tmp;
+                        let q = q2;
                         let lat = (-s).acos() - FRAC_PI_2;
                         let lon = shift_longitude_origin(r.atan2(q), FRAC_PI_2);
                         (lon, lat)
@@ -306,14 +346,17 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     };
     params.real.insert("lat_0", lat_0);
     params.real.insert("lon_0", lon_0);
-    params.natural.insert("face", match face {
-        Face::Front => 0,
-        Face::Right => 1,
-        Face::Back => 2,
-        Face::Left => 3,
-        Face::Top => 4,
-        Face::Bottom => 5,
-    });
+    params.natural.insert(
+        "face",
+        match face {
+            Face::Front => 0,
+            Face::Right => 1,
+            Face::Back => 2,
+            Face::Left => 3,
+            Face::Top => 4,
+            Face::Bottom => 5,
+        },
+    );
     if ellps.flattening() != 0.0 {
         let b = ellps.semimajor_axis() * (1.0 - ellps.flattening());
         let omf = 1.0 - ellps.flattening();
@@ -326,5 +369,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.real.insert("one_minus_f_squared", 1.0);
     }
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
