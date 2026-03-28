@@ -1,5 +1,6 @@
 //! Albers Equal Area
 use crate::authoring::*;
+use crate::math::angular;
 use std::f64::consts::FRAC_PI_2;
 
 const EPS10: f64 = 1e-10;
@@ -34,7 +35,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
         let rho = dd * rho_term.sqrt();
-        let theta = (lon - lon_0) * n;
+        let theta = angular::normalize_symmetric(lon - lon_0) * n;
         let x = x_0 + a * rho * theta.sin();
         let y = y_0 + a * (op.params.real("rho0").unwrap() - rho * theta.cos());
         let _ = qp; // retained for constructor symmetry/readability
@@ -334,6 +335,29 @@ mod tests {
         assert!((projected[0][1].to_degrees() - 40.0).abs() < 1e-10);
         assert!((projected[1][0].to_degrees() - 0.124940293483244).abs() < 1e-10);
         assert!((projected[1][1].to_degrees() - 40.169004441322194).abs() < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn wraps_longitude_difference_across_dateline() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("aea lat_0=50 lon_0=-154 lat_1=55 lat_2=65 ellps=clrk66")?;
+
+        let geo = [Coor4D::geo(60., 179., 0., 0.)];
+        let projected = [Coor4D::raw(
+            -1_459_959.150_054_334_7,
+            1_413_239.948_137_74,
+            0.,
+            0.,
+        )];
+        let ellps = Ellipsoid::named("clrk66")?;
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&projected[0]) < 2e-8);
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!(ellps.distance(&operands[0], &geo[0]) < 1e-8);
         Ok(())
     }
 }

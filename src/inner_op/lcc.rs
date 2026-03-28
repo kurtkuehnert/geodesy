@@ -1,5 +1,6 @@
 //! Lambert Conformal Conic
 use crate::authoring::*;
+use crate::math::angular;
 use std::f64::consts::FRAC_PI_2;
 
 const EPS10: f64 = 1e-10;
@@ -21,12 +22,13 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(rho0) = op.params.real("rho0") else {
         return 0;
     };
+    let west_oriented = op.params.boolean("west_oriented");
     let mut successes = 0_usize;
     let length = operands.len();
 
     for i in 0..length {
         let (mut lam, phi) = operands.xy(i);
-        lam -= lon_0;
+        lam = angular::normalize_symmetric(lam - lon_0);
         let mut rho = 0.;
 
         // Close to one of the poles?
@@ -39,7 +41,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             rho = c * crate::math::ancillary::ts(phi.sin_cos(), e).powf(n);
         }
         let sc = (lam * n).sin_cos();
-        let x = a * k_0 * rho * sc.0 + x_0;
+        let x = if west_oriented {
+            x_0 - a * k_0 * rho * sc.0
+        } else {
+            a * k_0 * rho * sc.0 + x_0
+        };
         let y = a * k_0 * (rho0 - rho * sc.1) + y_0;
         operands.set_xy(i, x, y);
         successes += 1;
@@ -61,11 +67,16 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(rho0) = op.params.real("rho0") else {
         return 0;
     };
+    let west_oriented = op.params.boolean("west_oriented");
     let mut successes = 0_usize;
 
     for i in 0..operands.len() {
         let (mut x, mut y) = operands.xy(i);
-        x = (x - x_0) / (a * k_0);
+        x = if west_oriented {
+            (x_0 - x) / (a * k_0)
+        } else {
+            (x - x_0) / (a * k_0)
+        };
         y = rho0 - (y - y_0) / (a * k_0);
 
         let mut rho = x.hypot(y);
@@ -103,8 +114,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 // Example...
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 9] = [
+pub const GAMUT: [OpParameter; 10] = [
     OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "west_oriented" },
     OpParameter::Text { key: "ellps", default: Some("GRS80") },
 
     OpParameter::Real { key: "lat_1", default: Some(0_f64) },
@@ -394,6 +406,52 @@ mod tests {
         for i in 0..operands.len() {
             assert!(operands[i].hypot2(&geo[i]) < 1e-9);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn wraps_longitude_difference_across_dateline() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "lcc lat_0=51 lon_0=-176 lat_1=53.8333333333333 lat_2=51.8333333333333 x_0=1000000 y_0=0 ellps=GRS80",
+        )?;
+
+        let geo = [Coor4D::geo(52., 179., 0., 0.)];
+        let projected = [Coor4D::raw(
+            656_902.480_027_398_8,
+            123_207.313_340_269_51,
+            0.,
+            0.,
+        )];
+        let ellps = Ellipsoid::named("GRS80")?;
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&projected[0]) < 2e-8);
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!(ellps.distance(&operands[0], &geo[0]) < 1e-8);
+        Ok(())
+    }
+
+    #[test]
+    fn west_oriented_flips_westing_around_false_easting() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let standard = ctx.op("lcc lat_1=57 lat_0=57 lon_0=12 x_0=500000 y_0=0")?;
+        let west = ctx.op("lcc west_oriented lat_1=57 lat_0=57 lon_0=12 x_0=500000 y_0=0")?;
+        let geo = [Coor4D::geo(55., 10., 0., 0.)];
+
+        let mut standard_xy = geo;
+        ctx.apply(standard, Fwd, &mut standard_xy)?;
+
+        let mut west_xy = geo;
+        ctx.apply(west, Fwd, &mut west_xy)?;
+
+        assert!((west_xy[0][0] - (1_000_000.0 - standard_xy[0][0])).abs() < 1e-9);
+        assert!((west_xy[0][1] - standard_xy[0][1]).abs() < 1e-9);
+
+        ctx.apply(west, Inv, &mut west_xy)?;
+        assert!(west_xy[0].hypot2(&geo[0]) < 1e-9);
         Ok(())
     }
 }

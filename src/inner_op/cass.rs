@@ -1,5 +1,6 @@
 //! Cassini-Soldner
 use crate::authoring::*;
+use crate::math::angular;
 
 const C1: f64 = 1.0 / 6.0;
 const C2: f64 = 1.0 / 120.0;
@@ -42,7 +43,7 @@ fn fwd_ellipsoidal(
     let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
     let one_es = 1.0 - es;
-    let lam = lon - lon_0;
+    let lam = angular::normalize_symmetric(lon - lon_0);
     let (sinphi, cosphi) = lat.sin_cos();
     let m = ellps.meridian_latitude_to_distance(lat) / a;
     let nu_sq = 1.0 / (1.0 - es * sinphi * sinphi);
@@ -76,9 +77,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
 
         let (x, y) = if spherical {
+            let lam = angular::normalize_symmetric(lon - lon_0);
             (
                 a * (lat.cos() * lam.sin()).asin(),
                 a * (lat.tan().atan2(lam.cos()) - op.params.lat(0)),
@@ -249,6 +250,31 @@ mod tests {
         assert!((projected[0][1].to_degrees() + 16.25).abs() < 1e-10);
         assert!((projected[1][0].to_degrees() - 179.42679063431376).abs() < 1e-10);
         assert!((projected[1][1].to_degrees() + 16.06923331216869).abs() < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn wraps_longitude_difference_across_dateline() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "cass hyperbolic lat_0=-16.25 lon_0=179.333333333333 x_0=251727.9155424 y_0=334519.953768 ellps=6378306.3696,293.4663076567816",
+        )?;
+
+        let geo = [Coor4D::geo(-16.1, -179.5, 0., 0.)];
+        let projected = [Coor4D::raw(
+            376_542.242_742_735_4,
+            350_765.385_231_374_24,
+            0.,
+            0.,
+        )];
+        let ellps = Ellipsoid::new(6_378_306.369_6, 1.0 / 293.466_307_656_781_6);
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&projected[0]) < 5e-5);
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!(ellps.distance(&operands[0], &geo[0]) < 1e-8);
         Ok(())
     }
 

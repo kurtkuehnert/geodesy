@@ -252,8 +252,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 8] = [
+pub const GAMUT: [OpParameter; 9] = [
     OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "variant_c" },
     OpParameter::Text { key: "ellps", default: Some("GRS80") },
     OpParameter::Real { key: "lat_0", default: Some(0_f64) },
     OpParameter::Real { key: "lat_ts", default: Some(90_f64) },
@@ -295,6 +296,13 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
     let k_0 = params.k(0);
+    let variant_c = params.boolean("variant_c");
+
+    if variant_c && !(params.boolean("north_polar") || params.boolean("south_polar")) {
+        return Err(Error::Unsupported(
+            "stere variant_c is only supported for polar stereographic aspects".into(),
+        ));
+    }
 
     let akm1 = if e != 0.0 {
         if params.boolean("north_polar") || params.boolean("south_polar") {
@@ -329,6 +337,19 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     };
 
     params.real.insert("akm1", akm1);
+    if variant_c {
+        let lat_ts_abs = lat_ts.abs();
+        let sin_ts = lat_ts_abs.sin();
+        let cos_ts = lat_ts_abs.cos();
+        let rho_f = a * cos_ts / (1.0 - (e * sin_ts).powi(2)).sqrt();
+        let y_0 = params.y(0)
+            + if params.boolean("south_polar") {
+                -rho_f
+            } else {
+                rho_f
+            };
+        params.real.insert("y_0", y_0);
+    }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
@@ -420,6 +441,29 @@ mod tests {
         let mut operands = projected;
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn variant_c_matches_epsg_example() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "stere variant_c lat_0=-90 lat_ts=-67 lon_0=140 x_0=300000 y_0=200000 ellps=intl",
+        )?;
+
+        let geo = [Coor4D::geo(-66.60522777777778, 140.0714, 0., 0.)];
+        let projected = [Coor4D::raw(303_169.522, 244_055.721, 0., 0.)];
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(
+            operands[0].hypot2(&projected[0]) < 0.02,
+            "got {:?}, expected {:?}",
+            operands[0],
+            projected[0]
+        );
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!(operands[0].hypot2(&geo[0]) < 1e-8);
         Ok(())
     }
 
