@@ -207,6 +207,83 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     })
 }
 
+pub fn leac(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
+    let def = &parameters.instantiated_as;
+    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+    let given = parameters.instantiated_as.split_into_parameters();
+    super::override_ellps_from_proj_params(&mut params, def, &given)?;
+
+    let phi0 = params.lat(0).to_radians();
+    let phi1 = if params.boolean("south") {
+        -FRAC_PI_2
+    } else {
+        FRAC_PI_2
+    };
+    let phi2 = params.lat(1).to_radians();
+
+    params.real.insert("lat_0", phi0);
+    params.real.insert("lat_1", phi1);
+    params.real.insert("lat_2", phi2);
+    params.real.insert("lon_0", params.lon(0).to_radians());
+
+    let ellps = params.ellps(0);
+    let spherical = ellps.flattening() == 0.0;
+    if spherical {
+        params.boolean.insert("spherical");
+    }
+
+    let (sinphi1, cosphi1) = phi1.sin_cos();
+    let secant = (phi1 - phi2).abs() >= EPS10;
+    let mut n = sinphi1;
+
+    if spherical {
+        if secant {
+            n = 0.5 * (n + phi2.sin());
+        }
+        let n2 = n + n;
+        let c = cosphi1 * cosphi1 + n2 * sinphi1;
+        let dd = 1.0 / n;
+        let rho0 = dd * (c - n2 * phi0.sin()).sqrt();
+        params.real.insert("n", n);
+        params.real.insert("c", c);
+        params.real.insert("dd", dd);
+        params.real.insert("rho0", rho0);
+        params.real.insert("qp", 2.0);
+        params.real.insert("ec", 2.0);
+    } else {
+        let e = ellps.eccentricity();
+        let es = ellps.eccentricity_squared();
+        let m1 = ancillary::pj_msfn((sinphi1, cosphi1), es);
+        let q1 = ancillary::qs(sinphi1, e);
+        if secant {
+            let (sinphi2, cosphi2) = phi2.sin_cos();
+            let m2 = ancillary::pj_msfn((sinphi2, cosphi2), es);
+            let q2 = ancillary::qs(sinphi2, e);
+            n = (m1 * m1 - m2 * m2) / (q2 - q1);
+        }
+        let qp = ancillary::qs(1.0, e);
+        let ec = 1.0 - 0.5 * (1.0 - es) * ((1.0 - e) / (1.0 + e)).ln() / e;
+        let c = m1 * m1 + n * q1;
+        let dd = 1.0 / n;
+        let rho0 = dd * (c - n * ancillary::qs(phi0.sin(), e)).sqrt();
+        params.real.insert("n", n);
+        params.real.insert("c", c);
+        params.real.insert("dd", dd);
+        params.real.insert("rho0", rho0);
+        params.real.insert("qp", qp);
+        params.real.insert("ec", ec);
+        let authalic = ellps.coefficients_for_authalic_latitude_computations();
+        params.fourier_coefficients.insert("authalic", authalic);
+    }
+
+    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

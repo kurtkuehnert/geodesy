@@ -209,6 +209,14 @@ pub trait Geodesics: EllipsoidBase {
 mod tests {
     use super::*;
     use crate::coord::Coor2D;
+
+    fn assert_close(actual: f64, expected: f64, tolerance: f64) {
+        assert!(
+            (actual - expected).abs() <= tolerance,
+            "expected {expected} +/- {tolerance}, got {actual}"
+        );
+    }
+
     #[test]
     fn geodesics() -> Result<(), Error> {
         let ellps = Ellipsoid::named("GRS80")?;
@@ -243,6 +251,89 @@ mod tests {
         let b = ellps.geodesic_fwd(&p1, d[0], d[2]);
         assert!((b[0].to_degrees() - p2[0].to_degrees()).abs() < 1e-9);
         assert!((b[1].to_degrees() - p2[1].to_degrees()).abs() < 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn geodesic_matches_proj_geodtest_subset() -> Result<(), Error> {
+        let ellps = Ellipsoid::named("WGS84")?;
+
+        let cases = [
+            (
+                Coor2D::gis(-139.44815, 35.60777),
+                Coor2D::gis(-69.95921, -11.17491),
+                111.09874842956033,
+                129.28927088970877,
+                8_935_244.56048183,
+            ),
+            (
+                Coor2D::gis(106.05087, 55.52454),
+                Coor2D::gis(197.18234, 77.03196),
+                22.0200598809828,
+                109.11204111067152,
+                4_105_086.1713924403,
+            ),
+            (
+                Coor2D::gis(-144.90758, -25.72959),
+                Coor2D::gis(-269.17879, -57.70581),
+                -153.6474686931172,
+                -48.343983158876485,
+                9_413_446.74524531,
+            ),
+        ];
+
+        for (from, to, azi1_deg, azi2_deg, distance_m) in cases {
+            let inverse = ellps.geodesic_inv(&from, &to);
+            assert_close(inverse[0].to_degrees(), azi1_deg, 1e-8);
+            assert_close(inverse[1].to_degrees(), azi2_deg, 1e-8);
+            assert_close(inverse[2], distance_m, 1e-3);
+
+            let forward = ellps.geodesic_fwd(&from, inverse[0], inverse[2]);
+            assert_close(forward[0].to_degrees(), to[0].to_degrees(), 1e-8);
+            assert_close(forward[1].to_degrees(), to[1].to_degrees(), 1e-8);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn geodesic_matches_proj_geodsolve_examples() -> Result<(), Error> {
+        let ellps = Ellipsoid::named("WGS84")?;
+
+        let jfk = Coor2D::gis(-73.8, 40.6);
+        let paris = Coor2D::gis(2.55, 49.01666667);
+        let inverse = ellps.geodesic_inv(&jfk, &paris);
+        assert_close(inverse[0].to_degrees(), 53.47022, 0.5e-5);
+        assert_close(inverse[1].to_degrees(), 111.59367, 0.5e-5);
+        assert_close(inverse[2], 5_853_226.0, 0.5);
+
+        let start = Coor2D::gis(-73.77888889, 40.63972222);
+        let forward = ellps.geodesic_fwd(&start, 53.5_f64.to_radians(), 5_850_000.0);
+        assert_close(forward[1].to_degrees(), 49.01467, 0.5e-5);
+        assert_close(forward[0].to_degrees(), 2.56106, 0.5e-5);
+        assert_close(forward[2].to_degrees(), 111.62947, 0.5e-5);
+
+        Ok(())
+    }
+
+    #[test]
+    fn geodesic_preserves_proj_geodsigntest_direct_sign_conventions() -> Result<(), Error> {
+        let ellps = Ellipsoid::named("WGS84")?;
+        let cases: [(f64, f64, f64, bool, bool); 4] = [
+            (0.0, 180.0, 180.0, true, true),
+            (-0.0, -180.0, -180.0, false, false),
+            (180.0, 180.0, 0.0, true, true),
+            (-180.0, -180.0, -0.0, false, false),
+        ];
+
+        for (azi1_deg, expected_lon_deg, expected_azi2_deg, lon_positive, azi_positive) in cases {
+            let result = ellps.geodesic_fwd(&Coor2D::gis(0.0, 0.0), azi1_deg.to_radians(), 15e6);
+            assert_close(result[0].to_degrees(), expected_lon_deg, 1e-9);
+            assert_close(result[2].to_degrees(), expected_azi2_deg, 1e-9);
+            assert_eq!(result[0].is_sign_positive(), lon_positive);
+            assert_eq!(result[2].is_sign_positive(), azi_positive);
+        }
+
         Ok(())
     }
 }

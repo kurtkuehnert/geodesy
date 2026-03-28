@@ -77,6 +77,14 @@ pub const GAMUT: [OpParameter; 2] = [
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
+    let given = parameters.instantiated_as.split_into_parameters();
+
+    if given.contains_key("axis") && given.contains_key("order") {
+        return Err(Error::BadParam(
+            "axis/order".to_string(),
+            "axisswap does not allow both axis and order on the same step".to_string(),
+        ));
+    }
 
     let Ok(order) = op.params.series("order") else {
         return Err(Error::BadParam(

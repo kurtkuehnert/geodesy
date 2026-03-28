@@ -1,4 +1,5 @@
 use crate::authoring::*;
+use std::collections::BTreeMap;
 
 // ----- B U I L T I N   O P E R A T O R S ---------------------------------------------
 
@@ -61,14 +62,18 @@ mod aea;
 mod aeqd;
 mod axisswap;
 mod btmerc;
+mod calcofi;
 mod cart;
 mod cass;
+mod col_urban;
 mod curvature;
 mod deflection;
 mod deformation;
 mod eqearth;
+mod eqdc;
 mod eqc;
 mod geodesic;
+mod geos;
 mod gstmerc;
 mod gravity;
 mod gridshift;
@@ -79,21 +84,30 @@ mod laea;
 mod labrd;
 mod latitude;
 mod lcc;
+mod lcca;
 mod longlat;
 mod merc;
+mod molobadekas;
 mod molodensky;
+mod mod_ster;
 mod noop;
 mod nzmg;
+mod ocea;
 mod omerc;
 mod permtide;
 pub(crate) mod pipeline; // Needed by Op for instantiation
 mod poly;
 mod pushpop;
+mod qsc;
+mod rouss;
+mod som;
 mod somerc;
 mod stack;
 mod stere;
 mod sterea;
+mod tcea;
 mod tmerc;
+mod tpeqd;
 mod unitconvert;
 mod units;
 mod webmerc;
@@ -101,30 +115,45 @@ mod webmerc;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 51] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 69] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
     BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
     BuiltinOp::with_domains("btmerc",      btmerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("butm",        btmerc::utm,      Geographic, Projected),
+    BuiltinOp::with_domains("alsk",        mod_ster::alsk,   Geographic, Projected),
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
+    BuiltinOp::with_domains("calcofi",     calcofi::new,     Geographic, Projected),
+    BuiltinOp::with_domains("col_urban",   col_urban::new,   Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
+    BuiltinOp::with_domains("eqdc",        eqdc::new,        Geographic, Projected),
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
     BuiltinOp::with_domains("etmerc",      tmerc::new,       Geographic, Projected),
+    BuiltinOp::with_domains("geos",        geos::new,        Geographic, Projected),
+    BuiltinOp::with_domains("gs48",        mod_ster::gs48,   Geographic, Projected),
+    BuiltinOp::with_domains("gs50",        mod_ster::gs50,   Geographic, Projected),
     BuiltinOp::with_domains("gstmerc",     gstmerc::new,     Geographic, Projected),
     BuiltinOp::with_domains("krovak",      krovak::new,      Geographic, Projected),
     BuiltinOp::with_domains("laea",        laea::new,        Geographic, Projected),
     BuiltinOp::with_domains("labrd",       labrd::new,       Geographic, Projected),
     BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),
+    BuiltinOp::with_domains("lcca",        lcca::new,        Geographic, Projected),
+    BuiltinOp::with_domains("leac",        aea::leac,        Geographic, Projected),
     BuiltinOp::with_domains("merc",        merc::new,        Geographic, Projected),
     BuiltinOp::with_domains("nzmg",        nzmg::new,        Geographic, Projected),
+    BuiltinOp::with_domains("ocea",        ocea::new,        Geographic, Projected),
     BuiltinOp::with_domains("omerc",       omerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("poly",        poly::new,        Geographic, Projected),
     BuiltinOp::with_domains("mod_krovak",  krovak::modified, Geographic, Projected),
+    BuiltinOp::with_domains("qsc",         qsc::new,         Geographic, Projected),
+    BuiltinOp::with_domains("rouss",       rouss::new,       Geographic, Projected),
+    BuiltinOp::with_domains("som",         som::new,         Geographic, Projected),
     BuiltinOp::with_domains("somerc",      somerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("stere",       stere::new,       Geographic, Projected),
     BuiltinOp::with_domains("sterea",      sterea::new,      Geographic, Projected),
+    BuiltinOp::with_domains("tcea",        tcea::new,        Geographic, Projected),
     BuiltinOp::with_domains("tmerc",       tmerc::new,       Geographic, Projected),
+    BuiltinOp::with_domains("tpeqd",       tpeqd::new,       Geographic, Projected),
     BuiltinOp::with_domains("utm",         tmerc::utm,       Geographic, Projected),
     BuiltinOp::with_domains("ups",         stere::ups,       Geographic, Projected),
     BuiltinOp::with_domains("webmerc",     webmerc::new,     Geographic, Projected),
@@ -152,6 +181,9 @@ const BUILTIN_OPERATORS: [BuiltinOp; 51] = [
     BuiltinOp::new("gridshift",   gridshift::new),
     BuiltinOp::new("helmert",     helmert::new),
     BuiltinOp::new("latitude",    latitude::new),
+    BuiltinOp::with_domains("lsat",        som::lsat,        Geographic, Projected),
+    BuiltinOp::with_domains("misrsom",     som::misr,        Geographic, Projected),
+    BuiltinOp::new("molobadekas", molobadekas::new),
     BuiltinOp::with_domains("molodensky",  molodensky::new, Geographic, Geographic),
     BuiltinOp::new("permtide",    permtide::new),
     BuiltinOp::new("unitconvert", unitconvert::new),
@@ -186,6 +218,57 @@ pub(crate) fn op_domains(name: &str) -> (Option<CoordDomain>, Option<CoordDomain
         .find(|e| e.name == name)
         .map(|e| (e.input_domain, e.output_domain))
         .unwrap_or((None, None))
+}
+
+pub(crate) fn override_ellps_from_proj_params(
+    params: &mut ParsedParameters,
+    def: &str,
+    given: &BTreeMap<String, String>,
+) -> Result<(), Error> {
+    if given.contains_key("ellps") {
+        return Ok(());
+    }
+
+    let a = if let Some(a) = given.get("a") {
+        a.parse::<f64>()
+            .map_err(|_| Error::BadParam("a".to_string(), def.to_string()))?
+    } else if let Some(r) = given.get("R") {
+        r.parse::<f64>()
+            .map_err(|_| Error::BadParam("R".to_string(), def.to_string()))?
+    } else {
+        return Ok(());
+    };
+
+    if a <= 0.0 {
+        return Err(Error::BadParam("a".to_string(), def.to_string()));
+    }
+
+    let rf = if let Some(rf) = given.get("rf") {
+        rf.parse::<f64>()
+            .map_err(|_| Error::BadParam("rf".to_string(), def.to_string()))?
+    } else if let Some(f) = given.get("f") {
+        let f = f
+            .parse::<f64>()
+            .map_err(|_| Error::BadParam("f".to_string(), def.to_string()))?;
+        if f == 0.0 { 0.0 } else { 1.0 / f }
+    } else if let Some(b) = given.get("b") {
+        let b = b
+            .parse::<f64>()
+            .map_err(|_| Error::BadParam("b".to_string(), def.to_string()))?;
+        if b <= 0.0 {
+            return Err(Error::BadParam("b".to_string(), def.to_string()));
+        }
+        if (a - b).abs() < f64::EPSILON {
+            0.0
+        } else {
+            a / (a - b)
+        }
+    } else {
+        0.0
+    };
+
+    params.text.insert("ellps", format!("{a},{rf}"));
+    Ok(())
 }
 
 // ----- S T R U C T   O P C O N S T R U C T O R ---------------------------------------

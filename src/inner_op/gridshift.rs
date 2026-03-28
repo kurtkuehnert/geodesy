@@ -213,7 +213,7 @@ pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
 
     let interpolation = params.text("interpolation")?;
-    if interpolation != "bilinear" {
+    if interpolation != "bilinear" && interpolation != "biquadratic" {
         return Err(Error::BadParam("interpolation".to_string(), interpolation));
     }
 
