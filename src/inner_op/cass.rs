@@ -28,6 +28,7 @@ fn normalize_inverse_seed(mut lon: f64, mut lat: f64) -> (f64, f64) {
     (lon, lat)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fwd_ellipsoidal(
     ellps: &Ellipsoid,
     lon_0: f64,
@@ -257,7 +258,7 @@ mod tests {
         let op = ctx.op("cass lat_0=0 lon_0=0 ellps=WGS84")?;
 
         let mut projected = [Coor4D::raw(
-            -58044.692087790158,
+            -58_044.692_087_790_16,
             10667870.723512903,
             0.0,
             0.0,

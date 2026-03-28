@@ -24,12 +24,6 @@ impl Complex {
             i: self.i - rhs.i,
         }
     }
-    fn mul(self, rhs: Self) -> Self {
-        Self {
-            r: self.r * rhs.r - self.i * rhs.i,
-            i: self.r * rhs.i + self.i * rhs.r,
-        }
-    }
     fn norm2(self) -> f64 {
         self.r * self.r + self.i * self.i
     }

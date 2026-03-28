@@ -77,7 +77,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (theta, phi, area) = match face {
             Face::Top => {
                 let phi = FRAC_PI_2 - lat;
-                if lon >= FRAC_PI_4 && lon <= FRAC_PI_2 + FRAC_PI_4 {
+                if (FRAC_PI_4..=FRAC_PI_2 + FRAC_PI_4).contains(&lon) {
                     (lon - FRAC_PI_2, phi, Area::Zero)
                 } else if lon > FRAC_PI_2 + FRAC_PI_4 || lon <= -(FRAC_PI_2 + FRAC_PI_4) {
                     (
@@ -93,11 +93,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
             Face::Bottom => {
                 let phi = FRAC_PI_2 + lat;
-                if lon >= FRAC_PI_4 && lon <= FRAC_PI_2 + FRAC_PI_4 {
+                if (FRAC_PI_4..=FRAC_PI_2 + FRAC_PI_4).contains(&lon) {
                     (-lon + FRAC_PI_2, phi, Area::Zero)
-                } else if lon < FRAC_PI_4 && lon >= -FRAC_PI_4 {
+                } else if (-FRAC_PI_4..FRAC_PI_4).contains(&lon) {
                     (-lon, phi, Area::One)
-                } else if lon < -FRAC_PI_4 && lon >= -(FRAC_PI_2 + FRAC_PI_4) {
+                } else if (-(FRAC_PI_2 + FRAC_PI_4)..-FRAC_PI_4).contains(&lon) {
                     (-lon - FRAC_PI_2, phi, Area::Two)
                 } else {
                     (
@@ -204,7 +204,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             1.0 - cosmu * cosmu * tannu * tannu * (1.0 - (1.0 / theta.cos()).atan().cos());
         cosphi = cosphi.clamp(-1.0, 1.0);
 
-        let (mut lon, mut lat) = match face {
+        let (lon, mut lat) = match face {
             Face::Top => {
                 let phi = cosphi.acos();
                 let lat = FRAC_PI_2 - phi;

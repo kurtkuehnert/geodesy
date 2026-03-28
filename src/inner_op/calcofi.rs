@@ -5,12 +5,12 @@ use std::f64::consts::{FRAC_PI_4, PI};
 const EPS10: f64 = 1e-10;
 const DEG_TO_LINE: f64 = 5.0;
 const DEG_TO_STATION: f64 = 15.0;
-const LINE_TO_RAD: f64 = 0.0034906585039886592;
-const STATION_TO_RAD: f64 = 0.0011635528346628863;
+const LINE_TO_RAD: f64 = 0.003_490_658_503_988_659;
+const STATION_TO_RAD: f64 = 0.001_163_552_834_662_886_3;
 const PT_O_LINE: f64 = 80.0;
 const PT_O_STATION: f64 = 60.0;
-const PT_O_LAMBDA: f64 = -2.1144663887911301;
-const PT_O_PHI: f64 = 0.59602993955606354;
+const PT_O_LAMBDA: f64 = -2.114_466_388_791_13;
+const PT_O_PHI: f64 = 0.596_029_939_556_063_5;
 const ROTATION_ANGLE: f64 = PI / 6.0;
 
 fn sph_ts(phi: f64) -> f64 {
@@ -121,7 +121,7 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("calcofi ellps=GRS80")?;
         let geo = [Coor4D::geo(1., 2., 0., 0.)];
-        let projected = [Coor4D::raw(508.444_872_150, -1171.764_860_418, 0., 0.)];
+        let projected = [Coor4D::raw(508.444_872_150, -1_171.764_860_418, 0., 0.)];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

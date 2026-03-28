@@ -111,7 +111,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let origin = Coor4D::raw(lon_0, lat_0, 0.0, 0.0);
     let spherical = op.params.boolean("spherical");
     let north_polar = op.params.boolean("north_polar");
-    let south_polar = op.params.boolean("south_polar");
+    let _south_polar = op.params.boolean("south_polar");
     let equatorial = op.params.boolean("equatorial");
     let oblique = op.params.boolean("oblique");
     let sinph0 = op.params.real("sinph0").unwrap_or(0.0);

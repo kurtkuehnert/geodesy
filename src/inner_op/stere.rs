@@ -74,7 +74,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         } else {
             let mut sin_x = 0.0;
             let mut cos_x = 0.0;
-            let mut a = 0.0;
+            let a;
             let mut sinphi = lat.sin();
 
             if oblique || equatorial {
@@ -340,7 +340,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
 pub fn ups(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
     let tokens: Vec<&str> = parameters.instantiated_as.split_whitespace().collect();
-    let south = tokens.iter().any(|t| *t == "south");
+    let south = tokens.contains(&"south");
     let has_named = tokens.iter().any(|t| t.starts_with("ellps="));
     let has_a = tokens.iter().any(|t| t.starts_with("a="));
     let has_b = tokens.iter().any(|t| t.starts_with("b="));

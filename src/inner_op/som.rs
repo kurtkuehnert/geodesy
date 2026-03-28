@@ -22,6 +22,7 @@ fn parse_real(value: &str, def: &str, key: &str) -> Result<f64, Error> {
         .map_err(|_| Error::BadParam(key.to_string(), def.to_string()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn seraz0(
     lam_deg: f64,
     mult: f64,
@@ -85,9 +86,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let tanphi = phi.tan();
         let mut lamt = 0.0;
         let mut lamdp = 0.0;
-        let mut found = false;
         let mut nn = 0;
-        loop {
+        let found = loop {
             let sav0 = lampp;
             let lamtp = lon + p22 * lampp;
             let cl = lamtp.cos();
@@ -114,8 +114,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 sav = lamdp;
             }
             if l_ok || nn >= 2 || (lamdp > rlm && lamdp < rlm2) {
-                found = l_ok;
-                break;
+                break l_ok;
             }
             nn += 1;
             lampp = if lamdp <= rlm {
@@ -123,7 +122,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             } else {
                 FRAC_PI_2
             };
-        }
+        };
         if !found {
             operands.set_coord(i, &Coor4D::nan());
             continue;
@@ -229,16 +228,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     }
     successes
 }
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 6] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "inc_angle", default: None },
-    OpParameter::Real { key: "ps_rev", default: None },
-    OpParameter::Real { key: "asc_lon", default: None },
-    OpParameter::Natural { key: "path", default: None },
-];
 
 fn setup(
     def: &str,

@@ -68,10 +68,6 @@ required-features = ["binary"]
 # Build example
 #   cargo b --bin kp --features=with_plain,binary
 
-[profile.release]
-lto = true
-strip = true
-
 [target.wasm32-unknown-unknown.dependencies]
 wasm-bindgen = "0.2"
 [target.wasm32-unknown-unknown.dev-dependencies]

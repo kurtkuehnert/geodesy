@@ -76,7 +76,7 @@ fn fwd_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let g = (f - 1.0 / f) / 2.0;
     let gamma_0 = aasin(alpha.sin() / d);
     let lambda_0 = lonc - aasin(g * gamma_0.tan()) / b;
-    let uc = if ninety {
+    let _uc = if ninety {
         a * (lonc - lambda_0)
     } else {
         (a / b) * dd.atan2(alpha.cos()) * latc.signum()
@@ -179,7 +179,7 @@ fn inv_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let gamma_0 = aasin(alpha.sin() / d);
     let lambda_0 = lonc - aasin(g * gamma_0.tan()) / b;
 
-    let uc = if ninety {
+    let _uc = if ninety {
         a * (lonc - lambda_0)
     } else {
         (a / b) * dd.atan2(alpha.cos()) * latc.signum()
@@ -432,7 +432,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let has_alpha = !params.real["alpha"].is_nan();
     let has_gamma = !params.real["gamma_c"].is_nan();
     let lonc = params.real["lonc"].to_radians();
-    let mut lam1 = params.real["lon_1"].to_radians();
+    let lam1 = params.real["lon_1"].to_radians();
     let phi1 = params.real["lat_1"].to_radians();
     let mut lam2 = params.real["lon_2"].to_radians();
     let phi2 = params.real["lat_2"].to_radians();
@@ -475,7 +475,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     }
 
     let com = (1.0 - es).sqrt();
-    let (A, B, E, D) = if phi0.abs() > EPS {
+    let (a_scale, b_scale, e_scale, d_scale) = if phi0.abs() > EPS {
         let (sinph0, cosph0) = phi0.sin_cos();
         let con = 1.0 - es * sinph0 * sinph0;
         let b = (1.0 + es * cosph0.powi(4) / (1.0 - es)).sqrt();
@@ -500,13 +500,13 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let gamma0;
     if has_alpha || has_gamma {
         if has_alpha {
-            gamma0 = aasin(alpha_c.sin() / D);
+            gamma0 = aasin(alpha_c.sin() / d_scale);
             if !has_gamma {
                 gamma = alpha_c;
             }
         } else {
             gamma0 = gamma;
-            let test = D * gamma0.sin();
+            let test = d_scale * gamma0.sin();
             if test.abs() > 1.0 {
                 return Err(Error::General("Omerc: Invalid value for gamma"));
             }
@@ -514,19 +514,19 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         }
         lam0 = lonc
             - aasin(
-                0.5 * ((D * D - 1.0).max(0.0).sqrt() + D
-                    - 1.0 / ((D * D - 1.0).max(0.0).sqrt() + D))
+                0.5 * ((d_scale * d_scale - 1.0).max(0.0).sqrt() + d_scale
+                    - 1.0 / ((d_scale * d_scale - 1.0).max(0.0).sqrt() + d_scale))
                     * gamma0.tan(),
-            ) / B;
+            ) / b_scale;
     } else {
-        let h = tsfn(phi1, phi1.sin(), e).powf(B);
-        let l = tsfn(phi2, phi2.sin(), e).powf(B);
-        let f = E / h;
+        let h = tsfn(phi1, phi1.sin(), e).powf(b_scale);
+        let l = tsfn(phi2, phi2.sin(), e).powf(b_scale);
+        let f = e_scale / h;
         let p = (l - h) / (l + h);
         if p == 0.0 {
             return Err(Error::General("Omerc: Invalid value for eccentricity"));
         }
-        let mut j = E * E;
+        let mut j = e_scale * e_scale;
         j = (j - l * h) / (j + l * h);
         let con = lam1 - lam2;
         if con < -std::f64::consts::PI {
@@ -534,14 +534,15 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         } else if con > std::f64::consts::PI {
             lam2 += TAU;
         }
-        let lam0_raw = 0.5 * (lam1 + lam2) - (j * (0.5 * B * (lam1 - lam2)).tan() / p).atan() / B;
+        let lam0_raw =
+            0.5 * (lam1 + lam2) - (j * (0.5 * b_scale * (lam1 - lam2)).tan() / p).atan() / b_scale;
         lam0 = adjlon(lam0_raw);
         let denom = f - 1.0 / f;
         if denom == 0.0 {
             return Err(Error::General("Omerc: Invalid value for eccentricity"));
         }
-        gamma0 = (2.0 * (B * adjlon(lam1 - lam0)).sin() / denom).atan();
-        alpha_c = aasin(D * gamma0.sin());
+        gamma0 = (2.0 * (b_scale * adjlon(lam1 - lam0)).sin() / denom).atan();
+        alpha_c = aasin(d_scale * gamma0.sin());
         gamma = alpha_c;
     }
 
@@ -549,30 +550,31 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let cosgam = gamma0.cos();
     let sinrot = gamma.sin();
     let cosrot = gamma.cos();
-    let rB = 1.0 / B;
-    let ArB = A * rB;
-    let BrA = 1.0 / ArB;
-    let AB = A * B;
+    let r_b = 1.0 / b_scale;
+    let ar_b = a_scale * r_b;
+    let br_a = 1.0 / ar_b;
+    let ab = a_scale * b_scale;
     let u_0 = if no_off {
         0.0
     } else {
-        let mut u0 = (ArB * (((D * D - 1.0).max(0.0).sqrt()) / alpha_c.cos()).atan()).abs();
+        let mut u0 =
+            (ar_b * (((d_scale * d_scale - 1.0).max(0.0).sqrt()) / alpha_c.cos()).atan()).abs();
         if phi0 < 0.0 {
             u0 = -u0;
         }
         u0
     };
     let f = 0.5 * gamma0;
-    let v_pole_n = ArB * (FRAC_PI_4 - f).tan().ln();
-    let v_pole_s = ArB * (FRAC_PI_4 + f).tan().ln();
+    let v_pole_n = ar_b * (FRAC_PI_4 - f).tan().ln();
+    let v_pole_s = ar_b * (FRAC_PI_4 + f).tan().ln();
 
-    params.real.insert("A", A);
-    params.real.insert("B", B);
-    params.real.insert("E", E);
-    params.real.insert("AB", AB);
-    params.real.insert("ArB", ArB);
-    params.real.insert("BrA", BrA);
-    params.real.insert("rB", rB);
+    params.real.insert("A", a_scale);
+    params.real.insert("B", b_scale);
+    params.real.insert("E", e_scale);
+    params.real.insert("AB", ab);
+    params.real.insert("ArB", ar_b);
+    params.real.insert("BrA", br_a);
+    params.real.insert("rB", r_b);
     params.real.insert("singam", singam);
     params.real.insert("cosgam", cosgam);
     params.real.insert("sinrot", sinrot);
@@ -663,7 +665,7 @@ mod tests {
         let mut operands = [Coor4D::geo(1., 2., 0., 0.)];
         assert_eq!(1, ctx.apply(op, Fwd, &mut operands)?);
         assert_float_eq!(operands[0][0], -3569.825230822232, abs_all <= 1e-3);
-        assert_float_eq!(operands[0][1], -5093592.310871849768, abs_all <= 1e-3);
+        assert_float_eq!(operands[0][1], -5_093_592.310_871_85, abs_all <= 1e-3);
 
         Ok(())
     }

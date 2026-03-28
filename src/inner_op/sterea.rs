@@ -198,9 +198,6 @@ fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
     let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
-    let gauss_c = op.params.real("gauss_c").unwrap_or(0.0);
-    let gauss_k = op.params.real("gauss_k").unwrap_or(0.0);
-    let gauss_ratexp = op.params.real("gauss_ratexp").unwrap_or(0.0);
     let sinc0 = op.params.real("sinc0").unwrap_or(0.0);
     let cosc0 = op.params.real("cosc0").unwrap_or(0.0);
     let proj_r2 = op.params.real("r2").unwrap_or(0.0);

@@ -100,10 +100,7 @@ pub fn parse_sexagesimal(angle: &str) -> f64 {
         angle = &angle[..n - 1];
     }
 
-    let normalized = angle
-        .replace('d', ":")
-        .replace('D', ":")
-        .replace(['\'', '"'], ":");
+    let normalized = angle.replace(['d', 'D', '\'', '"'], ":");
     let angle = normalized.trim_matches(':');
     if angle.is_empty() {
         warn!("Cannot parse sexagesimal angle from empty input");

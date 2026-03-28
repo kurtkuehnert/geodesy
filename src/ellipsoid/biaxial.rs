@@ -72,7 +72,7 @@ impl Ellipsoid {
                     if a <= 0.0 {
                         return Err(Error::General("ellipsoid semimajor axis must be positive"));
                     }
-                    if f < 0.0 || f >= 1.0 {
+                    if !(0.0..1.0).contains(&f) {
                         return Err(Error::General("ellipsoid flattening must be in [0, 1)"));
                     }
                     return Ok(Ellipsoid::new(a, f));

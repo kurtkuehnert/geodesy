@@ -311,7 +311,7 @@ mod tests {
         let op =
             ctx.op("aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80")?;
 
-        let mut projected = [Coor4D::raw(0.0, -112_982.4091, 0.0, 0.0)];
+        let mut projected = [Coor4D::raw(0.0, -112_982.409_1, 0.0, 0.0)];
         ctx.apply(op, Inv, &mut projected)?;
 
         assert!((projected[0][0].to_degrees() + 120.0).abs() < 1e-8);

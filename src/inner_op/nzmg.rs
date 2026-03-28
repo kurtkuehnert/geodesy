@@ -2,7 +2,7 @@
 use crate::authoring::*;
 
 const EPSLN: f64 = 1e-10;
-const SEC5_TO_RAD: f64 = 0.484_813_681_109_535_97;
+const SEC5_TO_RAD: f64 = 0.484_813_681_109_536;
 const RAD_TO_SEC5: f64 = 2.062_648_062_470_963_6;
 
 #[derive(Clone, Copy)]

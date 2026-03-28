@@ -841,7 +841,7 @@ mod tests {
     fn decodes_local_geotiff_grid() -> Result<(), Error> {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../data/grids/us_noaa_conus.tif"
+            "/../../cache/grids/us_noaa_conus.tif"
         );
         let grid = BaseGrid::read(path)?;
         assert_eq!(grid.header.bands, 2);

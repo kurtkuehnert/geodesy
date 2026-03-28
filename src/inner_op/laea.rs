@@ -51,7 +51,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 FRAC_PI_2 + lat
             }
             _ => {
-                q = qp + q;
+                q += qp;
                 lat - FRAC_PI_2
             }
         };
