@@ -2,7 +2,9 @@
 use crate::authoring::*;
 
 const TOL: f64 = 1e-10;
+const CONV: f64 = 1e-10;
 const ITOL: f64 = 1e-12;
+const N_ITER: usize = 10;
 const I_ITER: usize = 20;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -15,13 +17,21 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(ml0) = op.params.real("ml0") else {
         return 0;
     };
+    let spherical = op.params.real["spherical"] != 0.0;
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
         let lam = lon - lon_0;
 
-        let (x, y) = if lat.abs() <= TOL {
+        let (x, y) = if spherical && lat.abs() > TOL {
+            let cot = lat.tan().recip();
+            let e = lam * lat.sin();
+            (
+                a * (e.sin() * cot) + x_0,
+                a * ((lat - op.params.real["lat_0"]) + cot * (1.0 - e.cos())) + y_0,
+            )
+        } else if lat.abs() <= TOL {
             (a * lam + x_0, a * (-ml0) + y_0)
         } else {
             let (sinphi, cosphi) = lat.sin_cos();
@@ -54,6 +64,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(ml0) = op.params.real("ml0") else {
         return 0;
     };
+    let spherical = op.params.real["spherical"] != 0.0;
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -64,6 +75,30 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         if y.abs() <= TOL {
             operands.set_xy(i, x + lon_0, 0.0);
+            successes += 1;
+            continue;
+        }
+
+        if spherical {
+            let mut lat = y;
+            let b = x * x + y * y;
+            let mut converged = false;
+            for _ in 0..N_ITER {
+                let tp = lat.tan();
+                let dphi = (y * (lat * tp + 1.0) - lat - 0.5 * (lat * lat + b) * tp)
+                    / ((lat - y) / tp - 1.0);
+                lat -= dphi;
+                if dphi.abs() <= CONV {
+                    converged = true;
+                    break;
+                }
+            }
+            if !converged {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
+            }
+            let lon = lon_0 + (x * lat.tan()).clamp(-1.0, 1.0).asin() / lat.sin();
+            operands.set_xy(i, lon, lat);
             successes += 1;
             continue;
         }
@@ -136,6 +171,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ellps = params.ellps(0);
     let ml0 = ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis();
     params.real.insert("ml0", ml0);
+    params
+        .real
+        .insert("spherical", (ellps.eccentricity_squared() == 0.0) as i32 as f64);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
@@ -219,6 +257,26 @@ mod tests {
 
         assert!((projected[0][0].to_degrees() + 50.0).abs() < 4e-5);
         assert!((projected[0][1].to_degrees() + 10.0).abs() < 4e-5);
+        Ok(())
+    }
+
+    #[test]
+    fn poly_spherical_roundtrip_matches_proj() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("poly lat_0=0 lon_0=0 R=6371000")?;
+
+        let geo = [Coor4D::raw(
+            (-42.22015752663208_f64).to_radians(),
+            3.7614226119335115_f64.to_radians(),
+            0.0,
+            0.0,
+        )];
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        ctx.apply(op, Inv, &mut operands)?;
+
+        assert!((operands[0][0] - geo[0][0]).abs() < 1e-9);
+        assert!((operands[0][1] - geo[0][1]).abs() < 1e-9);
         Ok(())
     }
 }

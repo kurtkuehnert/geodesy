@@ -31,7 +31,6 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
     let e = ellps.eccentricity();
-    let a = ellps.semimajor_axis();
     let n1 = op.params.real["n1"];
     let n2 = op.params.real["n2"];
     let c = op.params.real["c"];
@@ -42,7 +41,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     for i in 0..operands.len() {
         let (x, y) = operands.xy(i);
-        let l = (((x - xs) * a.recip()).sinh() / ((y - ys) / n2).cos()).atan();
+        let l = (((x - xs) / n2).sinh() / ((y - ys) / n2).cos()).atan();
         let sin_c = ((y - ys) / n2).sin() / (((x - xs) / n2).cosh());
         let lc = ancillary::ts((-sin_c.asin()).sin_cos(), 0.0).ln();
         let lon = lon_0 + l / n1;
@@ -55,13 +54,14 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 6] = [
+ pub const GAMUT: [OpParameter; 7] = [
     OpParameter::Flag { key: "inv" },
     OpParameter::Text { key: "ellps", default: Some("GRS80") },
     OpParameter::Real { key: "lat_0", default: Some(0_f64) },
     OpParameter::Real { key: "lon_0", default: Some(0_f64) },
     OpParameter::Real { key: "k_0", default: Some(1_f64) },
     OpParameter::Real { key: "x_0", default: Some(0_f64) },
+    OpParameter::Real { key: "y_0", default: Some(0_f64) },
 ];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
@@ -74,14 +74,16 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let lat_0 = params.real["lat_0"].to_radians();
     let lon_0 = params.real["lon_0"].to_radians();
     let k_0 = params.real["k_0"];
+    let x_0 = params.real["x_0"];
+    let y_0 = params.real["y_0"];
 
     let n1 = (1.0 + es * lat_0.cos().powi(4) / (1.0 - es)).sqrt();
     let phic = (lat_0.sin() / n1).asin();
     let c =
         ancillary::ts((-phic).sin_cos(), 0.0).ln() - n1 * ancillary::ts((-lat_0).sin_cos(), e).ln();
     let n2 = k_0 * a * (1.0 - es).sqrt() / (1.0 - es * lat_0.sin().powi(2));
-    let xs = 0.0;
-    let ys = -n2 * phic;
+    let xs = x_0;
+    let ys = y_0 - n2 * phic;
 
     params.real.insert("lat_0", lat_0);
     params.real.insert("lon_0", lon_0);
@@ -121,6 +123,31 @@ mod tests {
         assert!(operands[0].hypot2(&expected[0]) < 1e-6);
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0].hypot2(&geo[0]) < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn gstmerc_respects_false_origin() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "gstmerc lat_0=-21.1166666666667 lon_0=55.5333333333333 k_0=1 x_0=160000 y_0=50000 ellps=intl",
+        )?;
+
+        let geo = [Coor4D::raw(
+            55.54497939138478_f64.to_radians(),
+            (-21.059138278165022_f64).to_radians(),
+            0.0,
+            0.0,
+        )];
+        let expected = [Coor4D::raw(161_210.417_590_794_74, 56_369.498_060_546_89, 0.0, 0.0)];
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&expected[0]) < 1e-6);
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!((operands[0][0] - geo[0][0]).abs() < 1e-10);
+        assert!((operands[0][1] - geo[0][1]).abs() < 1e-10);
         Ok(())
     }
 }
