@@ -62,9 +62,11 @@ mod aea;
 mod aeqd;
 mod axisswap;
 mod btmerc;
+mod bonne;
 mod calcofi;
 mod cart;
 mod cass;
+mod cea;
 mod col_urban;
 mod curvature;
 mod deflection;
@@ -84,22 +86,28 @@ mod labrd;
 mod laea;
 mod latitude;
 mod lcc;
+mod lccnc;
 mod lcca;
 mod longlat;
 mod merc;
+mod mill;
 mod mod_ster;
+mod moll;
 mod molobadekas;
 mod molodensky;
 mod noop;
 mod nzmg;
 mod ocea;
 mod omerc;
+mod ortho;
 mod permtide;
 pub(crate) mod pipeline; // Needed by Op for instantiation
 mod poly;
 mod pushpop;
 mod qsc;
+mod robin;
 mod rouss;
+mod sinu;
 mod som;
 mod somerc;
 mod stack;
@@ -107,7 +115,9 @@ mod stere;
 mod sterea;
 mod tcea;
 mod tmerc;
+mod tmgrid;
 mod tpeqd;
+mod tunmg;
 mod unitconvert;
 mod units;
 mod webmerc;
@@ -115,15 +125,17 @@ mod webmerc;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 69] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 79] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
     BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
     BuiltinOp::with_domains("btmerc",      btmerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("butm",        btmerc::utm,      Geographic, Projected),
     BuiltinOp::with_domains("alsk",        mod_ster::alsk,   Geographic, Projected),
+    BuiltinOp::with_domains("bonne",       bonne::new,       Geographic, Projected),
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::with_domains("calcofi",     calcofi::new,     Geographic, Projected),
+    BuiltinOp::with_domains("cea",         cea::new,         Geographic, Projected),
     BuiltinOp::with_domains("col_urban",   col_urban::new,   Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
     BuiltinOp::with_domains("eqdc",        eqdc::new,        Geographic, Projected),
@@ -137,23 +149,31 @@ const BUILTIN_OPERATORS: [BuiltinOp; 69] = [
     BuiltinOp::with_domains("laea",        laea::new,        Geographic, Projected),
     BuiltinOp::with_domains("labrd",       labrd::new,       Geographic, Projected),
     BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),
+    BuiltinOp::with_domains("lccnc",       lccnc::new,       Geographic, Projected),
     BuiltinOp::with_domains("lcca",        lcca::new,        Geographic, Projected),
     BuiltinOp::with_domains("leac",        aea::leac,        Geographic, Projected),
     BuiltinOp::with_domains("merc",        merc::new,        Geographic, Projected),
+    BuiltinOp::with_domains("mill",        mill::new,        Geographic, Projected),
+    BuiltinOp::with_domains("moll",        moll::new,        Geographic, Projected),
     BuiltinOp::with_domains("nzmg",        nzmg::new,        Geographic, Projected),
     BuiltinOp::with_domains("ocea",        ocea::new,        Geographic, Projected),
     BuiltinOp::with_domains("omerc",       omerc::new,       Geographic, Projected),
+    BuiltinOp::with_domains("ortho",       ortho::new,       Geographic, Projected),
     BuiltinOp::with_domains("poly",        poly::new,        Geographic, Projected),
     BuiltinOp::with_domains("mod_krovak",  krovak::modified, Geographic, Projected),
     BuiltinOp::with_domains("qsc",         qsc::new,         Geographic, Projected),
+    BuiltinOp::with_domains("robin",       robin::new,       Geographic, Projected),
     BuiltinOp::with_domains("rouss",       rouss::new,       Geographic, Projected),
+    BuiltinOp::with_domains("sinu",        sinu::new,        Geographic, Projected),
     BuiltinOp::with_domains("som",         som::new,         Geographic, Projected),
     BuiltinOp::with_domains("somerc",      somerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("stere",       stere::new,       Geographic, Projected),
     BuiltinOp::with_domains("sterea",      sterea::new,      Geographic, Projected),
     BuiltinOp::with_domains("tcea",        tcea::new,        Geographic, Projected),
     BuiltinOp::with_domains("tmerc",       tmerc::new,       Geographic, Projected),
+    BuiltinOp::with_domains("tmgrid",      tmgrid::new,      Geographic, Projected),
     BuiltinOp::with_domains("tpeqd",       tpeqd::new,       Geographic, Projected),
+    BuiltinOp::with_domains("tunmg",       tunmg::new,       Geographic, Projected),
     BuiltinOp::with_domains("utm",         tmerc::utm,       Geographic, Projected),
     BuiltinOp::with_domains("ups",         stere::ups,       Geographic, Projected),
     BuiltinOp::with_domains("webmerc",     webmerc::new,     Geographic, Projected),
