@@ -862,7 +862,6 @@ mod tests {
             parse_proj("+proj=longlat +ellps=bessel +lon_0=10 +pm=paris", true)?,
             "unitconvert xy_in=deg xy_out=rad | longlat ellps=bessel lon_0=12.337229166666667 | unitconvert xy_in=rad xy_out=deg"
         );
-
         Ok(())
     }
 

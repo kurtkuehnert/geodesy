@@ -553,6 +553,13 @@ fn normalize_prime_meridian(elements: &mut Vec<String>) -> Result<(), Error> {
         elements.first().map(String::as_str),
         Some("longlat" | "latlon" | "latlong" | "lonlat")
     );
+    let is_inverse = elements.iter().any(|element| element == "inv");
+    let is_inverse_bonne = is_inverse && matches!(elements.first().map(String::as_str), Some("bonne"));
+
+    if is_inverse_bonne {
+        elements.remove(pm_idx);
+        return Ok(());
+    }
 
     for key in ["lon_0=", "lonc=", "lon_1=", "lon_2="] {
         if is_longlat && key == "lon_0=" {

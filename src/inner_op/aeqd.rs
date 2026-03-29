@@ -14,6 +14,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let y_0 = op.params.y(0);
     let origin = Coor4D::raw(lon_0, lat_0, 0.0, 0.0);
     let spherical = op.params.boolean("spherical");
+    let guam = op.params.boolean("guam");
     let north_polar = op.params.boolean("north_polar");
     let _south_polar = op.params.boolean("south_polar");
     let equatorial = op.params.boolean("equatorial");
@@ -80,6 +81,17 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let rho = a * (FRAC_PI_2 + phi);
                 (rho * sinlam, rho * coslam)
             }
+        } else if guam {
+            let es = ellps.eccentricity_squared();
+            let cosphi = lat.cos();
+            let sinphi = lat.sin();
+            let t = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
+            (
+                a * lam * cosphi * t,
+                ellps.meridian_latitude_to_distance(lat)
+                    - ellps.meridian_latitude_to_distance(lat_0)
+                    + 0.5 * a * lam * lam * cosphi * sinphi * t,
+            )
         } else if (equatorial || oblique) && lam.abs() < EPS10 && (lat - lat_0).abs() < EPS10 {
             (0.0, 0.0)
         } else if equatorial && lat.abs() < EPS10 && lat_0.abs() < EPS10 {
@@ -110,6 +122,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let y_0 = op.params.y(0);
     let origin = Coor4D::raw(lon_0, lat_0, 0.0, 0.0);
     let spherical = op.params.boolean("spherical");
+    let guam = op.params.boolean("guam");
     let north_polar = op.params.boolean("north_polar");
     let _south_polar = op.params.boolean("south_polar");
     let equatorial = op.params.boolean("equatorial");
@@ -155,6 +168,21 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             } else {
                 (dx.atan2(dy), c_rh - FRAC_PI_2)
             }
+        } else if guam {
+            let es = ellps.eccentricity_squared();
+            let a = ellps.semimajor_axis();
+            let x_norm = dx / a;
+            let y_norm = dy / a;
+            let x2 = 0.5 * x_norm * x_norm;
+            let m0 = ellps.meridian_latitude_to_distance(lat_0);
+            let mut lat = lat_0;
+            let mut t;
+            for _ in 0..3 {
+                t = (1.0 - es * lat.sin().powi(2)).sqrt();
+                lat = ellps.meridian_distance_to_latitude(m0 + a * (y_norm - x2 * lat.tan() * t));
+            }
+            t = (1.0 - es * lat.sin().powi(2)).sqrt();
+            (lon_0 + x_norm * t / lat.cos(), lat)
         } else {
             let distance = dx.hypot(dy);
             if distance < EPS10 {
@@ -183,8 +211,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 6] = [
+pub const GAMUT: [OpParameter; 7] = [
     OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "guam" },
     OpParameter::Text { key: "ellps", default: Some("GRS80") },
     OpParameter::Real { key: "lat_0", default: Some(0_f64) },
     OpParameter::Real { key: "lon_0", default: Some(0_f64) },
@@ -281,5 +310,23 @@ mod tests {
             ctx.op("aeqd R=1 lat_0=91"),
             Err(Error::BadParam(_, _))
         ));
+    }
+
+    #[test]
+    fn aeqd_guam_matches_proj_gie_example() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "aeqd guam ellps=clrk66 x_0=50000 y_0=50000 lon_0=144.74875069444445 lat_0=13.47246633333333",
+        )?;
+
+        let mut operands = [Coor4D::geo(13.33903846111111, 144.63533129166666, 0.0, 0.0)];
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!((operands[0][0] - 37712.48).abs() < 0.01);
+        assert!((operands[0][1] - 35242.00).abs() < 0.01);
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!((operands[0][0].to_degrees() - 144.63533129166666).abs() < 1e-8);
+        assert!((operands[0][1].to_degrees() - 13.33903846111111).abs() < 1e-8);
+        Ok(())
     }
 }
