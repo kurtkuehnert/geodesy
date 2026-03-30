@@ -174,6 +174,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     Ok(Op {
         descriptor,
         params,
+        state: None,
         steps: None,
     })
 }

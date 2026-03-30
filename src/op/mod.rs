@@ -4,7 +4,9 @@ mod parsed_parameters;
 mod raw_parameters;
 
 use crate::authoring::*;
+use std::any::Any;
 use std::collections::BTreeMap;
+use std::fmt::{self, Debug};
 
 pub use op_descriptor::OpDescriptor;
 pub use parameter::OpParameter;
@@ -12,11 +14,22 @@ pub use parsed_parameters::ParsedParameters;
 pub use raw_parameters::RawParameters;
 
 /// The defining parameters and functions for an operator
-#[derive(Debug)]
 pub struct Op {
     pub descriptor: OpDescriptor,
     pub params: ParsedParameters,
+    pub state: Option<Box<dyn Any + Send + Sync>>,
     pub steps: Option<Vec<Op>>,
+}
+
+impl Debug for Op {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Op")
+            .field("descriptor", &self.descriptor)
+            .field("params", &self.params)
+            .field("has_state", &self.state.is_some())
+            .field("steps", &self.steps)
+            .finish()
+    }
 }
 
 impl Op {
@@ -72,8 +85,43 @@ impl Op {
         Ok(Op {
             descriptor,
             params,
+            state: None,
             steps: None,
         })
+    }
+
+    pub fn with_state<T: Any + Send + Sync>(
+        descriptor: OpDescriptor,
+        params: ParsedParameters,
+        state: T,
+    ) -> Op {
+        Op {
+            descriptor,
+            params,
+            state: Some(Box::new(state)),
+            steps: None,
+        }
+    }
+
+    pub fn state<T: Any + Send + Sync>(&self) -> &T {
+        if self.state.is_none() {
+            panic!(
+                "operator '{}' is missing expected state {}",
+                self.descriptor.instantiated_as,
+                std::any::type_name::<T>()
+            );
+        }
+
+        self.state
+            .as_ref()
+            .and_then(|state| state.downcast_ref::<T>())
+            .unwrap_or_else(|| {
+            panic!(
+                "operator '{}' carries state, but not expected type {}",
+                self.descriptor.instantiated_as,
+                std::any::type_name::<T>()
+            )
+            })
     }
 
     // Instantiate the actual operator, taking into account the relative order

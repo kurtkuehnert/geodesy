@@ -58,70 +58,126 @@ impl BuiltinOp {
 
 mod adapt;
 mod addone;
-mod aea;
-mod aeqd;
-mod axisswap;
-mod bonne;
-mod btmerc;
-mod calcofi;
-mod cart;
-mod cass;
-mod cea;
-mod col_urban;
 mod curvature;
 mod deflection;
 mod deformation;
-mod eqc;
-mod eqdc;
-mod eqearth;
 mod geodesic;
-mod geogoffset;
-mod geos;
 mod gravity;
 mod gridshift;
-mod gstmerc;
-mod helmert;
 mod iso6709;
-mod krovak;
-mod labrd;
-mod laea;
-mod latitude;
-mod lcc;
-mod lcca;
-mod lccnc;
-mod longlat;
-mod merc;
-mod mill;
-mod mod_ster;
-mod moll;
-mod molobadekas;
 mod molodensky;
 mod noop;
-mod nzmg;
-mod ocea;
-mod omerc;
-mod ortho;
 mod permtide;
-pub(crate) mod pipeline; // Needed by Op for instantiation
-mod poly;
-mod pushpop;
-mod qsc;
-mod robin;
-mod rouss;
-mod sinu;
-mod som;
-mod somerc;
 mod stack;
-mod stere;
-mod sterea;
-mod tcea;
-mod tmerc;
-mod tmgrid;
-mod tpeqd;
-mod tunmg;
-mod unitconvert;
 mod units;
+
+// v1-scoped operators
+#[path = "v1/projection/aea.rs"]
+mod aea;
+#[path = "v1/projection/aeqd.rs"]
+mod aeqd;
+mod axisswap;
+#[path = "v1/projection/btmerc.rs"]
+mod btmerc;
+#[path = "v1/transform/cart.rs"]
+mod cart;
+#[path = "v1/projection/cass.rs"]
+mod cass;
+#[path = "v1/transform/helmert.rs"]
+mod helmert;
+#[path = "v1/projection/laea.rs"]
+mod laea;
+#[path = "v1/projection/lcc.rs"]
+mod lcc;
+#[path = "v1/transform/longlat.rs"]
+mod longlat;
+#[path = "v1/projection/merc.rs"]
+mod merc;
+#[path = "v1/transform/molobadekas.rs"]
+mod molobadekas;
+#[path = "v1/projection/omerc.rs"]
+mod omerc;
+pub(crate) mod pipeline; // Needed by Op for instantiation
+#[path = "deprecated/pushpop.rs"]
+mod pushpop;
+#[path = "v1/projection/stere.rs"]
+mod stere;
+#[path = "v1/projection/sterea.rs"]
+mod sterea;
+#[path = "v1/projection/tmerc.rs"]
+mod tmerc;
+#[path = "v1/transform/unitconvert.rs"]
+mod unitconvert;
+#[path = "v1/projection/webmerc.rs"]
 mod webmerc;
+
+// v2-scoped operators
+#[path = "v2/bonne.rs"]
+mod bonne;
+#[path = "v2/calcofi.rs"]
+mod calcofi;
+#[path = "v2/cea.rs"]
+mod cea;
+#[path = "v2/col_urban.rs"]
+mod col_urban;
+#[path = "v2/eqc.rs"]
+mod eqc;
+#[path = "v2/eqdc.rs"]
+mod eqdc;
+#[path = "v2/eqearth.rs"]
+mod eqearth;
+#[path = "v2/geogoffset.rs"]
+mod geogoffset;
+#[path = "v2/geos.rs"]
+mod geos;
+#[path = "v2/gstmerc.rs"]
+mod gstmerc;
+#[path = "v2/krovak.rs"]
+mod krovak;
+#[path = "v2/labrd.rs"]
+mod labrd;
+#[path = "v2/lcca.rs"]
+mod lcca;
+#[path = "v2/lccnc.rs"]
+mod lccnc;
+#[path = "v2/mill.rs"]
+mod mill;
+#[path = "v2/mod_ster.rs"]
+mod mod_ster;
+#[path = "v2/moll.rs"]
+mod moll;
+#[path = "v2/nzmg.rs"]
+mod nzmg;
+#[path = "v2/ocea.rs"]
+mod ocea;
+#[path = "v2/ortho.rs"]
+mod ortho;
+#[path = "v2/poly.rs"]
+mod poly;
+#[path = "v2/qsc.rs"]
+mod qsc;
+#[path = "v2/robin.rs"]
+mod robin;
+#[path = "v2/rouss.rs"]
+mod rouss;
+#[path = "v2/sinu.rs"]
+mod sinu;
+#[path = "v2/som.rs"]
+mod som;
+#[path = "v2/somerc.rs"]
+mod somerc;
+#[path = "v2/tcea.rs"]
+mod tcea;
+#[path = "v2/tmgrid.rs"]
+mod tmgrid;
+#[path = "v2/tpeqd.rs"]
+mod tpeqd;
+#[path = "v2/tunmg.rs"]
+mod tunmg;
+
+// v3-scoped operators
+#[path = "v3/latitude.rs"]
+mod latitude;
 
 use CoordDomain::{Cartesian, Geographic, Projected};
 #[allow(unused_imports)]

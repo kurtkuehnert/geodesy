@@ -85,6 +85,7 @@ pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
     Ok(Op {
         descriptor,
         params,
+        state: None,
         steps: Some(steps),
     })
 }
