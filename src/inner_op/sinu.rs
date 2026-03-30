@@ -1,34 +1,33 @@
 //! Sinusoidal (Sanson-Flamsteed)
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const EPS10: f64 = 1e-10;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let spherical = op.params.boolean("spherical");
     let rectifying = op.params.fourier_coefficients.get("rectifying");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta(lon);
         let (x, y) = if spherical {
             (lam * lat.cos(), lat)
         } else {
             let s = lat.sin();
             let c = lat.cos();
             let mu = rectifying.map_or_else(
-                || ellps.meridian_latitude_to_distance(lat) / a,
+                || ellps.meridian_latitude_to_distance(lat) / frame.a,
                 |coefficients| ellps.latitude_geographic_to_rectifying(lat, coefficients),
             );
             (lam * c / (1.0 - es * s * s).sqrt(), mu)
         };
-        operands.set_xy(i, x_0 + a * x, y_0 + a * y);
+        let (x, y) = frame.apply_false_origin(frame.a * x, frame.a * y);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
     successes
@@ -36,19 +35,17 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let spherical = op.params.boolean("spherical");
     let rectifying = op.params.fourier_coefficients.get("rectifying");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let y = (y_raw - y_0) / a;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let y = y_local / frame.a;
 
         let (lon, lat) = if spherical {
             let lat = y;
@@ -58,23 +55,23 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 continue;
             }
             let lon = if (std::f64::consts::FRAC_PI_2 - s).abs() <= EPS10 {
-                lon_0
+                frame.lon_0
             } else {
-                lon_0 + x / lat.cos()
+                frame.lon_0 + x / lat.cos()
             };
             (lon, lat)
         } else {
             let lat = rectifying.map_or_else(
-                || ellps.meridian_distance_to_latitude(y * a),
+                || ellps.meridian_distance_to_latitude(y * frame.a),
                 |coefficients| ellps.latitude_rectifying_to_geographic(y, coefficients),
             );
             let s = lat.abs();
             if s < std::f64::consts::FRAC_PI_2 {
                 let sinphi = lat.sin();
-                let lon = lon_0 + x * (1.0 - es * sinphi * sinphi).sqrt() / lat.cos();
+                let lon = frame.lon_0 + x * (1.0 - es * sinphi * sinphi).sqrt() / lat.cos();
                 (lon, lat)
             } else if (s - EPS10) < std::f64::consts::FRAC_PI_2 {
-                (lon_0, lat)
+                (frame.lon_0, lat)
             } else {
                 operands.set_coord(i, &Coor4D::nan());
                 continue;
@@ -102,16 +99,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    params.real.insert("lon_0", params.lon(0).to_radians());
-
-    if params.ellps(0).flattening() == 0.0 {
-        params.boolean.insert("spherical");
-    } else {
-        let rectifying = params
-            .ellps(0)
-            .coefficients_for_rectifying_latitude_computations();
-        params.fourier_coefficients.insert("rectifying", rectifying);
-    }
+    super::insert_rectifying_setup(&mut params);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

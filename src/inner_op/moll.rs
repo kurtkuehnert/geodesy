@@ -1,5 +1,6 @@
 //! Mollweide
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const MAX_ITER: usize = 30;
 const LOOP_TOL: f64 = 1e-7;
@@ -17,16 +18,13 @@ fn aasin(x: f64) -> f64 {
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let a = op.params.ellps(0).semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let (c_x, c_y, c_p) = moll_constants();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta(lon);
         let mut theta = lat;
         let k = c_p * lat.sin();
         let mut converged = false;
@@ -48,8 +46,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             theta *= 0.5;
         }
 
-        let x = x_0 + a * c_x * lam * theta.cos();
-        let y = y_0 + a * c_y * theta.sin();
+        let x = frame.a * c_x * lam * theta.cos();
+        let y = frame.a * c_y * theta.sin();
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -57,21 +56,19 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let a = op.params.ellps(0).semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let (c_x, c_y, c_p) = moll_constants();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let y = (y_raw - y_0) / a;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let y = y_local / frame.a;
         let theta = aasin(y / c_y);
         let cos_theta = theta.cos();
         if cos_theta.abs() < 1e-12 {
-            operands.set_xy(i, lon_0, aasin((theta + theta).sin() / c_p));
+            operands.set_xy(i, frame.lon_0, aasin((theta + theta).sin() / c_p));
             successes += 1;
             continue;
         }
@@ -81,7 +78,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
         let phi = aasin(((theta + theta) + (theta + theta).sin()) / c_p);
-        operands.set_xy(i, lon_0 + lam, phi);
+        operands.set_xy(i, frame.lon_0 + lam, phi);
         successes += 1;
     }
     successes
@@ -102,8 +99,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    params.real.insert("lon_0", params.lon(0).to_radians());
-
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
         descriptor,

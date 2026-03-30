@@ -1,5 +1,6 @@
 //! Krovak and Modified Krovak
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 const EPS: f64 = 1.0e-15;
@@ -21,14 +22,12 @@ const MOD_C9: f64 = -8.331_083_518E-24;
 const MOD_C10: f64 = -3.689_471_323E-24;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    let frame = ProjectionFrame::from_params(&op.params);
     let alpha = op.params.real["alpha"];
     let k = op.params.real["k"];
     let n = op.params.real["n"];
     let rho0 = op.params.real["rho0"];
     let ad = op.params.real["ad"];
-    let lon_0 = op.params.real["lon_0"];
-    let x_0 = op.params.real["x_0"];
-    let y_0 = op.params.real["y_0"];
     let a = op.params.real["a"];
     let e = op.params.real["e"];
     let modified = op.params.boolean("modified");
@@ -40,7 +39,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, lat) = operands.xy(i);
         let gfi = ((1.0 + e * lat.sin()) / (1.0 - e * lat.sin())).powf(alpha * e * 0.5);
         let u = 2.0 * (k * (lat * 0.5 + FRAC_PI_4).tan().powf(alpha) / gfi).atan() - FRAC_PI_2;
-        let deltav = -(lon - lon_0) * alpha;
+        let deltav = -frame.lon_delta_raw(lon) * alpha;
 
         let s = (ad.cos() * u.sin() + ad.sin() * u.cos() * deltav.cos()).asin();
         let cos_s = s.cos();
@@ -65,9 +64,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         }
 
         let (x, y) = if easting_northing {
-            (-westing - x_0, -southing - y_0)
+            (-westing - frame.x_0, -southing - frame.y_0)
         } else {
-            (southing + y_0, westing + x_0)
+            (southing + frame.y_0, westing + frame.x_0)
         };
         operands.set_xy(i, x, y);
         successes += 1;
@@ -76,14 +75,12 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    let frame = ProjectionFrame::from_params(&op.params);
     let alpha = op.params.real["alpha"];
     let k = op.params.real["k"];
     let n = op.params.real["n"];
     let rho0 = op.params.real["rho0"];
     let ad = op.params.real["ad"];
-    let lon_0 = op.params.real["lon_0"];
-    let x_0 = op.params.real["x_0"];
-    let y_0 = op.params.real["y_0"];
     let a = op.params.real["a"];
     let e = op.params.real["e"];
     let modified = op.params.boolean("modified");
@@ -94,9 +91,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     for i in 0..operands.len() {
         let (x, y) = operands.xy(i);
         let (mut westing, mut southing) = if easting_northing {
-            (-x - x_0, -y - y_0)
+            (-x - frame.x_0, -y - frame.y_0)
         } else {
-            (y - x_0, x - y_0)
+            (y - frame.x_0, x - frame.y_0)
         };
 
         if modified {
@@ -118,7 +115,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         let u = (ad.cos() * s.sin() - ad.sin() * s.cos() * d.cos()).asin();
         let deltav = (s.cos() * d.sin() / u.cos()).asin();
-        let lon = lon_0 - deltav / alpha;
+        let lon = frame.lon_0 - deltav / alpha;
 
         let mut lat = u;
         let mut prev = u;
@@ -193,11 +190,10 @@ fn new_inner(parameters: &RawParameters, modified: bool) -> Result<Op, Error> {
 
     // Match PROJ parity: this projection family is hardwired to the Bessel ellipsoid.
     let ellps = Ellipsoid::named("bessel")?;
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
     let e = ellps.eccentricity();
-    let phi_0 = params.real("lat_0")?.to_radians();
-    let lon_0 = params.real("lon_0")?.to_radians();
+    let frame = ProjectionFrame::from_params(&params);
+    let phi_0 = frame.lat_0;
     let k_0 = params.real("k")?;
 
     let alpha = (1.0 + (es * phi_0.cos().powi(4)) / (1.0 - es)).sqrt();
@@ -221,8 +217,7 @@ fn new_inner(parameters: &RawParameters, modified: bool) -> Result<Op, Error> {
     params.real.insert("rho0", rho0);
     params.real.insert("ad", ad);
     params.real.insert("lat_0", phi_0);
-    params.real.insert("lon_0", lon_0);
-    params.real.insert("a", a);
+    params.real.insert("a", ellps.semimajor_axis());
     params.real.insert("e", e);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));

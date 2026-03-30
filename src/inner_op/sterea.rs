@@ -1,5 +1,6 @@
 //! Oblique Stereographic Alternative, closely following PROJ's implementation.
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 const DEL_TOL: f64 = 1e-14;
@@ -87,9 +88,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(cosc0) = op.params.real("cosc0") else {
         return 0;
     };
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
@@ -97,7 +96,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let (lam, phi) = gauss(lon - lon_0, lat, gauss_c, gauss_k, e, ratexp);
+        let (lam, phi) = gauss(frame.lon_delta_raw(lon), lat, gauss_c, gauss_k, e, ratexp);
         let sinc = phi.sin();
         let cosc = phi.cos();
         let cosl = lam.cos();
@@ -107,8 +106,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
         let scale = a * k0 * r2 / denom;
-        let x = x_0 + scale * cosc * lam.sin();
-        let y = y_0 + scale * (cosc0 * sinc - sinc0 * cosc * cosl);
+        let x = scale * cosc * lam.sin();
+        let y = scale * (cosc0 * sinc - sinc0 * cosc * cosl);
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -139,9 +139,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(cosc0) = op.params.real("cosc0") else {
         return 0;
     };
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
@@ -149,8 +147,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (mut x, mut y) = operands.xy(i);
-        x = (x - x_0) / (a * k0);
-        y = (y - y_0) / (a * k0);
+        let (x_local, y_local) = frame.remove_false_origin(x, y);
+        x = x_local / (a * k0);
+        y = y_local / (a * k0);
         let rho = x.hypot(y);
 
         let (lam, phi) = if rho != 0.0 {
@@ -169,7 +168,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         };
 
-        operands.set_xy(i, lon_0 + lam, phi);
+        operands.set_xy(i, frame.lon_0 + lam, phi);
         successes += 1;
     }
     successes
@@ -192,9 +191,7 @@ fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(cos_chi0) = op.params.real("legacy_cos_chi0") else {
         return 0;
     };
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
@@ -213,8 +210,8 @@ fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
                 continue;
             }
             let scale = a * k0 * proj_r2 / denom;
-            let x = x_0;
-            let y = y_0 + scale * cosc0 * sign;
+            let x = frame.x_0;
+            let y = frame.y_0 + scale * cosc0 * sign;
             operands.set_xy(i, x, y);
             successes += 1;
             continue;
@@ -224,7 +221,7 @@ fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
         let sin_chi = (ww - 1.0) / (ww + 1.0);
         let chi = sin_chi.asin();
         let cos_chi = chi.cos();
-        let d_lambda = n * (lon - lon_0);
+        let d_lambda = n * frame.lon_delta_raw(lon);
         let (sin_dl, cos_dl) = d_lambda.sin_cos();
         let denom = 1.0 + sin_chi * sin_chi0 + cos_chi * cos_chi0 * cos_dl;
         if denom == 0.0 {
@@ -232,8 +229,9 @@ fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
         let scale = a * k0 * r2 / denom;
-        let x = x_0 + scale * cos_chi * sin_dl;
-        let y = y_0 + scale * (sin_chi * cos_chi0 - cos_chi * sin_chi0 * cos_dl);
+        let x = scale * cos_chi * sin_dl;
+        let y = scale * (sin_chi * cos_chi0 - cos_chi * sin_chi0 * cos_dl);
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -260,21 +258,18 @@ fn legacy_inv(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let Ok(h) = op.params.real("legacy_h") else {
         return 0;
     };
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let easting = operands.xy(i).0 - x_0;
-        let northing = operands.xy(i).1 - y_0;
+        let (easting, northing) = frame.remove_false_origin(operands.xy(i).0, operands.xy(i).1);
         let iang = easting.atan2(h + northing);
         let jang = easting.atan2(g - northing) - iang;
         let chi = chi0 + 2.0 * ((northing - easting * (0.5 * jang).tan()) / (a * k0 * r2)).atan();
-        let lon = lon_0 + (jang + 2.0 * iang) / n;
+        let lon = frame.lon_0 + (jang + 2.0 * iang) / n;
 
         let sin_chi = chi.sin();
         let psi = 0.5 * ((1.0 + sin_chi) / (c * (1.0 - sin_chi))).ln() / n;
@@ -318,8 +313,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
 
-    let lat_0 = params.lat(0).to_radians();
-    let lon_0 = params.lon(0).to_radians();
+    let lat_0 = params.lat(0);
     let ellps = params.ellps(0);
     let e = ellps.eccentricity();
     let a = ellps.semimajor_axis();
@@ -348,8 +342,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let legacy_g = a * k0 * legacy_r2 * (FRAC_PI_4 - 0.5 * legacy_chi0).tan();
     let legacy_h = 2.0 * a * k0 * legacy_r2 * legacy_chi0.tan() + legacy_g;
 
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", lon_0);
     if (lat_0.abs() - FRAC_PI_2).abs() < 1e-12 {
         params.boolean.insert("proj_polar");
     }

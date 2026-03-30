@@ -1,6 +1,6 @@
 //! Lambert Conformal Conic
 use crate::authoring::*;
-use crate::math::angular;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 
 const EPS10: f64 = 1e-10;
@@ -11,12 +11,8 @@ const EPS10: f64 = 1e-10;
 // cf.  https://proj.org/operations/projections/lcc.html
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
-    let lon_0 = op.params.lon(0);
-    let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let Ok(n) = op.params.real("n") else { return 0 };
     let Ok(c) = op.params.real("c") else { return 0 };
     let Ok(rho0) = op.params.real("rho0") else {
@@ -28,7 +24,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     for i in 0..length {
         let (mut lam, phi) = operands.xy(i);
-        lam = angular::normalize_symmetric(lam - lon_0);
+        lam = frame.lon_delta(lam);
         let mut rho = 0.;
 
         // Close to one of the poles?
@@ -42,11 +38,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         }
         let sc = (lam * n).sin_cos();
         let x = if west_oriented {
-            x_0 - a * k_0 * rho * sc.0
+            frame.x_0 - frame.a * frame.k_0 * rho * sc.0
         } else {
-            a * k_0 * rho * sc.0 + x_0
+            frame.a * frame.k_0 * rho * sc.0 + frame.x_0
         };
-        let y = a * k_0 * (rho0 - rho * sc.1) + y_0;
+        let y = frame.a * frame.k_0 * (rho0 - rho * sc.1) + frame.y_0;
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -56,12 +52,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 // ----- I N V E R S E -----------------------------------------------------------------
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
-    let lon_0 = op.params.lon(0);
-    let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let Ok(n) = op.params.real("n") else { return 0 };
     let Ok(c) = op.params.real("c") else { return 0 };
     let Ok(rho0) = op.params.real("rho0") else {
@@ -73,11 +65,11 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     for i in 0..operands.len() {
         let (mut x, mut y) = operands.xy(i);
         x = if west_oriented {
-            (x_0 - x) / (a * k_0)
+            (frame.x_0 - x) / (frame.a * frame.k_0)
         } else {
-            (x - x_0) / (a * k_0)
+            (x - frame.x_0) / (frame.a * frame.k_0)
         };
-        y = rho0 - (y - y_0) / (a * k_0);
+        y = rho0 - (y - frame.y_0) / (frame.a * frame.k_0);
 
         let mut rho = x.hypot(y);
 
@@ -103,7 +95,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             operands.set_coord(i, &Coor4D::nan());
             continue;
         }
-        let lon = x.atan2(y) / n + lon_0;
+        let lon = x.atan2(y) / n + frame.lon_0;
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -139,17 +131,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.real.insert("lat_2", params.lat(1));
     }
 
-    let phi1 = params.lat(1).to_radians();
-    let mut phi2 = params.lat(2).to_radians();
+    let phi1 = params.lat(1);
+    let mut phi2 = params.lat(2);
     if phi2.is_nan() {
         phi2 = phi1;
     }
-    params
-        .real
-        .insert("lon_0", params.real["lon_0"].to_radians());
-    params
-        .real
-        .insert("lat_0", params.real["lat_0"].to_radians());
     params.real.insert("lat_1", phi1);
     params.real.insert("lat_2", phi2);
 
@@ -213,8 +199,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("c", c);
     params.real.insert("n", n);
     params.real.insert("rho0", rho0);
-    params.real.insert("lat_0", lat_0);
-
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
         descriptor,

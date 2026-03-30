@@ -1,27 +1,25 @@
 //! Equal Area Cylindrical
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const EPS: f64 = 1e-10;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let e = ellps.eccentricity();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let k_0 = op.params.k(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let spherical = op.params.boolean("spherical");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let x = x_0 + a * k_0 * (lon - lon_0);
+        let x = frame.a * frame.k_0 * frame.lon_delta(lon);
         let y = if spherical {
-            y_0 + a * lat.sin() / k_0
+            frame.a * lat.sin() / frame.k_0
         } else {
-            y_0 + a * 0.5 * ancillary::qs(lat.sin(), e) / k_0
+            frame.a * 0.5 * ancillary::qs(lat.sin(), e) / frame.k_0
         };
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -31,11 +29,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let k_0 = op.params.k(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let spherical = op.params.boolean("spherical");
     let qp = op.params.real("qp").unwrap_or(2.0);
     let authalic = op.params.fourier_coefficients("authalic").ok();
@@ -43,12 +37,13 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let y = (y_raw - y_0) / a;
-        let lon = lon_0 + x / k_0;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let y = y_local / frame.a;
+        let lon = frame.lon_0 + x / frame.k_0;
 
         let lat = if spherical {
-            let arg = y * k_0;
+            let arg = y * frame.k_0;
             let t = arg.abs();
             if t > 1.0 + EPS {
                 operands.set_coord(i, &Coor4D::nan());
@@ -56,7 +51,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
             arg.clamp(-1.0, 1.0).asin()
         } else {
-            let arg = 2.0 * y * k_0 / qp;
+            let arg = 2.0 * y * frame.k_0 / qp;
             let t = arg.abs();
             if t > 1.0 + EPS {
                 operands.set_coord(i, &Coor4D::nan());
@@ -93,14 +88,13 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ellps = params.ellps(0);
 
     let lat_ts = params.real("lat_ts")?;
-    if lat_ts.abs() > 90.0 {
+    if lat_ts.abs() > std::f64::consts::FRAC_PI_2 {
         return Err(Error::General(
             "CEA: Invalid value for lat_ts: |lat_ts| should be <= 90°",
         ));
     }
     if lat_ts != 0.0 {
-        let phi_ts = lat_ts.to_radians();
-        let (s, c) = phi_ts.sin_cos();
+        let (s, c) = lat_ts.sin_cos();
         let mut k_0 = c;
         if ellps.eccentricity_squared() != 0.0 {
             k_0 /= (1.0 - ellps.eccentricity_squared() * s * s).sqrt();
@@ -108,16 +102,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.real.insert("k_0", k_0);
     }
 
-    params.real.insert("lon_0", params.lon(0).to_radians());
-    if ellps.flattening() == 0.0 {
-        params.boolean.insert("spherical");
-        params.real.insert("qp", 2.0);
-    } else {
-        let qp = ancillary::qs(1.0, ellps.eccentricity());
-        params.real.insert("qp", qp);
-        let authalic = ellps.coefficients_for_authalic_latitude_computations();
-        params.fourier_coefficients.insert("authalic", authalic);
-    }
+    super::insert_authalic_setup(&mut params);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

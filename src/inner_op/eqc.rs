@@ -1,19 +1,19 @@
 //! Equidistant Cylindrical (Plate Carree)
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let rc = op.params.real["rc"];
     let m0 = op.params.real["m0"];
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let x = x_0 + rc * (lon - lon_0);
-        let y = y_0 + ellps.meridian_latitude_to_distance(lat) - m0;
+        let x = rc * frame.lon_delta_raw(lon);
+        let y = ellps.meridian_latitude_to_distance(lat) - m0;
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -22,17 +22,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let rc = op.params.real["rc"];
     let m0 = op.params.real["m0"];
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let x = operands.xy(i).0 - x_0;
-        let y = operands.xy(i).1 - y_0;
-        let lon = lon_0 + x / rc;
+        let (x_raw, y_raw) = operands.xy(i);
+        let (x, y) = frame.remove_false_origin(x_raw, y_raw);
+        let lon = frame.lon_0 + x / rc;
         let lat = ellps.meridian_distance_to_latitude(y + m0);
         operands.set_xy(i, lon, lat);
         successes += 1;
@@ -94,19 +92,14 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     }
 
     let lat_ts = params.real("lat_ts")?;
-    if lat_ts.abs() > 90.0 {
+    if lat_ts.abs() > std::f64::consts::FRAC_PI_2 {
         return Err(Error::General(
             "Eqc: Invalid value for lat_ts: |lat_ts| should be <= 90°",
         ));
     }
 
-    let lat_0 = params.lat(0).to_radians();
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", params.lon(0).to_radians());
-
     let ellps = params.ellps(0);
-    let lat_ts_rad = lat_ts.to_radians();
-    let cos_lat_ts = lat_ts_rad.cos();
+    let cos_lat_ts = lat_ts.cos();
     if cos_lat_ts <= 0.0 {
         return Err(Error::General(
             "Eqc: Invalid value for lat_ts: |lat_ts| should be <= 90°",
@@ -115,11 +108,12 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     params.real.insert(
         "rc",
-        ellps.prime_vertical_radius_of_curvature(lat_ts_rad) * cos_lat_ts,
+        ellps.prime_vertical_radius_of_curvature(lat_ts) * cos_lat_ts,
     );
-    params
-        .real
-        .insert("m0", ellps.meridian_latitude_to_distance(lat_0));
+    params.real.insert(
+        "m0",
+        ellps.meridian_latitude_to_distance(params.lat(0)),
+    );
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

@@ -1,5 +1,6 @@
 //! American Polyconic
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const TOL: f64 = 1e-10;
 const CONV: f64 = 1e-10;
@@ -71,10 +72,7 @@ fn spherical_inverse_seed(x: f64, y: f64, lat_0: f64, lon_0: f64) -> Option<(f64
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let Ok(ml0) = op.params.real("ml0") else {
         return 0;
     };
@@ -84,19 +82,28 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta_raw(lon);
 
         let (x, y) = if spherical && lat.abs() > TOL {
             let cot = lat.tan().recip();
             let e = lam * lat.sin();
             (
-                a * (e.sin() * cot) + x_0,
-                a * ((lat - op.params.real["lat_0"]) + cot * (1.0 - e.cos())) + y_0,
+                frame.a * (e.sin() * cot) + frame.x_0,
+                frame.a * (frame.lat_delta(lat) + cot * (1.0 - e.cos())) + frame.y_0,
             )
         } else if lat.abs() <= TOL {
-            (a * lam + x_0, a * (-ml0) + y_0)
+            (frame.a * lam + frame.x_0, frame.a * (-ml0) + frame.y_0)
         } else {
-            fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, ml0, lon, lat, rectifying)
+            fwd_ellipsoidal(
+                &ellps,
+                frame.lon_0,
+                frame.x_0,
+                frame.y_0,
+                ml0,
+                lon,
+                lat,
+                rectifying,
+            )
         };
         operands.set_xy(i, x, y);
         successes += 1;
@@ -106,13 +113,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = ellps.eccentricity_squared();
     let one_es = 1.0 - es;
-    let lon_0 = op.params.lon(0);
-    let lat_0 = op.params.real["lat_0"];
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
     let Ok(ml0) = op.params.real("ml0") else {
         return 0;
     };
@@ -122,12 +125,13 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let mut y = (y_raw - y_0) / a;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let mut y = y_local / frame.a;
         y += ml0;
 
         if y.abs() <= TOL {
-            operands.set_xy(i, x + lon_0, 0.0);
+            operands.set_xy(i, x + frame.lon_0, 0.0);
             successes += 1;
             continue;
         }
@@ -150,7 +154,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 operands.set_coord(i, &Coor4D::nan());
                 continue;
             }
-            let lon = lon_0 + (x * lat.tan()).clamp(-1.0, 1.0).asin() / lat.sin();
+            let lon = frame.lon_0 + (x * lat.tan()).clamp(-1.0, 1.0).asin() / lat.sin();
             operands.set_xy(i, lon, lat);
             successes += 1;
             continue;
@@ -169,7 +173,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
             let s2ph = sp * cp;
             let ml = rectifying.map_or_else(
-                || ellps.meridian_latitude_to_distance(lat) / a,
+                || ellps.meridian_latitude_to_distance(lat) / frame.a,
                 |coefficients| ellps.latitude_geographic_to_rectifying(lat, coefficients),
             );
             let root = (1.0 - es * sp * sp).sqrt();
@@ -193,28 +197,36 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let analytic_lon = if !domain_error && converged {
             let sp = lat.sin();
             if sp.abs() <= TOL {
-                x + lon_0
+                x + frame.lon_0
             } else {
-                (x * lat.tan() * (1.0 - es * sp * sp).sqrt()).asin() / sp + lon_0
+                (x * lat.tan() * (1.0 - es * sp * sp).sqrt()).asin() / sp + frame.lon_0
             }
         } else {
             f64::NAN
         };
-        let spherical_seed = spherical_inverse_seed(x, y, lat_0, lon_0);
+        let spherical_seed = spherical_inverse_seed(x, y, frame.lat_0, frame.lon_0);
         let (mut lon, mut lat_candidate) = if let Some((seed_lon, seed_lat)) = spherical_seed {
             if analytic_lon.is_finite() {
                 let (fx_a, fy_a) = fwd_ellipsoidal(
                     &ellps,
-                    lon_0,
-                    x_0,
-                    y_0,
+                    frame.lon_0,
+                    frame.x_0,
+                    frame.y_0,
                     ml0,
                     analytic_lon,
                     analytic_lat,
                     rectifying,
                 );
-                let (fx_s, fy_s) =
-                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, ml0, seed_lon, seed_lat, rectifying);
+                let (fx_s, fy_s) = fwd_ellipsoidal(
+                    &ellps,
+                    frame.lon_0,
+                    frame.x_0,
+                    frame.y_0,
+                    ml0,
+                    seed_lon,
+                    seed_lat,
+                    rectifying,
+                );
                 if (fx_a - x_raw).hypot(fy_a - y_raw) <= (fx_s - x_raw).hypot(fy_s - y_raw) {
                     (analytic_lon, analytic_lat)
                 } else {
@@ -232,8 +244,16 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         let mut refined = false;
         for _ in 0..INV_ITER {
-            let (fx, fy) =
-                fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, ml0, lon, lat_candidate, rectifying);
+            let (fx, fy) = fwd_ellipsoidal(
+                &ellps,
+                frame.lon_0,
+                frame.x_0,
+                frame.y_0,
+                ml0,
+                lon,
+                lat_candidate,
+                rectifying,
+            );
             let delta_x = fx - x_raw;
             let delta_y = fy - y_raw;
             if delta_x.abs() < INV_TOL && delta_y.abs() < INV_TOL {
@@ -245,9 +265,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let h_lat = if lat_candidate > 0.0 { -1e-6 } else { 1e-6 };
             let (fx_lon, fy_lon) = fwd_ellipsoidal(
                 &ellps,
-                lon_0,
-                x_0,
-                y_0,
+                frame.lon_0,
+                frame.x_0,
+                frame.y_0,
                 ml0,
                 lon + h_lon,
                 lat_candidate,
@@ -255,9 +275,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             );
             let (fx_lat, fy_lat) = fwd_ellipsoidal(
                 &ellps,
-                lon_0,
-                x_0,
-                y_0,
+                frame.lon_0,
+                frame.x_0,
+                frame.y_0,
                 ml0,
                 lon,
                 lat_candidate + h_lat,
@@ -305,21 +325,16 @@ pub const GAMUT: [OpParameter; 6] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-
-    let lat_0 = params.lat(0).to_radians();
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", params.lon(0).to_radians());
-
     let ellps = params.ellps(0);
-    let spherical = ellps.eccentricity_squared() == 0.0;
+    let spherical = super::insert_rectifying_setup(&mut params);
     params.real.insert("spherical", spherical as i32 as f64);
+    let frame = ProjectionFrame::from_params(&params);
     if !spherical {
         let rectifying = ellps.coefficients_for_rectifying_latitude_computations();
-        let ml0 = ellps.latitude_geographic_to_rectifying(lat_0, &rectifying);
+        let ml0 = ellps.latitude_geographic_to_rectifying(frame.lat_0, &rectifying);
         params.real.insert("ml0", ml0);
-        params.fourier_coefficients.insert("rectifying", rectifying);
     } else {
-        let ml0 = ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis();
+        let ml0 = ellps.meridian_latitude_to_distance(frame.lat_0) / ellps.semimajor_axis();
         params.real.insert("ml0", ml0);
     }
 

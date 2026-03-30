@@ -8,6 +8,7 @@
 //     - [proj4js](https://github.com/proj4js/proj4js/blob/5995fa62fc7f4fdbbafb23d89b260bd863b0ca03/lib/projections/somerc.js)
 //     - [PROJ](https://proj.org/operations/projections/somerc.html)
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 // ----- C O M M O N -------------------------------------------------------------------
@@ -19,16 +20,13 @@ const EPS_10: f64 = 1.0e-10;
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     let n = operands.len();
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let el = op.params.ellps(0);
     let e = el.eccentricity();
     let hlf_e = e * 0.5;
 
     // Grab pre-computed values
-    let y_0 = op.params.real["y_0"];
-    let x_0 = op.params.real["x_0"];
-    let lam_0 = op.params.real["lon_0"].to_radians();
-
     let c = op.params.real["c"];
     let K = op.params.real["K"];
     let R = op.params.real["R"];
@@ -46,15 +44,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             .atan()
             - FRAC_PI_2;
 
-        let lam_p = c * (lam - lam_0);
+        let lam_p = c * frame.lon_delta_raw(lam);
         let (sin_lam_p, cos_lam_p) = lam_p.sin_cos();
         let (sin_phi_p, cos_phi_p) = phi_p.sin_cos();
 
         let phi_pp = (cos_phi_0_p * sin_phi_p - sin_phi_0_p * cos_phi_p * cos_lam_p).asin();
         let lam_pp = (cos_phi_p * sin_lam_p / phi_pp.cos()).asin();
 
-        let x = R * lam_pp + x_0;
-        let y = R * (FRAC_PI_4 + 0.5 * phi_pp).tan().ln() + y_0;
+        let x = R * lam_pp + frame.x_0;
+        let y = R * (FRAC_PI_4 + 0.5 * phi_pp).tan().ln() + frame.y_0;
 
         operands.set_xy(i, x, y);
         successes += 1;
@@ -69,6 +67,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     let n = operands.len();
     const MAX_ITERATIONS: isize = 20;
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let el = op.params.ellps(0);
     let e = el.eccentricity();
@@ -78,16 +77,12 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let K = op.params.real["K"];
     let R = op.params.real["R"];
 
-    let lam_0 = op.params.real["lon_0"].to_radians();
     let sin_phi_0_p = op.params.real["sin_phi_0_p"];
     let cos_phi_0_p = op.params.real["cos_phi_0_p"];
-    let y_0 = op.params.real["y_0"];
-    let x_0 = op.params.real["x_0"];
 
     for i in 0..n {
         let (x, y) = operands.xy(i);
-        let X = x - x_0;
-        let Y = y - y_0;
+        let (X, Y) = frame.remove_false_origin(x, y);
 
         let phi_pp = 2.0 * (((Y / R).exp()).atan() - FRAC_PI_4);
         let lam_pp = X / R;
@@ -99,7 +94,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         let C = ((FRAC_PI_4 + 0.5 * phi_p).tan().ln() - K) / c;
 
-        let lam = (lam_p / c) + lam_0;
+        let lam = (lam_p / c) + frame.lon_0;
         let mut phi = phi_p;
         let mut prev_phi = f64::INFINITY;
         let mut j = MAX_ITERATIONS;
@@ -153,10 +148,10 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let e = el.eccentricity();
     let hlf_e = e * 0.5;
     let es = el.eccentricity_squared();
-    let a = el.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&params);
 
-    let k_0 = params.real["k_0"];
-    let phi_0 = params.real["lat_0"].to_radians();
+    let k_0 = frame.k_0;
+    let phi_0 = frame.lat_0;
 
     let (sin_phi_0, cos_phi_0) = phi_0.sin_cos();
 
@@ -165,7 +160,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let phi_0_p = sin_phi_0_p.asin();
     let cos_phi_0_p = phi_0_p.cos();
 
-    let R = k_0 * a * (1.0 - es).sqrt() / (1.0 - es * sin_phi_0.powi(2));
+    let R = k_0 * frame.a * (1.0 - es).sqrt() / (1.0 - es * sin_phi_0.powi(2));
 
     let k1 = (FRAC_PI_4 + 0.5 * (sin_phi_0 / c).asin()).tan().ln();
     let k2 = (FRAC_PI_4 + 0.5 * phi_0).tan().ln();

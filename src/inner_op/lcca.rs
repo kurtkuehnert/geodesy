@@ -1,5 +1,6 @@
 //! Lambert Conformal Conic Alternative
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const DEL_TOL: f64 = 1e-12;
 const MAX_ITER: usize = 10;
@@ -14,11 +15,7 @@ fn fsp(s: f64, c: f64) -> f64 {
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let k_0 = op.params.k(0);
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let r0 = op.params.real["r0"];
     let l = op.params.real["l"];
     let m0 = op.params.real["m0"];
@@ -27,15 +24,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let s = ellps.meridian_latitude_to_distance(lat) / a - m0;
+        let s = ellps.meridian_latitude_to_distance(lat) / frame.a - m0;
         let dr = fs(s, c);
         let r = r0 - dr;
-        let theta = (lon - lon_0) * l;
-        operands.set_xy(
-            i,
-            x_0 + a * k_0 * r * theta.sin(),
-            y_0 + a * k_0 * (r0 - r * theta.cos()),
+        let theta = frame.lon_delta_raw(lon) * l;
+        let (x, y) = frame.apply_false_origin(
+            frame.a * frame.k_0 * r * theta.sin(),
+            frame.a * frame.k_0 * (r0 - r * theta.cos()),
         );
+        operands.set_xy(i, x, y);
         successes += 1;
     }
     successes
@@ -43,11 +40,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let k_0 = op.params.k(0);
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let r0 = op.params.real["r0"];
     let l = op.params.real["l"];
     let m0 = op.params.real["m0"];
@@ -55,11 +48,12 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let x = (operands.xy(i).0 - x_0) / (a * k_0);
-        let y = (operands.xy(i).1 - y_0) / (a * k_0);
+        let (x, y) = frame.remove_false_origin(operands.xy(i).0, operands.xy(i).1);
+        let x = x / (frame.a * frame.k_0);
+        let y = y / (frame.a * frame.k_0);
         let theta = x.atan2(r0 - y);
         let dr = y - x * (0.5 * theta).tan();
-        let lon = theta / l + lon_0;
+        let lon = theta / l + frame.lon_0;
         let mut s = dr;
         let mut converged = false;
         for _ in 0..MAX_ITER {
@@ -74,7 +68,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             operands.set_coord(i, &Coor4D::nan());
             continue;
         }
-        let lat = ellps.meridian_distance_to_latitude((s + m0) * a);
+        let lat = ellps.meridian_distance_to_latitude((s + m0) * frame.a);
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -99,10 +93,10 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    let phi0 = params
-        .real("lat_0")
-        .map_err(|_| Error::MissingParam("lat_0".to_string()))?
-        .to_radians();
+    let phi0 = params.lat(0);
+    if phi0.is_nan() {
+        return Err(Error::MissingParam("lat_0".to_string()));
+    }
     if phi0 == 0.0 {
         return Err(Error::General(
             "Lcca: Invalid value for lat_0: it should be different from 0.",
@@ -118,8 +112,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let r0m = r * (1.0 - es) * n0;
     let tan0 = phi0.tan();
 
-    params.real.insert("lat_0", phi0);
-    params.real.insert("lon_0", params.lon(0).to_radians());
     params.real.insert("l", sinphi0);
     params.real.insert(
         "m0",

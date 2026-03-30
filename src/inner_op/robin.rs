@@ -1,5 +1,6 @@
 //! Robinson
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 #[derive(Clone, Copy)]
 struct Coefs {
@@ -268,15 +269,12 @@ fn dv(c: Coefs, z: f64) -> f64 {
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let a = op.params.ellps(0).semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta(lon);
         let mut dphi = lat.abs();
         if dphi.is_nan() {
             operands.set_coord(i, &Coor4D::nan());
@@ -291,28 +289,27 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             idx = NODES as isize;
         }
         dphi = (dphi - RC1 * idx as f64).to_degrees();
-        let x = x_0 + a * v(X[idx as usize], dphi) * FXC * lam;
-        let mut y = a * v(Y[idx as usize], dphi) * FYC;
+        let x = frame.a * v(X[idx as usize], dphi) * FXC * lam;
+        let mut y = frame.a * v(Y[idx as usize], dphi) * FYC;
         if lat < 0.0 {
             y = -y;
         }
-        operands.set_xy(i, x, y_0 + y);
+        let (x, y) = frame.apply_false_origin(x, y);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
     successes
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let a = op.params.ellps(0).semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let y = (y_raw - y_0) / a;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let y = y_local / frame.a;
 
         let mut lam = x / FXC;
         let mut phi = (y / FYC).abs();
@@ -327,7 +324,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 std::f64::consts::FRAC_PI_2
             };
             lam /= X[NODES].c0 as f64;
-            operands.set_xy(i, lon_0 + lam, phi);
+            operands.set_xy(i, frame.lon_0 + lam, phi);
             successes += 1;
             continue;
         }
@@ -371,7 +368,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             operands.set_coord(i, &Coor4D::nan());
             continue;
         }
-        operands.set_xy(i, lon_0 + lam, phi);
+        operands.set_xy(i, frame.lon_0 + lam, phi);
         successes += 1;
     }
     successes
@@ -392,7 +389,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    params.real.insert("lon_0", params.lon(0).to_radians());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

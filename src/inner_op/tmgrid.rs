@@ -1,5 +1,6 @@
 //! Transverse Mercator Zoned Grid System
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 fn conformal_series_forward(lat: f64, coefficients: &FourierCoefficients) -> f64 {
     lat + fourier::sin(2. * lat, &coefficients.fwd)
@@ -10,8 +11,7 @@ fn conformal_series_inverse(lat: f64, coefficients: &FourierCoefficients) -> f64
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let _ellps = op.params.ellps(0);
-    let x_0 = op.params.x(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let lon_i = op.params.real["lon_i"];
     let zone_width = op.params.real["zone_width"];
     let zone_count = op.params.natural["zone_count"] as i64;
@@ -30,7 +30,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             zone_count,
         );
         let lon_0 = zone_central_meridian(lon_i, zone_width, zone as f64);
-        let x_offset = x_0 + zone as f64 * 1_000_000.0;
+        let x_offset = frame.x_0 + zone as f64 * 1_000_000.0;
 
         let lat = conformal_series_forward(lat, &conformal);
         let lon = lon - lon_0;
@@ -63,8 +63,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let _ellps = op.params.ellps(0);
-    let x_0 = op.params.x(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let lon_i = op.params.real["lon_i"];
     let zone_width = op.params.real["zone_width"];
     let zone_count = op.params.natural["zone_count"] as i64;
@@ -82,7 +81,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
         let lon_0 = zone_central_meridian(lon_i, zone_width, zone as f64);
-        let x_local = x - x_0 - zone as f64 * 1_000_000.0;
+        let x_local = x - frame.x_0 - zone as f64 * 1_000_000.0;
 
         let mut lon = x_local / qs;
         let mut lat = (y - zb) / qs;
@@ -123,9 +122,8 @@ fn zone_central_meridian(lon_i: f64, zone_width: f64, zone: f64) -> f64 {
 
 fn precompute(op: &mut Op) {
     let ellps = op.params.ellps(0);
-    let lat_0 = op.params.lat(0).to_radians();
-    let y_0 = op.params.y(0);
-    let qs = op.params.k(0) * ellps.semimajor_axis() * ellps.normalized_meridian_arc_unit();
+    let frame = ProjectionFrame::from_params(&op.params);
+    let qs = frame.k_0 * ellps.semimajor_axis() * ellps.normalized_meridian_arc_unit();
     op.params.real.insert("scaled_radius", qs);
 
     let conformal = ellps.coefficients_for_conformal_latitude_computations();
@@ -137,8 +135,8 @@ fn precompute(op: &mut Op) {
     let tm = fourier_coefficients(n, &TRANSVERSE_MERCATOR);
     op.params.fourier_coefficients.insert("tm", tm);
 
-    let z = conformal_series_forward(lat_0, &conformal);
-    let zb = y_0 - qs * (z + fourier::sin(2.0 * z, &tm.fwd));
+    let z = conformal_series_forward(frame.lat_0, &conformal);
+    let zb = frame.y_0 - qs * (z + fourier::sin(2.0 * z, &tm.fwd));
     op.params.real.insert("zb", zb);
 }
 
@@ -183,10 +181,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         return Err(Error::General("TM Grid: zone_width must be > 0"));
     }
     let zone_count = (360.0 / zone_width_deg).round() as usize;
-    params.real.insert("lat_0", params.lat(0).to_radians());
     params
         .real
-        .insert("lon_i", params.real("lon_i")?.to_radians());
+        .insert("lon_i", params.real("lon_i")?);
     params
         .real
         .insert("zone_width", zone_width_deg.to_radians());

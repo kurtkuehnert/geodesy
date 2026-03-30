@@ -1,21 +1,19 @@
 //! Laborde
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const EPS: f64 = 1.0e-10;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let e = ellps.eccentricity();
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
     let k_rg = op.params.real["k_rg"];
     let p0s = op.params.real["p0s"];
     let a_coeff = op.params.real["a_coeff"];
     let c = op.params.real["c"];
     let ca = op.params.real["ca"];
     let cb = op.params.real["cb"];
-    let lon_0 = op.params.real["lon_0"];
     let mut successes = 0usize;
 
     for i in 0..operands.len() {
@@ -38,7 +36,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             * a_coeff
             * (5.0 * cosps2 * cosps2 + sinps2 * (sinps2 - 18.0 * cosps2))
             / 120.0;
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta_raw(lon);
         let t2 = lam * lam;
         let mut x = k_rg * lam * (i4 + t2 * (i5 + t2 * i6));
         let mut y = k_rg * (i1 + t2 * (i2 + t2 * i3));
@@ -48,7 +46,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let v2 = y * y2 - 3.0 * x2 * y;
         x += ca * v1 + cb * v2;
         y += ca * v2 - cb * v1;
-        operands.set_xy(i, x * a + x_0, y * a + y_0);
+        let (x, y) = frame.apply_false_origin(x * frame.a, y * frame.a);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
 
@@ -57,13 +56,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let e = ellps.eccentricity();
     let es = ellps.eccentricity_squared();
     let one_es = 1.0 - es;
     let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
     let k_rg = op.params.real["k_rg"];
     let p0s = op.params.real["p0s"];
     let a_coeff = op.params.real["a_coeff"];
@@ -72,14 +69,13 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let cb = op.params.real["cb"];
     let cc = op.params.real["cc"];
     let cd = op.params.real["cd"];
-    let lon_0 = op.params.real["lon_0"];
-    let lat_0 = op.params.real["lat_0"];
     let mut successes = 0usize;
 
     for i in 0..operands.len() {
         let (x, y) = operands.xy(i);
-        let mut x = (x - x_0) / a;
-        let mut y = (y - y_0) / a;
+        let (x, y) = frame.remove_false_origin(x, y);
+        let mut x = x / frame.a;
+        let mut y = y / frame.a;
         let x2 = x * x;
         let y2 = y * y;
         let v1 = 3.0 * x * y2 - x * x2;
@@ -89,7 +85,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         x += -ca * v1 - cb * v2 + cc * v3 + cd * v4;
         y += cb * v1 - ca * v2 - cd * v3 + cc * v4;
         let ps = p0s + y / k_rg;
-        let mut pe = ps + lat_0 - p0s;
+        let mut pe = ps + frame.lat_0 - p0s;
         let mut converged = false;
         for _ in 0..20 {
             let v1 = a_coeff * (std::f64::consts::FRAC_PI_4 + 0.5 * pe).tan().ln();
@@ -123,7 +119,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let i11 = (5.0 + tan_ps2 * (28.0 + 24.0 * tan_ps2)) / (120.0 * d * s);
         let x2 = x * x;
         let lat = pe + x2 * (-i7 + i8 * x2);
-        let lon = lon_0 + x * (i9 + x2 * (-i10 + x2 * i11));
+        let lon = frame.lon_0 + x * (i9 + x2 * (-i10 + x2 * i11));
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -148,8 +144,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let ellps = params.ellps(0);
     let es = ellps.eccentricity_squared();
-    let lat_0 = params.real["lat_0"].to_radians();
-    let lon_0 = params.real["lon_0"].to_radians();
+    let lat_0 = params.lat(0);
     if lat_0 == 0.0 {
         return Err(Error::General(
             "Labrd: Invalid value for lat_0: lat_0 should be different from 0",
@@ -176,8 +171,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let cc = 3.0 * (ca * ca - cb * cb);
     let cd = 6.0 * ca * cb;
 
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", lon_0);
     params.real.insert("k_rg", k_rg);
     params.real.insert("p0s", p0s);
     params.real.insert("a_coeff", a_coeff);

@@ -72,7 +72,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    let phi0 = params.lat(0).to_radians();
+    let phi0 = params.lat(0);
     let mut lam_p;
     let phi_p;
 

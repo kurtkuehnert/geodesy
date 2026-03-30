@@ -1,12 +1,10 @@
 //! Colombia Urban
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = op.params.real["es"];
-    let phi0 = op.params.real["lat_0"];
-    let lam0 = op.params.real["lon_0"];
-    let x_0 = op.params.real["x_0"];
-    let y_0 = op.params.real["y_0"];
     let a = op.params.real["a"];
     let a_coeff = op.params.real["A"];
     let b_coeff = op.params.real["B"];
@@ -16,18 +14,19 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0usize;
     for i in 0..operands.len() {
         let (lam, phi) = operands.xy(i);
-        let lam = lam - lam0;
+        let lam = frame.lon_delta_raw(lam);
         let cosphi = phi.cos();
         let sinphi = phi.sin();
         let nu = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
         let lam_nu_cosphi = lam * nu * cosphi;
 
-        let sinphi_m = (0.5 * (phi + phi0)).sin();
+        let sinphi_m = (0.5 * (phi + frame.lat_0)).sin();
         let rho_m = (1.0 - es) / (1.0 - es * sinphi_m * sinphi_m).powf(1.5);
         let g = 1.0 + h0_over_a / rho_m;
 
-        let x = x_0 + a * a_coeff * lam_nu_cosphi;
-        let y = y_0 + a * g * rho0 * ((phi - phi0) + b_coeff * lam_nu_cosphi * lam_nu_cosphi);
+        let x = a * a_coeff * lam_nu_cosphi;
+        let y = a * g * rho0 * (frame.lat_delta(phi) + b_coeff * lam_nu_cosphi * lam_nu_cosphi);
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -36,11 +35,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = op.params.real["es"];
-    let phi0 = op.params.real["lat_0"];
-    let lam0 = op.params.real["lon_0"];
-    let x_0 = op.params.real["x_0"];
-    let y_0 = op.params.real["y_0"];
     let a = op.params.real["a"];
     let b_coeff = op.params.real["B"];
     let c_coeff = op.params.real["C"];
@@ -49,13 +45,12 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = x_raw - x_0;
-        let y = y_raw - y_0;
+        let (x, y) = frame.remove_false_origin(x_raw, y_raw);
 
-        let phi = phi0 + y / (a * d_coeff) - b_coeff * (x / (a * c_coeff)).powi(2);
+        let phi = frame.lat_0 + y / (a * d_coeff) - b_coeff * (x / (a * c_coeff)).powi(2);
         let sinphi = phi.sin();
         let nu = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
-        let lam = lam0 + x / (a * c_coeff * nu * phi.cos());
+        let lam = frame.lon_0 + x / (a * c_coeff * nu * phi.cos());
         operands.set_xy(i, lam, phi);
         successes += 1;
     }
@@ -80,7 +75,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ellps = params.ellps(0);
     let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
-    let phi0 = params.lat(0).to_radians();
+    let phi0 = params.lat(0);
     let h0 = params.real("h_0")?;
     let h0_over_a = h0 / a;
 
@@ -88,8 +83,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let nu0 = 1.0 / (1.0 - es * sinphi0 * sinphi0).sqrt();
     let rho0 = (1.0 - es) / (1.0 - es * sinphi0 * sinphi0).powf(1.5);
 
-    params.real.insert("lat_0", phi0);
-    params.real.insert("lon_0", params.lon(0).to_radians());
     params.real.insert("a", a);
     params.real.insert("es", es);
     params.real.insert("h0_over_a", h0_over_a);

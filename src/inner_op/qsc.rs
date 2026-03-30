@@ -1,5 +1,6 @@
 //! Quadrilateralized Spherical Cube
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4, PI};
 
 const EPS10: f64 = 1e-10;
@@ -54,7 +55,7 @@ fn equat_face_theta(phi: f64, y: f64, x: f64) -> (f64, Area) {
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let face = match op.params.natural["face"] {
         0 => Face::Front,
         1 => Face::Right,
@@ -156,7 +157,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             Area::Three => mu += PI + FRAC_PI_2,
             Area::Zero => {}
         }
-        operands.set_xy(i, a * t * mu.cos(), a * t * mu.sin());
+        operands.set_xy(i, frame.a * t * mu.cos(), frame.a * t * mu.sin());
         successes += 1;
     }
     successes
@@ -164,7 +165,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let face = match op.params.natural["face"] {
         0 => Face::Front,
         1 => Face::Right,
@@ -179,8 +180,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0usize;
 
     for i in 0..operands.len() {
-        let x = operands.xy(i).0 / a;
-        let y = operands.xy(i).1 / a;
+        let x = operands.xy(i).0 / frame.a;
+        let y = operands.xy(i).1 / frame.a;
         let nu = (x.hypot(y)).atan();
         let mut mu = y.atan2(x);
         let area = if x >= 0.0 && x >= y.abs() {
@@ -306,7 +307,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let invert = lat < 0.0;
             let tanphi = lat.tan();
             let xa = b / (tanphi * tanphi + omf2).sqrt();
-            lat = ((a * a - xa * xa).sqrt() / (omf * xa)).atan();
+            lat = ((frame.a * frame.a - xa * xa).sqrt() / (omf * xa)).atan();
             if invert {
                 lat = -lat;
             }
@@ -331,8 +332,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let ellps = params.ellps(0);
-    let lat_0 = params.lat(0).to_radians();
-    let lon_0 = params.lon(0).to_radians();
+    let frame = ProjectionFrame::from_params(&params);
+    let lat_0 = frame.lat_0;
+    let lon_0 = frame.lon_0;
     let face = if lat_0 >= FRAC_PI_2 - FRAC_PI_4 / 2.0 {
         Face::Top
     } else if lat_0 <= -(FRAC_PI_2 - FRAC_PI_4 / 2.0) {
@@ -344,8 +346,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     } else {
         Face::Back
     };
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", lon_0);
     params.natural.insert(
         "face",
         match face {

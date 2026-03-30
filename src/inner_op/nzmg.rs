@@ -1,5 +1,6 @@
 //! New Zealand Map Grid
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const EPSLN: f64 = 1e-10;
 const SEC5_TO_RAD: f64 = 0.484_813_681_109_536;
@@ -109,26 +110,23 @@ const TPHI: [f64; 9] = [
 ];
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    let frame = ProjectionFrame::from_params(&op.params);
     let a = op.params.real["a"];
-    let lat_0 = op.params.real["lat_0"];
-    let lon_0 = op.params.real["lon_0"];
-    let x_0 = op.params.real["x_0"];
-    let y_0 = op.params.real["y_0"];
     let mut successes = 0usize;
 
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let dphi = (lat - lat_0) * RAD_TO_SEC5;
+        let dphi = frame.lat_delta(lat) * RAD_TO_SEC5;
         let mut pr = TPSI[TPSI.len() - 1];
         for coeff in TPSI[..TPSI.len() - 1].iter().rev() {
             pr = coeff + dphi * pr;
         }
         let p = Complex {
             r: dphi * pr,
-            i: lon - lon_0,
+            i: frame.lon_delta_raw(lon),
         };
         let z = zpoly1(p, &BF);
-        operands.set_xy(i, x_0 + a * z.i, y_0 + a * z.r);
+        operands.set_xy(i, frame.x_0 + a * z.i, frame.y_0 + a * z.r);
         successes += 1;
     }
 
@@ -136,25 +134,22 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
+    let frame = ProjectionFrame::from_params(&op.params);
     let a = op.params.real["a"];
-    let lat_0 = op.params.real["lat_0"];
-    let lon_0 = op.params.real["lon_0"];
-    let x_0 = op.params.real["x_0"];
-    let y_0 = op.params.real["y_0"];
     let mut successes = 0usize;
 
     for i in 0..operands.len() {
         let (x, y) = operands.xy(i);
         let mut p = Complex {
-            r: (y - y_0) / a,
-            i: (x - x_0) / a,
+            r: (y - frame.y_0) / a,
+            i: (x - frame.x_0) / a,
         };
         let mut converged = false;
         for _ in 0..20 {
             let (f, fp) = zpolyd1(p, &BF);
             let f = f.sub(Complex {
-                r: (y - y_0) / a,
-                i: (x - x_0) / a,
+                r: (y - frame.y_0) / a,
+                i: (x - frame.x_0) / a,
             });
             let den = fp.norm2();
             let dp = Complex {
@@ -176,8 +171,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         for coeff in TPHI[..TPHI.len() - 1].iter().rev() {
             phi = coeff + p.r * phi;
         }
-        let lat = lat_0 + p.r * phi * SEC5_TO_RAD;
-        let lon = lon_0 + p.i;
+        let lat = frame.lat_0 + p.r * phi * SEC5_TO_RAD;
+        let lon = frame.lon_0 + p.i;
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -186,21 +181,19 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 4] = [
+pub const GAMUT: [OpParameter; 7] = [
     OpParameter::Flag { key: "inv" },
     OpParameter::Real { key: "lat_0", default: Some(-41_f64) },
     OpParameter::Real { key: "lon_0", default: Some(173_f64) },
+    OpParameter::Real { key: "x_0", default: Some(2_510_000.0) },
+    OpParameter::Real { key: "y_0", default: Some(6_023_150.0) }, 
+    OpParameter::Real { key: "a", default: Some(6_378_388.0) },
     OpParameter::Text { key: "ellps", default: Some("GRS80") },
 ];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    params.real.insert("lat_0", (-41_f64).to_radians());
-    params.real.insert("lon_0", 173_f64.to_radians());
-    params.real.insert("x_0", 2_510_000.0);
-    params.real.insert("y_0", 6_023_150.0);
-    params.real.insert("a", 6_378_388.0);
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
         descriptor,

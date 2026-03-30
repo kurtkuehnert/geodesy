@@ -1,5 +1,6 @@
 //! Space Oblique Mercator family (`som`, `misrsom`, `lsat`)
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
 const TOL: f64 = 1e-7;
@@ -55,7 +56,7 @@ fn seraz0(
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let p22 = op.params.real["p22"];
     let sa = op.params.real["sa"];
     let ca = op.params.real["ca"];
@@ -142,7 +143,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let d = (xj * xj + s * s).sqrt();
         let x = b * lamdp + a2 * (2.0 * lamdp).sin() + a4 * (4.0 * lamdp).sin() - tanph * s / d;
         let y = c1 * sd + c3 * (3.0 * lamdp).sin() + tanph * xj / d;
-        operands.set_xy(i, a * x, a * y);
+        operands.set_xy(i, frame.a * x, frame.a * y);
         successes += 1;
     }
     successes
@@ -150,7 +151,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let p22 = op.params.real["p22"];
     let sa = op.params.real["sa"];
     let ca = op.params.real["ca"];
@@ -170,8 +171,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0usize;
 
     for i in 0..operands.len() {
-        let x = operands.xy(i).0 / a;
-        let y = operands.xy(i).1 / a;
+        let x = operands.xy(i).0 / frame.a;
+        let y = operands.xy(i).1 / frame.a;
         let mut lamdp = x / b;
         let mut sd = 0.0;
         let mut s = 0.0;

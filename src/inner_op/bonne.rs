@@ -1,16 +1,14 @@
 //! Bonne projection
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 
 const EPS10: f64 = 1e-10;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let phi1 = op.params.real["phi1"];
     let am1 = op.params.real["am1"];
     let m1 = op.params.real["m1"];
@@ -20,23 +18,29 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta(lon);
         let (x, y) = if spherical {
             let rh = cphi1 + phi1 - lat;
             if rh.abs() > EPS10 {
                 let e = lam * lat.cos() / rh;
-                (a * rh * e.sin() + x_0, a * (cphi1 - rh * e.cos()) + y_0)
+                (
+                    frame.a * rh * e.sin() + frame.x_0,
+                    frame.a * (cphi1 - rh * e.cos()) + frame.y_0,
+                )
             } else {
-                (x_0, y_0)
+                (frame.x_0, frame.y_0)
             }
         } else {
             let (sinphi, cosphi) = lat.sin_cos();
-            let rh = am1 + m1 - ellps.meridian_latitude_to_distance(lat) / a;
+            let rh = am1 + m1 - ellps.meridian_latitude_to_distance(lat) / frame.a;
             if rh.abs() > EPS10 {
                 let e = cosphi * lam / (rh * (1.0 - es * sinphi * sinphi).sqrt());
-                (a * rh * e.sin() + x_0, a * (am1 - rh * e.cos()) + y_0)
+                (
+                    frame.a * rh * e.sin() + frame.x_0,
+                    frame.a * (am1 - rh * e.cos()) + frame.y_0,
+                )
             } else {
-                (x_0, y_0)
+                (frame.x_0, frame.y_0)
             }
         };
         operands.set_xy(i, x, y);
@@ -47,11 +51,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let phi1 = op.params.real["phi1"];
     let am1 = op.params.real["am1"];
     let m1 = op.params.real["m1"];
@@ -61,8 +62,9 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let y = (y_raw - y_0) / a;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let y = y_local / frame.a;
 
         if spherical {
             let yy = cphi1 - y;
@@ -74,7 +76,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 continue;
             }
             let lon = if FRAC_PI_2 - abs_phi <= EPS10 {
-                lon_0
+                frame.lon_0
             } else {
                 let lm = rh / lat.cos();
                 let theta = if phi1 > 0.0 {
@@ -82,7 +84,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 } else {
                     (-x).atan2(-yy)
                 };
-                lon_0 + lm * theta
+                frame.lon_0 + lm * theta
             };
             operands.set_xy(i, lon, lat);
             successes += 1;
@@ -91,7 +93,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         let yy = am1 - y;
         let rh = yy.hypot(x).copysign(phi1);
-        let lat = ellps.meridian_distance_to_latitude(a * (am1 + m1 - rh));
+        let lat = ellps.meridian_distance_to_latitude(frame.a * (am1 + m1 - rh));
         let abs_phi = lat.abs();
         if abs_phi < FRAC_PI_2 {
             let sinphi = lat.sin();
@@ -101,12 +103,12 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             } else {
                 (-x).atan2(-yy)
             };
-            operands.set_xy(i, lon_0 + lm * theta, lat);
+            operands.set_xy(i, frame.lon_0 + lm * theta, lat);
             successes += 1;
             continue;
         }
         if abs_phi - FRAC_PI_2 <= EPS10 {
-            operands.set_xy(i, lon_0, lat);
+            operands.set_xy(i, frame.lon_0, lat);
             successes += 1;
             continue;
         }
@@ -130,23 +132,21 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT_Y0)?;
 
-    let phi1 = params.lat(1).to_radians();
+    let phi1 = params.lat(1);
     if phi1.abs() < EPS10 {
         return Err(Error::General("Bonne: |lat_1| should be > 0"));
     }
 
-    params.real.insert("lon_0", params.lon(0).to_radians());
     params.real.insert("phi1", phi1);
 
     let ellps = params.ellps(0);
-    let spherical = params.boolean("spherical") || ellps.eccentricity_squared() == 0.0;
+    let spherical = params.boolean("spherical") || super::mark_spherical(&mut params);
     if spherical {
         let cphi1 = if phi1.abs() + EPS10 >= FRAC_PI_2 {
             0.0
         } else {
             phi1.tan().recip()
         };
-        params.boolean.insert("spherical");
         params.real.insert("cphi1", cphi1);
         params.real.insert("am1", 0.0);
         params.real.insert("m1", 0.0);

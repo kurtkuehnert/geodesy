@@ -28,7 +28,7 @@ pub const GAMUT: [OpParameter; 3] = [
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let mut op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
-    let lon_0 = op.params.lon(0).to_radians();
+    let lon_0 = op.params.lon(0);
     op.params.real.insert("lon_0", lon_0);
     Ok(op)
 }

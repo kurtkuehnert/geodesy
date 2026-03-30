@@ -123,7 +123,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     if !(0.0..=1.0e10).contains(&h) || h == 0.0 {
         return Err(Error::BadParam("h".to_string(), def.clone()));
     }
-    params.real.insert("lon_0", params.lon(0).to_radians());
     match params.text("sweep")?.as_str() {
         "x" => {
             params.boolean.insert("flip_axis");

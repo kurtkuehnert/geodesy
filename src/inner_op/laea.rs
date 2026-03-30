@@ -1,6 +1,7 @@
 //! Lambert azimuthal equal area: EPSG coordinate operation method 9820, implemented
 //! following [IOGP, 2019](crate::Bibliography::Iogp19), pp. 78-80
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 use std::f64::consts::FRAC_PI_2;
 const EPS10: f64 = 1e-10;
@@ -25,19 +26,16 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let north_polar = op.params.boolean("north_polar");
     let south_polar = op.params.boolean("south_polar");
 
-    let lon_0 = op.params.real("lon_0").unwrap_or(0.).to_radians();
-    let x_0 = op.params.real("x_0").unwrap_or(0.);
-    let y_0 = op.params.real("y_0").unwrap_or(0.);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let e = ellps.eccentricity();
-    let a = ellps.semimajor_axis();
 
     let mut successes = 0_usize;
     let n = operands.len();
 
     for i in 0..n {
         let (lon, lat) = operands.xy(i);
-        let (sin_lon, cos_lon) = (lon - lon_0).sin_cos();
+        let (sin_lon, cos_lon) = frame.lon_delta(lon).sin_cos();
 
         let xi = (ancillary::qs(lat.sin(), e) / qp).asin();
         let (sin_xi, cos_xi) = xi.sin_cos();
@@ -78,7 +76,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (0.0, 0.0)
         };
 
-        operands.set_xy(i, x_0 + a * x, y_0 + a * y);
+        let (x, y) = frame.apply_false_origin(frame.a * x, frame.a * y);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
 
@@ -108,28 +107,25 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let sinb1 = op.params.real("sinb1").unwrap_or(0.0);
     let cosb1 = op.params.real("cosb1").unwrap_or(1.0);
 
-    let lon_0 = op.params.real("lon_0").unwrap_or(0.).to_radians();
-    let lat_0 = op.params.real("lat_0").unwrap_or(0.).to_radians();
-    let x_0 = op.params.real("x_0").unwrap_or(0.);
-    let y_0 = op.params.real("y_0").unwrap_or(0.);
+    let frame = ProjectionFrame::from_params(&op.params);
+    let lat_0 = op.params.lat(0);
 
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-
     let mut successes = 0_usize;
     let n = operands.len();
 
     for i in 0..n {
         let (mut x, mut y) = operands.xy(i);
-        x = (x - x_0) / a;
-        y = (y - y_0) / a;
+        let (x_local, y_local) = frame.remove_false_origin(x, y);
+        x = x_local / frame.a;
+        y = y_local / frame.a;
 
         let (ab, lam) = if oblique || equatorial {
             x /= dd;
             y *= dd;
             let rho = x.hypot(y);
             if rho < EPS10 {
-                operands.set_xy(i, lon_0, lat_0);
+                operands.set_xy(i, frame.lon_0, lat_0);
                 successes += 1;
                 continue;
             }
@@ -158,7 +154,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
             let q = x * x + y * y;
             if q == 0.0 {
-                operands.set_xy(i, lon_0, lat_0);
+                operands.set_xy(i, frame.lon_0, lat_0);
                 successes += 1;
                 continue;
             }
@@ -175,7 +171,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         }
 
         let lat = ellps.latitude_authalic_to_geographic(ab.clamp(-1.0, 1.0).asin(), &authalic);
-        let lon = lon_0 + lam;
+        let lon = frame.lon_0 + lam;
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -201,7 +197,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
 
-    let lat_0 = params.real("lat_0").unwrap_or(0.).to_radians();
+    let lat_0 = params.lat(0);
 
     if lat_0.is_nan() {
         warn!("LAEA: Bad central latitude!");
@@ -227,9 +223,8 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ellps = params.ellps(0);
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
-    let qp = ancillary::qs(1.0, e);
+    let qp = super::insert_authalic_setup(&mut params).unwrap_or(2.0);
     let rq = (0.5 * qp).sqrt();
-    params.real.insert("qp", qp);
     params.real.insert("rq", rq);
 
     match (polar, equatorial, north) {
@@ -255,10 +250,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
             params.real.insert("ymf", rq / dd);
         }
     }
-
-    let authalic = ellps.coefficients_for_authalic_latitude_computations();
-    params.fourier_coefficients.insert("authalic", authalic);
-
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
         descriptor,

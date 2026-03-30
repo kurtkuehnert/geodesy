@@ -7,8 +7,8 @@ use crate::authoring::*;
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
     let eps = ellps.second_eccentricity_squared();
-    let lat_0 = op.params.lat(0).to_radians();
-    let lon_0 = op.params.lon(0).to_radians();
+    let lat_0 = op.params.lat(0);
+    let lon_0 = op.params.lon(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
     let k_0 = op.params.k(0);
@@ -55,8 +55,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
     let eps = ellps.second_eccentricity_squared();
-    let lat_0 = op.params.lat(0).to_radians();
-    let lon_0 = op.params.lon(0).to_radians();
+    let lat_0 = op.params.lat(0);
+    let lon_0 = op.params.lon(0);
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
     let k_0 = op.params.k(0);
@@ -133,24 +133,7 @@ pub fn utm(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         ));
     }
 
-    // The scaling factor is 0.9996 by definition of UTM
-    params.real.insert("k_0", 0.9996);
-
-    // The center meridian is determined by the zone
-    params.real.insert("lon_0", -183. + 6. * zone as f64);
-
-    // The base parallel is by definition the equator
-    params.real.insert("lat_0", 0.);
-
-    // The false easting is 500000 m by definition of UTM
-    params.real.insert("x_0", 500_000.);
-
-    // The false northing is 0 m by definition of UTM
-    params.real.insert("y_0", 0.);
-    // or 10_000_000 m if using the southern aspect
-    if params.boolean("south") {
-        params.real.insert("y_0", 10_000_000.0);
-    }
+    super::apply_utm_defaults(&mut params, zone);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
 

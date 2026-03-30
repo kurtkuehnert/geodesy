@@ -862,7 +862,7 @@ mod tests {
         );
         assert_eq!(
             parse_proj("+proj=geoc +ellps=GRS80", true)?,
-            "unitconvert xy_in=deg xy_out=rad | latitude geocentric | unitconvert xy_in=rad xy_out=deg"
+            "unitconvert xy_in=deg xy_out=rad | latitude ellps=GRS80 geocentric | unitconvert xy_in=rad xy_out=deg"
         );
         assert_eq!(
             parse_proj(
@@ -880,7 +880,7 @@ mod tests {
                 "+proj=pipeline +step +inv +proj=geoc +a=2440530 +b=2438260",
                 true
             )?,
-            "inv latitude geocentric ellps=2440530,1075.123348017621"
+            "latitude inv geocentric ellps=2440530,1075.123348017621"
         );
         Ok(())
     }

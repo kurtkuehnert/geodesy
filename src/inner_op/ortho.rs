@@ -1,5 +1,6 @@
 //! Orthographic and Local Orthographic
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const EPS10: f64 = 1e-10;
 
@@ -16,8 +17,8 @@ fn adjlon(lon: f64) -> f64 {
 }
 
 fn ortho_s_inverse_normalized(op: &Op, x: f64, y: f64) -> Option<(f64, f64)> {
+    let frame = ProjectionFrame::from_params(&op.params);
     let mode = mode(op);
-    let phi0 = op.params.real("lat_0").unwrap_or(0.0);
     let sinph0 = op.params.real("sinph0").unwrap_or(0.0);
     let cosph0 = op.params.real("cosph0").unwrap_or(1.0);
 
@@ -31,7 +32,7 @@ fn ortho_s_inverse_normalized(op: &Op, x: f64, y: f64) -> Option<(f64, f64)> {
     }
     let cosc = (1.0 - sinc * sinc).sqrt();
     if rh <= EPS10 {
-        return Some((0.0, phi0));
+        return Some((0.0, frame.lat_0));
     }
 
     let (mut lam, phi) = match mode {
@@ -116,12 +117,9 @@ fn rotate(op: &Op, x: f64, y: f64) -> (f64, f64) {
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let es = ellps.eccentricity_squared();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let phi0 = op.params.real("lat_0").unwrap_or(0.0);
+    let frame = ProjectionFrame::from_params(&op.params);
+    let phi0 = frame.lat_0;
     let sinph0 = op.params.real("sinph0").unwrap_or(0.0);
     let cosph0 = op.params.real("cosph0").unwrap_or(1.0);
     let nu0 = op.params.real("nu0").unwrap_or(1.0);
@@ -131,7 +129,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = adjlon(lon - lon_0);
+        let lam = adjlon(frame.lon_delta_raw(lon));
         let cosphi = lat.cos();
         let sinphi = lat.sin();
         let coslam = lam.cos();
@@ -182,7 +180,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         };
 
         let (xr, yr) = rotate(op, xp, yp);
-        operands.set_xy(i, x_0 + a * xr, y_0 + a * yr);
+        let (x, y) = frame.apply_false_origin(frame.a * xr, frame.a * yr);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
     successes
@@ -190,13 +189,10 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
     let b = ellps.semiminor_axis();
     let es = ellps.eccentricity_squared();
     let one_es = 1.0 - es;
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let sinph0 = op.params.real("sinph0").unwrap_or(0.0);
     let cosph0 = op.params.real("cosph0").unwrap_or(1.0);
     let y_shift = op.params.real("y_shift").unwrap_or(0.0);
@@ -207,7 +203,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let (x, y) = unrotate(op, (x_raw - x_0) / a, (y_raw - y_0) / a);
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let (x, y) = unrotate(op, x_local / frame.a, y_local / frame.a);
 
         let (lam, phi) = if spherical {
             match ortho_s_inverse_normalized(op, x, y) {
@@ -236,7 +233,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     }
                 }
                 Mode::Equatorial => {
-                    if x * x + (y * (a / b)).powi(2) > 1.0 + 1e-11 {
+                    if x * x + (y * (frame.a / b)).powi(2) > 1.0 + 1e-11 {
                         operands.set_coord(i, &Coor4D::nan());
                         continue;
                     }
@@ -322,7 +319,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
         };
 
-        operands.set_xy(i, adjlon(lon_0 + lam), phi);
+        operands.set_xy(i, adjlon(frame.lon_0 + lam), phi);
         successes += 1;
     }
     successes
@@ -346,13 +343,10 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
 
-    let lat_0 = params.lat(0).to_radians();
-    let lon_0 = params.lon(0).to_radians();
+    let lat_0 = params.lat(0);
     if lat_0.abs() > std::f64::consts::FRAC_PI_2 + EPS10 {
         return Err(Error::BadParam("lat_0".to_string(), def.clone()));
     }
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", lon_0);
     params
         .real
         .insert("alpha", params.real("alpha")?.to_radians());

@@ -113,7 +113,7 @@ pub const GAMUT: [OpParameter; 7] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let phi0 = params.lat(0).to_radians();
+    let phi0 = params.lat(0);
     let ellps = params.ellps(0);
     if ellps.flattening() == 0.0 {
         return Err(Error::General("Roussilhe requires an ellipsoid"));
@@ -129,7 +129,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let tan2 = tan_phi0 * tan_phi0;
 
     params.real.insert("lat_0", phi0);
-    params.real.insert("lon_0", params.lon(0).to_radians());
+    params.real.insert("lon_0", params.lon(0));
     params.real.insert(
         "s0",
         ellps.meridian_latitude_to_distance(phi0) / ellps.semimajor_axis(),

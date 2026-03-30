@@ -1,25 +1,22 @@
 //! Mercator
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 // ----- F O R W A R D -----------------------------------------------------------------
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let lon_0 = op.params.lon(0);
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-
-        let easting = (lon - lon_0) * k_0 * a + x_0;
+        let easting = frame.lon_delta(lon) * frame.k_0 * frame.a;
         let isometric = ellps.latitude_geographic_to_isometric(lat);
-        let northing = a * k_0 * isometric + y_0;
+        let northing = frame.a * frame.k_0 * isometric;
 
-        operands.set_xy(i, easting, northing);
+        let (x, y) = frame.apply_false_origin(easting, northing);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
 
@@ -30,23 +27,14 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let lon_0 = op.params.lon(0);
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let (mut x, mut y) = operands.xy(i);
-
-        // Easting -> Longitude
-        x -= x_0;
-        let lon = x / (a * k_0) + lon_0;
-
-        // Northing -> Latitude
-        y -= y_0;
-        let psi = y / (a * k_0);
+        let (x_raw, y_raw) = operands.xy(i);
+        let (x, y) = frame.remove_false_origin(x_raw, y_raw);
+        let lon = x / (frame.a * frame.k_0) + frame.lon_0;
+        let psi = y / (frame.a * frame.k_0);
         let lat = ellps.latitude_isometric_to_geographic(psi);
         operands.set_xy(i, lon, lat);
         successes += 1;
@@ -77,7 +65,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ellps = params.ellps(0);
 
     let lat_ts = params.real("lat_ts")?;
-    if lat_ts.abs() > 90. {
+    if lat_ts.abs() > std::f64::consts::FRAC_PI_2 {
         return Err(Error::General(
             "Merc: Invalid value for lat_ts: |lat_ts| should be <= 90°",
         ));
@@ -85,17 +73,10 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     // lat_ts trumps k_0
     if lat_ts != 0.0 {
-        let sc = lat_ts.to_radians().sin_cos();
+        let sc = lat_ts.sin_cos();
         let k_0 = sc.1 / (1. - ellps.eccentricity_squared() * sc.0 * sc.0).sqrt();
         params.real.insert("k_0", k_0);
     }
-
-    params
-        .real
-        .insert("lat_0", params.real["lat_0"].to_radians());
-    params
-        .real
-        .insert("lon_0", params.real["lon_0"].to_radians());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
 

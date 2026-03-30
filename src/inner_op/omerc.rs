@@ -2,6 +2,7 @@
 //! Following IOGP Publication 373-7-2 – Geomatics Guidance Note number 7, part 2 – September 2019
 //!
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
 const TOL: f64 = 1e-7;
@@ -36,12 +37,13 @@ fn inv_central_with_ctx(op: &Op, _ctx: &dyn Context, operands: &mut dyn Coordina
 #[allow(non_snake_case)]
 fn fwd_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
 
-    let kc = op.params.k(0);
-    let fe = op.params.x(0);
-    let fn_ = op.params.y(0);
+    let kc = frame.k_0;
+    let fe = frame.x_0;
+    let fn_ = frame.y_0;
     let ec = fe;
     let nc = fn_;
     let no_rot = op.params.boolean("no_rot");
@@ -145,12 +147,13 @@ fn fwd_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
 #[allow(non_snake_case)]
 fn inv_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
 
-    let kc = op.params.k(0);
-    let fe = op.params.x(0);
-    let fn_ = op.params.y(0);
+    let kc = frame.k_0;
+    let fe = frame.x_0;
+    let fn_ = frame.y_0;
     let no_rot = op.params.boolean("no_rot");
     let u_0 = op.params.real["u_0"];
 
@@ -238,11 +241,12 @@ fn inv_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
 #[allow(non_snake_case)]
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
-    let false_easting = op.params.x(0);
-    let false_northing = op.params.y(0);
-    let lon_0 = op.params.real["lon_0"];
+    let false_easting = frame.x_0;
+    let false_northing = frame.y_0;
+    let lon_0 = frame.lon_0;
     let A = op.params.real["A"];
     let B = op.params.real["B"];
     let E = op.params.real["E"];
@@ -307,10 +311,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 #[allow(non_snake_case)]
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let e = ellps.eccentricity();
-    let false_easting = op.params.x(0);
-    let false_northing = op.params.y(0);
-    let lon_0 = op.params.real["lon_0"];
+    let false_easting = frame.x_0;
+    let false_northing = frame.y_0;
+    let lon_0 = frame.lon_0;
     let B = op.params.real["B"];
     let E = op.params.real["E"];
     let BrA = op.params.real["BrA"];
@@ -422,20 +427,21 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.text.insert("ellps", format!("{a},{rf}"));
     }
     let ellps = params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&params);
+    let a = frame.a;
     let es = ellps.eccentricity_squared();
     let e = es.sqrt();
     let phi0 = params.real["latc"].to_radians();
-    let k0 = params.k(0);
+    let k0 = frame.k_0;
     let mut alpha_c = params.real["alpha"].to_radians();
     let mut gamma = params.real["gamma_c"].to_radians();
     let has_alpha = !params.real["alpha"].is_nan();
     let has_gamma = !params.real["gamma_c"].is_nan();
     let lonc = params.real["lonc"].to_radians();
-    let lam1 = params.real["lon_1"].to_radians();
-    let phi1 = params.real["lat_1"].to_radians();
-    let mut lam2 = params.real["lon_2"].to_radians();
-    let phi2 = params.real["lat_2"].to_radians();
+    let lam1 = params.lon(1);
+    let phi1 = params.lat(1);
+    let mut lam2 = params.lon(2);
+    let phi2 = params.lat(2);
 
     let no_rot = params.boolean("no_rot");
     let no_off = params.boolean("no_off");

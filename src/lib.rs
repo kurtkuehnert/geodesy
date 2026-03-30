@@ -179,6 +179,7 @@ mod grid;
 mod inner_op;
 mod math;
 mod op;
+mod projection;
 mod token;
 
 /// Some generic coordinates for test composition

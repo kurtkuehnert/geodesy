@@ -124,6 +124,8 @@ mod units;
 mod webmerc;
 
 use CoordDomain::{Cartesian, Geographic, Projected};
+#[allow(unused_imports)]
+pub(crate) use crate::projection::ProjectionFrame;
 
 #[rustfmt::skip]
 const BUILTIN_OPERATORS: [BuiltinOp; 80] = [
@@ -291,6 +293,60 @@ pub(crate) fn override_ellps_from_proj_params(
 
     params.text.insert("ellps", format!("{a},{rf}"));
     Ok(())
+}
+
+pub(crate) fn apply_utm_defaults(params: &mut ParsedParameters, zone: usize) {
+    params.real.insert("k_0", 0.9996);
+    params
+        .real
+        .insert("lon_0", (-183.0 + 6.0 * zone as f64).to_radians());
+    params.real.insert("lat_0", 0.0);
+    params.real.insert("x_0", 500_000.0);
+    params.real.insert(
+        "y_0",
+        if params.boolean("south") {
+            10_000_000.0
+        } else {
+            0.0
+        },
+    );
+}
+
+pub(crate) fn mark_spherical(params: &mut ParsedParameters) -> bool {
+    let spherical = params.ellps(0).flattening() == 0.0;
+    if spherical {
+        params.boolean.insert("spherical");
+    }
+    spherical
+}
+
+pub(crate) fn insert_authalic_setup(params: &mut ParsedParameters) -> Option<f64> {
+    let ellps = params.ellps(0);
+    let authalic = ellps.coefficients_for_authalic_latitude_computations();
+    params.fourier_coefficients.insert("authalic", authalic);
+    if ellps.flattening() == 0.0 {
+        params.boolean.insert("spherical");
+        params.real.insert("qp", 2.0);
+        return Some(2.0);
+    }
+
+    let qp = ancillary::qs(1.0, ellps.eccentricity());
+    params.real.insert("qp", qp);
+    Some(qp)
+}
+
+pub(crate) fn insert_rectifying_setup(params: &mut ParsedParameters) -> bool {
+    let spherical = params.ellps(0).flattening() == 0.0;
+    if spherical {
+        params.boolean.insert("spherical");
+        return true;
+    }
+
+    let rectifying = params
+        .ellps(0)
+        .coefficients_for_rectifying_latitude_computations();
+    params.fourier_coefficients.insert("rectifying", rectifying);
+    false
 }
 
 // ----- S T R U C T   O P C O N S T R U C T O R ---------------------------------------

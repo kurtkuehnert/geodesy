@@ -103,16 +103,16 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    let phi1 = params
-        .real("lat_1")
-        .map_err(|_| Error::MissingParam("lat_1".to_string()))?
-        .to_radians();
-    let lam1 = params.lon(1).to_radians();
-    let phi2 = params
-        .real("lat_2")
-        .map_err(|_| Error::MissingParam("lat_2".to_string()))?
-        .to_radians();
-    let lam2 = params.lon(2).to_radians();
+    if !params.real.contains_key("lat_1") {
+        return Err(Error::MissingParam("lat_1".to_string()));
+    }
+    if !params.real.contains_key("lat_2") {
+        return Err(Error::MissingParam("lat_2".to_string()));
+    }
+    let phi1 = params.lat(1);
+    let lam1 = params.lon(1);
+    let phi2 = params.lat(2);
+    let lam2 = params.lon(2);
 
     if phi1 == phi2 && lam1 == lam2 {
         return Err(Error::General(
@@ -156,10 +156,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let r2z0 = 0.5 / z02;
     z02 *= z02;
 
-    params.real.insert("lon_1", lam1);
-    params.real.insert("lat_1", phi1);
-    params.real.insert("lon_2", lam2);
-    params.real.insert("lat_2", phi2);
     params.real.insert("cp1", cp1);
     params.real.insert("cp2", cp2);
     params.real.insert("sp1", sp1);

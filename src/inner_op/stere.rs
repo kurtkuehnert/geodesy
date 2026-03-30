@@ -1,5 +1,6 @@
 //! Stereographic projection, following PROJ's mode-specific implementation.
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 const EPS10: f64 = 1e-10;
@@ -17,9 +18,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         return 0;
     };
 
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let e = ellps.eccentricity();
     let spherical = e == 0.0;
@@ -33,7 +32,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = lon - lon_0;
+        let lam = frame.lon_delta_raw(lon);
         let sinlam = lam.sin();
         let mut coslam = lam.cos();
         let (x, y) = if spherical {
@@ -117,7 +116,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (x, y)
         };
 
-        operands.set_xy(i, x_0 + x, y_0 + y);
+        let (x, y) = frame.apply_false_origin(x, y);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
 
@@ -129,9 +129,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         return 0;
     };
 
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let ellps = op.params.ellps(0);
     let e = ellps.eccentricity();
     let spherical = e == 0.0;
@@ -141,13 +139,14 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let oblique = op.params.boolean("oblique");
     let sin_x1 = op.params.real("sin_x1").unwrap_or(0.0);
     let cos_x1 = op.params.real("cos_x1").unwrap_or(0.0);
-    let lat_0 = op.params.real("lat_0").unwrap_or(0.0);
+    let lat_0 = frame.lat_0;
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (mut x, mut y) = operands.xy(i);
-        x -= x_0;
-        y -= y_0;
+        let (xf, yf) = frame.remove_false_origin(x, y);
+        x = xf;
+        y = yf;
         let rho = x.hypot(y);
 
         let (lon, lat) = if spherical {
@@ -244,7 +243,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (lon, lat)
         };
 
-        operands.set_xy(i, lon_0 + lon, lat);
+        operands.set_xy(i, frame.lon_0 + lon, lat);
         successes += 1;
     }
 
@@ -268,8 +267,8 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
 
-    let lat_0 = params.lat(0).to_radians();
-    let mut lat_ts = params.real("lat_ts").unwrap_or(90.0).to_radians();
+    let lat_0 = params.lat(0);
+    let mut lat_ts = params.real("lat_ts").unwrap_or(FRAC_PI_2);
     if lat_ts.abs() > FRAC_PI_2 + EPS10 {
         return Err(Error::BadParam("lat_ts".to_string(), def.clone()));
     }
@@ -288,9 +287,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.boolean.insert("equatorial");
     }
 
-    params.real.insert("lat_0", lat_0);
     params.real.insert("lat_ts", lat_ts);
-    params.real.insert("lon_0", params.lon(0).to_radians());
 
     let ellps = params.ellps(0);
     let a = ellps.semimajor_axis();

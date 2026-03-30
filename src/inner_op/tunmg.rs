@@ -1,14 +1,24 @@
 //! Tunisia Mining Grid
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 const PARIS_PM_GRAD: f64 = 2.596_921_3;
 const GRAD_TO_RAD: f64 = std::f64::consts::PI / 200.0;
 
+fn lon_0_grad(op: &Op, frame: ProjectionFrame) -> f64 {
+    let mut lon_0_grad = frame.lon_0.to_degrees() / 0.9;
+    if op.params.boolean("greenwich") {
+        lon_0_grad -= PARIS_PM_GRAD;
+    }
+    lon_0_grad
+}
+
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let phi_0 = op.params.real["lat_0_grad"];
-    let lon_0 = op.params.real["lon_0_grad"];
-    let x_0 = op.params.real["x_0_km"];
-    let y_0 = op.params.real["y_0_km"];
+    let frame = ProjectionFrame::from_params(&op.params);
+    let phi_0 = frame.lat_0.to_degrees() / 0.9;
+    let lon_0 = lon_0_grad(op, frame);
+    let x_0 = frame.x_0 / 1000.0;
+    let y_0 = frame.y_0 / 1000.0;
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -29,10 +39,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let phi_0 = op.params.real["lat_0_grad"];
-    let lon_0 = op.params.real["lon_0_grad"];
-    let x_0 = op.params.real["x_0_km"];
-    let y_0 = op.params.real["y_0_km"];
+    let frame = ProjectionFrame::from_params(&op.params);
+    let phi_0 = frame.lat_0.to_degrees() / 0.9;
+    let lon_0 = lon_0_grad(op, frame);
+    let x_0 = frame.x_0 / 1000.0;
+    let y_0 = frame.y_0 / 1000.0;
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -59,18 +70,7 @@ pub const GAMUT: [OpParameter; 6] = [
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-
-    let mut lon_0_grad = params.real("lon_0")? / 0.9;
-    if params.boolean("greenwich") {
-        lon_0_grad -= PARIS_PM_GRAD;
-    }
-    params
-        .real
-        .insert("lat_0_grad", params.real("lat_0")? / 0.9);
-    params.real.insert("lon_0_grad", lon_0_grad);
-    params.real.insert("x_0_km", params.real("x_0")? / 1000.0);
-    params.real.insert("y_0_km", params.real("y_0")? / 1000.0);
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

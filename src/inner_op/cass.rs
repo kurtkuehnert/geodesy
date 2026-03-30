@@ -1,6 +1,7 @@
 //! Cassini-Soldner
 use crate::authoring::*;
 use crate::math::angular;
+use crate::projection::ProjectionFrame;
 
 const C1: f64 = 1.0 / 6.0;
 const C2: f64 = 1.0 / 120.0;
@@ -45,10 +46,7 @@ fn fwd_ellipsoidal(
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let Ok(m0) = op.params.real("m0") else {
         return 0;
     };
@@ -60,13 +58,22 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, lat) = operands.xy(i);
 
         let (x, y) = if spherical {
-            let lam = angular::normalize_symmetric(lon - lon_0);
+            let lam = frame.lon_delta(lon);
             (
-                a * (lat.cos() * lam.sin()).asin(),
-                a * (lat.tan().atan2(lam.cos()) - op.params.lat(0)),
+                frame.a * (lat.cos() * lam.sin()).asin(),
+                frame.a * (lat.tan().atan2(lam.cos()) - frame.lat_0),
             )
         } else {
-            fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat)
+            fwd_ellipsoidal(
+                &ellps,
+                frame.lon_0,
+                frame.x_0,
+                frame.y_0,
+                m0,
+                hyperbolic,
+                lon,
+                lat,
+            )
         };
 
         operands.set_xy(i, x, y);
@@ -77,57 +84,78 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let frame = ProjectionFrame::from_params(&op.params);
     let es = ellps.eccentricity_squared();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
     let Ok(m0) = op.params.real("m0") else {
         return 0;
     };
-    let lat_0 = op.params.lat(0);
     let spherical = op.params.boolean("spherical");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let x = operands.xy(i).0 - x_0;
-        let y = operands.xy(i).1 - y_0;
+        let (x, y) = frame.remove_false_origin(operands.xy(i).0, operands.xy(i).1);
 
         let (lon, lat) = if spherical {
-            let dd = y / a + lat_0;
+            let dd = y / frame.a + frame.lat_0;
             (
-                lon_0 + (x / a).tan().atan2(dd.cos()),
-                (dd.sin() * (x / a).cos()).asin(),
+                frame.lon_0 + (x / frame.a).tan().atan2(dd.cos()),
+                (dd.sin() * (x / frame.a).cos()).asin(),
             )
         } else {
-            let phi1 = ellps.meridian_distance_to_latitude(a * (m0 + y / a));
+            let phi1 = ellps.meridian_distance_to_latitude(frame.a * (m0 + y / frame.a));
             let tanphi1 = phi1.tan();
             let t1 = tanphi1 * tanphi1;
             let sinphi1 = phi1.sin();
             let nu1_sq = 1.0 / (1.0 - es * sinphi1 * sinphi1);
             let nu1 = nu1_sq.sqrt();
             let rho1 = nu1_sq * (1.0 - es) * nu1;
-            let d = x / (a * nu1);
+            let d = x / (frame.a * nu1);
             let d2 = d * d;
             let hyperbolic = op.params.boolean("hyperbolic");
-            let lon = lon_0 + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
+            let lon = frame.lon_0
+                + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
             let lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
             let (mut lon, mut lat) = (lon, lat);
 
             for _ in 0..INV_ITER {
-                let (fx, fy) = fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat);
-                let delta_x = fx - (x + x_0);
-                let delta_y = fy - (y + y_0);
+                let (fx, fy) = fwd_ellipsoidal(
+                    &ellps,
+                    frame.lon_0,
+                    frame.x_0,
+                    frame.y_0,
+                    m0,
+                    hyperbolic,
+                    lon,
+                    lat,
+                );
+                let delta_x = fx - (x + frame.x_0);
+                let delta_y = fy - (y + frame.y_0);
                 if delta_x.abs() < INV_TOL && delta_y.abs() < INV_TOL {
                     break;
                 }
 
                 let h_lon = if lon > 0.0 { -1e-6 } else { 1e-6 };
                 let h_lat = if lat > 0.0 { -1e-6 } else { 1e-6 };
-                let (fx_lon, fy_lon) =
-                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon + h_lon, lat);
-                let (fx_lat, fy_lat) =
-                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat + h_lat);
+                let (fx_lon, fy_lon) = fwd_ellipsoidal(
+                    &ellps,
+                    frame.lon_0,
+                    frame.x_0,
+                    frame.y_0,
+                    m0,
+                    hyperbolic,
+                    lon + h_lon,
+                    lat,
+                );
+                let (fx_lat, fy_lat) = fwd_ellipsoidal(
+                    &ellps,
+                    frame.lon_0,
+                    frame.x_0,
+                    frame.y_0,
+                    m0,
+                    hyperbolic,
+                    lon,
+                    lat + h_lat,
+                );
                 let j11 = (fx_lon - fx) / h_lon;
                 let j21 = (fy_lon - fy) / h_lon;
                 let j12 = (fx_lat - fx) / h_lat;
@@ -170,18 +198,16 @@ pub const GAMUT: [OpParameter; 7] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let lat_0 = params.lat(0).to_radians();
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", params.lon(0).to_radians());
+    let frame = ProjectionFrame::from_params(&params);
 
     let ellps = params.ellps(0);
     if ellps.flattening() == 0.0 {
         params.boolean.insert("spherical");
-        params.real.insert("m0", lat_0);
+        params.real.insert("m0", frame.lat_0);
     } else {
         params.real.insert(
             "m0",
-            ellps.meridian_latitude_to_distance(lat_0) / ellps.semimajor_axis(),
+            ellps.meridian_latitude_to_distance(frame.lat_0) / ellps.semimajor_axis(),
         );
     }
 

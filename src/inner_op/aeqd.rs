@@ -1,5 +1,6 @@
 //! Azimuthal Equidistant
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, PI};
 
 const EPS10: f64 = 1e-10;
@@ -7,12 +8,8 @@ const TOL: f64 = 1e-10;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let lat_0 = op.params.lat(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let origin = Coor4D::raw(lon_0, lat_0, 0.0, 0.0);
+    let frame = ProjectionFrame::from_params(&op.params);
+    let origin = Coor4D::raw(frame.lon_0, frame.lat_0, 0.0, 0.0);
     let spherical = op.params.boolean("spherical");
     let guam = op.params.boolean("guam");
     let north_polar = op.params.boolean("north_polar");
@@ -25,7 +22,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = angular::normalize_symmetric(lon - lon_0);
+        let lam = frame.lon_delta(lon);
 
         let (x, y) = if spherical {
             if equatorial {
@@ -43,7 +40,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 } else {
                     c = c.acos();
                     let k = c / c.sin();
-                    (a * k * cosphi * sinlam, a * k * sinphi)
+                    (frame.a * k * cosphi * sinlam, frame.a * k * sinphi)
                 }
             } else if oblique {
                 let cosphi = lat.cos();
@@ -62,8 +59,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     c = c.acos();
                     let k = c / c.sin();
                     (
-                        a * k * cosphi * sinlam,
-                        a * k * (cosph0 * sinphi - sinph0 * cosphi_x_coslam),
+                        frame.a * k * cosphi * sinlam,
+                        frame.a * k * (cosph0 * sinphi - sinph0 * cosphi_x_coslam),
                     )
                 }
             } else {
@@ -78,7 +75,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
-                let rho = a * (FRAC_PI_2 + phi);
+                let rho = frame.a * (FRAC_PI_2 + phi);
                 (rho * sinlam, rho * coslam)
             }
         } else if guam {
@@ -87,15 +84,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let sinphi = lat.sin();
             let t = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
             (
-                a * lam * cosphi * t,
+                frame.a * lam * cosphi * t,
                 ellps.meridian_latitude_to_distance(lat)
-                    - ellps.meridian_latitude_to_distance(lat_0)
-                    + 0.5 * a * lam * lam * cosphi * sinphi * t,
+                    - ellps.meridian_latitude_to_distance(frame.lat_0)
+                    + 0.5 * frame.a * lam * lam * cosphi * sinphi * t,
             )
-        } else if (equatorial || oblique) && lam.abs() < EPS10 && (lat - lat_0).abs() < EPS10 {
+        } else if (equatorial || oblique) && lam.abs() < EPS10 && (lat - frame.lat_0).abs() < EPS10 {
             (0.0, 0.0)
-        } else if equatorial && lat.abs() < EPS10 && lat_0.abs() < EPS10 {
-            (a * lam, 0.0)
+        } else if equatorial && lat.abs() < EPS10 && frame.lat_0.abs() < EPS10 {
+            (frame.a * lam, 0.0)
         } else {
             let target = Coor4D::raw(lon, lat, 0.0, 0.0);
             let inv = ellps.geodesic_inv(&origin, &target);
@@ -108,7 +105,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (distance * azimuth.sin(), distance * azimuth.cos())
         };
 
-        operands.set_xy(i, x_0 + x, y_0 + y);
+        let (x, y) = frame.apply_false_origin(x, y);
+        operands.set_xy(i, x, y);
         successes += 1;
     }
     successes
@@ -116,11 +114,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let lon_0 = op.params.lon(0);
-    let lat_0 = op.params.lat(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
-    let origin = Coor4D::raw(lon_0, lat_0, 0.0, 0.0);
+    let frame = ProjectionFrame::from_params(&op.params);
+    let origin = Coor4D::raw(frame.lon_0, frame.lat_0, 0.0, 0.0);
     let spherical = op.params.boolean("spherical");
     let guam = op.params.boolean("guam");
     let north_polar = op.params.boolean("north_polar");
@@ -132,8 +127,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let dx = operands.xy(i).0 - x_0;
-        let dy = operands.xy(i).1 - y_0;
+        let (dx, dy) = frame.remove_false_origin(operands.xy(i).0, operands.xy(i).1);
 
         let (lon, lat) = if spherical {
             let mut c_rh = dx.hypot(dy) / ellps.semimajor_axis();
@@ -145,7 +139,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 c_rh = PI;
             }
             if c_rh < EPS10 {
-                (0.0, lat_0)
+                (0.0, frame.lat_0)
             } else if equatorial || oblique {
                 let sinc = c_rh.sin();
                 let cosc = c_rh.cos();
@@ -170,23 +164,24 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             }
         } else if guam {
             let es = ellps.eccentricity_squared();
-            let a = ellps.semimajor_axis();
-            let x_norm = dx / a;
-            let y_norm = dy / a;
+            let x_norm = dx / frame.a;
+            let y_norm = dy / frame.a;
             let x2 = 0.5 * x_norm * x_norm;
-            let m0 = ellps.meridian_latitude_to_distance(lat_0);
-            let mut lat = lat_0;
+            let m0 = ellps.meridian_latitude_to_distance(frame.lat_0);
+            let mut lat = frame.lat_0;
             let mut t;
             for _ in 0..3 {
                 t = (1.0 - es * lat.sin().powi(2)).sqrt();
-                lat = ellps.meridian_distance_to_latitude(m0 + a * (y_norm - x2 * lat.tan() * t));
+                lat = ellps.meridian_distance_to_latitude(
+                    m0 + frame.a * (y_norm - x2 * lat.tan() * t),
+                );
             }
             t = (1.0 - es * lat.sin().powi(2)).sqrt();
-            (lon_0 + x_norm * t / lat.cos(), lat)
+            (frame.lon_0 + x_norm * t / lat.cos(), lat)
         } else {
             let distance = dx.hypot(dy);
             if distance < EPS10 {
-                (lon_0, lat_0)
+                (frame.lon_0, frame.lat_0)
             } else {
                 let azimuth = dx.atan2(dy);
                 let dest = ellps.geodesic_fwd(&origin, azimuth, distance);
@@ -199,7 +194,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         };
 
         let lon = if spherical {
-            let lon = angular::normalize_symmetric(lon_0 + lon);
+            let lon = angular::normalize_symmetric(frame.lon_0 + lon);
             if (lon + PI).abs() < 1e-12 { PI } else { lon }
         } else {
             lon
@@ -224,13 +219,10 @@ pub const GAMUT: [OpParameter; 7] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let lat_0 = params.lat(0).to_radians();
-    let lon_0 = params.lon(0).to_radians();
+    let lat_0 = params.lat(0);
     if lat_0.abs() > FRAC_PI_2 + EPS10 {
         return Err(Error::BadParam("lat_0".to_string(), def.clone()));
     }
-    params.real.insert("lat_0", lat_0);
-    params.real.insert("lon_0", lon_0);
 
     let ellps = params.ellps(0);
     if ellps.flattening() == 0.0 {

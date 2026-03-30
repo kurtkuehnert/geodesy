@@ -393,6 +393,8 @@ impl ParsedParameters {
             }
         }
 
+        normalize_angular_parameters(&mut real);
+
         let name = locals
             .get("_name")
             .unwrap_or(&"unknown".to_string())
@@ -421,6 +423,14 @@ impl ParsedParameters {
             ignored,
             given,
         })
+    }
+}
+
+fn normalize_angular_parameters(real: &mut BTreeMap<&'static str, f64>) {
+    for (key, value) in real.iter_mut() {
+        if key.starts_with("lat_") || key.starts_with("lon_") {
+            *value = value.to_radians();
+        }
     }
 }
 

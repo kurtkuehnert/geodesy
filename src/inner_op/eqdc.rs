@@ -1,15 +1,13 @@
 //! Equidistant Conic
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 
 const EPS10: f64 = 1e-10;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let n = op.params.real["n"];
     let c = op.params.real["c"];
     let rho0 = op.params.real["rho0"];
@@ -21,11 +19,12 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let rho = if spherical {
             c - lat
         } else {
-            c - ellps.meridian_latitude_to_distance(lat) / a
+            c - ellps.meridian_latitude_to_distance(lat) / frame.a
         };
-        let theta = n * (lon - lon_0);
-        let x = x_0 + a * rho * theta.sin();
-        let y = y_0 + a * (rho0 - rho * theta.cos());
+        let theta = n * frame.lon_delta(lon);
+        let x = frame.a * rho * theta.sin();
+        let y = frame.a * (rho0 - rho * theta.cos());
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -34,10 +33,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
     let n = op.params.real["n"];
     let c = op.params.real["c"];
     let rho0 = op.params.real["rho0"];
@@ -45,8 +41,10 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let mut x = (operands.xy(i).0 - x_0) / a;
-        let mut y = rho0 - (operands.xy(i).1 - y_0) / a;
+        let (x_raw, y_raw) = operands.xy(i);
+        let (mut x, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        x /= frame.a;
+        let mut y = rho0 - y_local / frame.a;
         let mut rho = x.hypot(y);
         let (lon, lat) = if rho != 0.0 {
             if n < 0.0 {
@@ -57,11 +55,14 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let lat = if spherical {
                 c - rho
             } else {
-                ellps.meridian_distance_to_latitude(a * (c - rho))
+                ellps.meridian_distance_to_latitude(frame.a * (c - rho))
             };
-            (x.atan2(y) / n + lon_0, lat)
+            (x.atan2(y) / n + frame.lon_0, lat)
         } else {
-            (lon_0, if n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 })
+            (
+                frame.lon_0,
+                if n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 },
+            )
         };
         operands.set_xy(i, lon, lat);
         successes += 1;
@@ -86,9 +87,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    let phi0 = params.lat(0).to_radians();
-    let phi1 = params.lat(1).to_radians();
-    let phi2 = params.lat(2).to_radians();
+    let phi0 = params.lat(0);
+    let phi1 = params.lat(1);
+    let phi2 = params.lat(2);
 
     if phi1.abs() > FRAC_PI_2 {
         return Err(Error::General(
@@ -106,16 +107,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         ));
     }
 
-    params.real.insert("lat_0", phi0);
     params.real.insert("lat_1", phi1);
     params.real.insert("lat_2", phi2);
-    params.real.insert("lon_0", params.lon(0).to_radians());
 
     let ellps = params.ellps(0);
-    let spherical = ellps.flattening() == 0.0;
-    if spherical {
-        params.boolean.insert("spherical");
-    }
+    let spherical = super::mark_spherical(&mut params);
 
     let secant = (phi1 - phi2).abs() >= EPS10;
     let (sinphi1, cosphi1) = phi1.sin_cos();

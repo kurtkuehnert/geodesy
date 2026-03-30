@@ -1,12 +1,10 @@
 //! Lambert Conic Near-Conformal
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let lon_0 = op.params.real["lon_0"];
-    let phi_0 = op.params.real["lat_0"];
-    let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
+    let phi_0 = frame.lat_0;
     let a_coef = op.params.real["A"];
     let aprime = op.params.real["aprime"];
     let bprime = op.params.real["bprime"];
@@ -22,11 +20,12 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, phi) = operands.xy(i);
         let s = series_s(phi, aprime, bprime, cprime, dprime, eprime);
         let m = s - s_0;
-        let m_cap = k_0 * (m + a_coef * m * m * m);
+        let m_cap = frame.k_0 * (m + a_coef * m * m * m);
         let r = r_0 - m_cap;
-        let theta = (lon - lon_0) * sin_phi_0;
-        let x = x_0 + r * theta.sin();
-        let y = y_0 + m_cap + r * theta.sin() * (theta / 2.0).tan();
+        let theta = frame.lon_delta(lon) * sin_phi_0;
+        let x = r * theta.sin();
+        let y = m_cap + r * theta.sin() * (theta / 2.0).tan();
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -34,11 +33,8 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let lon_0 = op.params.real["lon_0"];
-    let phi_0 = op.params.real["lat_0"];
-    let k_0 = op.params.k(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
+    let phi_0 = frame.lat_0;
     let a_coef = op.params.real["A"];
     let aprime = op.params.real["aprime"];
     let bprime = op.params.real["bprime"];
@@ -51,19 +47,19 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let (x, y) = operands.xy(i);
-        let dx = x - x_0;
-        let dy = y - y_0;
+        let (x_raw, y_raw) = operands.xy(i);
+        let (dx, dy) = frame.remove_false_origin(x_raw, y_raw);
         let theta = dx.atan2(r_0 - dy);
         let r_prime = dx.hypot(r_0 - dy).copysign(phi_0);
         let m_prime = r_0 - r_prime;
 
-        let denom = -k_0 - 3.0 * k_0 * a_coef * m_prime * m_prime;
+        let denom = -frame.k_0 - 3.0 * frame.k_0 * a_coef * m_prime * m_prime;
         if denom == 0.0 || sin_phi_0 == 0.0 {
             operands.set_coord(i, &Coor4D::nan());
             continue;
         }
-        let m = m_prime - (m_prime - k_0 * m_prime - k_0 * a_coef * m_prime.powi(3)) / denom;
+        let m = m_prime
+            - (m_prime - frame.k_0 * m_prime - frame.k_0 * a_coef * m_prime.powi(3)) / denom;
         let mut phi_prime = phi_0 + (m / aprime).to_radians();
         let s_prime = series_s(phi_prime, aprime, bprime, cprime, dprime, eprime);
         let ds_prime = series_ds(phi_prime, aprime, bprime, cprime, dprime, eprime);
@@ -72,7 +68,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
         phi_prime -= (m + s_0 - s_prime) / -ds_prime;
-        let lon = lon_0 + theta / sin_phi_0;
+        let lon = frame.lon_0 + theta / sin_phi_0;
         operands.set_xy(i, lon, phi_prime);
         successes += 1;
     }
@@ -110,8 +106,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ellps = params.ellps(0);
     let a = ellps.semimajor_axis();
     let f = ellps.flattening();
-    let phi_0 = params.lat(0).to_radians();
-    let lon_0 = params.lon(0).to_radians();
+    let phi_0 = params.lat(0);
     let rho_0 = ellps.meridian_radius_of_curvature(phi_0);
     let nu_0 = ellps.prime_vertical_radius_of_curvature(phi_0);
     let n = f / (2.0 - f);
@@ -128,8 +123,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let r_0 = params.k(0) * nu_0 / phi_0.tan();
     let s_0 = series_s(phi_0, aprime, bprime, cprime, dprime, eprime);
 
-    params.real.insert("lat_0", phi_0);
-    params.real.insert("lon_0", lon_0);
     params.real.insert("A", a_coef);
     params.real.insert("aprime", aprime);
     params.real.insert("bprime", bprime);

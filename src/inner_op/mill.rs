@@ -1,17 +1,16 @@
 //! Miller Cylindrical
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let a = op.params.ellps(0).semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let x = x_0 + a * (lon - lon_0);
-        let y = y_0 + a * 1.25 * (std::f64::consts::FRAC_PI_4 + 0.4 * lat).tan().ln();
+        let x = frame.a * frame.lon_delta(lon);
+        let y = frame.a * 1.25 * (std::f64::consts::FRAC_PI_4 + 0.4 * lat).tan().ln();
+        let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -19,17 +18,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let a = op.params.ellps(0).semimajor_axis();
-    let lon_0 = op.params.lon(0);
-    let x_0 = op.params.x(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(&op.params);
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let x = (x_raw - x_0) / a;
-        let y = (y_raw - y_0) / a;
-        let lon = lon_0 + x;
+        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
+        let x = x_local / frame.a;
+        let y = y_local / frame.a;
+        let lon = frame.lon_0 + x;
         let lat = 2.5 * ((0.8 * y).exp().atan() - std::f64::consts::FRAC_PI_4);
         operands.set_xy(i, lon, lat);
         successes += 1;
@@ -52,8 +49,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let given = parameters.instantiated_as.split_into_parameters();
     super::override_ellps_from_proj_params(&mut params, def, &given)?;
-    params.real.insert("lon_0", params.lon(0).to_radians());
-
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {
         descriptor,
