@@ -230,5 +230,4 @@ mod tests {
         assert!(operands[0].hypot2(&projected[0]) < 1e-6);
         Ok(())
     }
-
 }

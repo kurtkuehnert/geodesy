@@ -89,7 +89,8 @@ pub trait Meridians: EllipsoidBase {
         let n = self.third_flattening();
         let mut coefficients = fourier_coefficients(n, &constants::RECTIFYING);
         coefficients.etc[0] = self.normalized_meridian_arc_unit();
-        let rectifying_latitude = distance_from_equator / (self.semimajor_axis() * coefficients.etc[0]);
+        let rectifying_latitude =
+            distance_from_equator / (self.semimajor_axis() * coefficients.etc[0]);
         rectifying_latitude + fourier::sin(2.0 * rectifying_latitude, &coefficients.inv)
     }
 }
@@ -180,5 +181,4 @@ mod tests {
         assert!((ellps.meridian_distance_to_latitude(length) - angle).abs() < 4e-6);
         Ok(())
     }
-
 }

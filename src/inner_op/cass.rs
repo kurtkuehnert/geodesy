@@ -282,7 +282,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("cass lat_0=0 lon_0=0 ellps=WGS84")?;
 
-        let mut projected = [Coor4D::raw(251_999.407_927_484, -11_743_302.693_378_212, 0.0, 0.0)];
+        let mut projected = [Coor4D::raw(
+            251_999.407_927_484,
+            -11_743_302.693_378_212,
+            0.0,
+            0.0,
+        )];
         ctx.apply(op, Inv, &mut projected)?;
 
         assert!((projected[0][0].to_degrees() + 167.737_751_661_178_2).abs() < 1e-8);

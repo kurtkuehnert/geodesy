@@ -79,31 +79,14 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     successes
 }
 
-fn series_s(
-    phi: f64,
-    aprime: f64,
-    bprime: f64,
-    cprime: f64,
-    dprime: f64,
-    eprime: f64,
-) -> f64 {
-    aprime * phi.to_degrees()
-        - bprime * (2.0 * phi).sin()
-        + cprime * (4.0 * phi).sin()
+fn series_s(phi: f64, aprime: f64, bprime: f64, cprime: f64, dprime: f64, eprime: f64) -> f64 {
+    aprime * phi.to_degrees() - bprime * (2.0 * phi).sin() + cprime * (4.0 * phi).sin()
         - dprime * (6.0 * phi).sin()
         + eprime * (8.0 * phi).sin()
 }
 
-fn series_ds(
-    phi: f64,
-    aprime: f64,
-    bprime: f64,
-    cprime: f64,
-    dprime: f64,
-    eprime: f64,
-) -> f64 {
-    aprime * (180.0 / std::f64::consts::PI)
-        - 2.0 * bprime * (2.0 * phi).cos()
+fn series_ds(phi: f64, aprime: f64, bprime: f64, cprime: f64, dprime: f64, eprime: f64) -> f64 {
+    aprime * (180.0 / std::f64::consts::PI) - 2.0 * bprime * (2.0 * phi).cos()
         + 4.0 * cprime * (4.0 * phi).cos()
         - 6.0 * dprime * (6.0 * phi).cos()
         + 8.0 * eprime * (8.0 * phi).cos()
@@ -138,8 +121,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         * std::f64::consts::PI
         / 180.0;
     let bprime =
-        3.0 * a * (n - n * n + 7.0 * (n.powi(3) - n.powi(4)) / 8.0 + 55.0 * n.powi(5) / 64.0)
-            / 2.0;
+        3.0 * a * (n - n * n + 7.0 * (n.powi(3) - n.powi(4)) / 8.0 + 55.0 * n.powi(5) / 64.0) / 2.0;
     let cprime = 15.0 * a * (n * n - n.powi(3) + 3.0 * (n.powi(4) - n.powi(5)) / 4.0) / 16.0;
     let dprime = 35.0 * a * (n.powi(3) - n.powi(4) + 11.0 * n.powi(5) / 16.0) / 48.0;
     let eprime = 315.0 * a * (n.powi(4) - n.powi(5)) / 512.0;
@@ -182,7 +164,11 @@ mod tests {
         ];
         let mut operands = original;
         ctx.apply(op, Fwd, &mut operands)?;
-        assert!(operands.iter().all(|coord| coord[0].is_finite() && coord[1].is_finite()));
+        assert!(
+            operands
+                .iter()
+                .all(|coord| coord[0].is_finite() && coord[1].is_finite())
+        );
 
         ctx.apply(op, Inv, &mut operands)?;
         for i in 0..operands.len() {

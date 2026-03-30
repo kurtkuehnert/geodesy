@@ -139,7 +139,12 @@ mod tests {
             0.0,
             0.0,
         )];
-        let expected = [Coor4D::raw(161_210.417_590_794_74, 56_369.498_060_546_89, 0.0, 0.0)];
+        let expected = [Coor4D::raw(
+            161_210.417_590_794_74,
+            56_369.498_060_546_89,
+            0.0,
+            0.0,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

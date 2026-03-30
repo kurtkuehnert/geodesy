@@ -865,7 +865,10 @@ mod tests {
             "unitconvert xy_in=deg xy_out=rad | latitude geocentric | unitconvert xy_in=rad xy_out=deg"
         );
         assert_eq!(
-            parse_proj("+proj=geocent +a=3396190 +b=3376200 +lon_0=0 +units=m", true)?,
+            parse_proj(
+                "+proj=geocent +a=3396190 +b=3376200 +lon_0=0 +units=m",
+                true
+            )?,
             "unitconvert xy_in=deg xy_out=rad | cart ellps=3396190,169.8944472236118"
         );
         assert_eq!(

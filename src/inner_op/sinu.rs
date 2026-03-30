@@ -26,10 +26,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 || ellps.meridian_latitude_to_distance(lat) / a,
                 |coefficients| ellps.latitude_geographic_to_rectifying(lat, coefficients),
             );
-            (
-                lam * c / (1.0 - es * s * s).sqrt(),
-                mu,
-            )
+            (lam * c / (1.0 - es * s * s).sqrt(), mu)
         };
         operands.set_xy(i, x_0 + a * x, y_0 + a * y);
         successes += 1;
@@ -110,12 +107,18 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     if params.ellps(0).flattening() == 0.0 {
         params.boolean.insert("spherical");
     } else {
-        let rectifying = params.ellps(0).coefficients_for_rectifying_latitude_computations();
+        let rectifying = params
+            .ellps(0)
+            .coefficients_for_rectifying_latitude_computations();
         params.fourier_coefficients.insert("rectifying", rectifying);
     }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 #[cfg(test)]
@@ -127,7 +130,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("sinu ellps=GRS80")?;
         let geo = [Coor4D::geo(1.0, 2.0, 0., 0.)];
-        let projected = [Coor4D::raw(222_605.299_539_466, 110_574.388_554_153, 0., 0.)];
+        let projected = [Coor4D::raw(
+            222_605.299_539_466,
+            110_574.388_554_153,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

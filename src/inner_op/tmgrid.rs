@@ -23,7 +23,12 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let zone = forward_zone(lon.to_degrees(), lon_i.to_degrees(), zone_width.to_degrees(), zone_count);
+        let zone = forward_zone(
+            lon.to_degrees(),
+            lon_i.to_degrees(),
+            zone_width.to_degrees(),
+            zone_count,
+        );
         let lon_0 = zone_central_meridian(lon_i, zone_width, zone as f64);
         let x_offset = x_0 + zone as f64 * 1_000_000.0;
 
@@ -124,7 +129,9 @@ fn precompute(op: &mut Op) {
     op.params.real.insert("scaled_radius", qs);
 
     let conformal = ellps.coefficients_for_conformal_latitude_computations();
-    op.params.fourier_coefficients.insert("conformal", conformal);
+    op.params
+        .fourier_coefficients
+        .insert("conformal", conformal);
 
     let n = ellps.third_flattening();
     let tm = fourier_coefficients(n, &TRANSVERSE_MERCATOR);
@@ -202,9 +209,8 @@ mod tests {
     #[test]
     fn tmgrid_roundtrips_across_two_utm_zones() -> Result<(), Error> {
         let mut ctx = Minimal::default();
-        let op = ctx.op(
-            "tmgrid lat_0=0 lon_i=-180 zone_width=6 k_0=0.9996 x_0=500000 y_0=0 ellps=WGS84",
-        )?;
+        let op = ctx
+            .op("tmgrid lat_0=0 lon_i=-180 zone_width=6 k_0=0.9996 x_0=500000 y_0=0 ellps=WGS84")?;
 
         let original = [
             Coor4D::geo(55.0, 12.0, 0.0, 0.0),

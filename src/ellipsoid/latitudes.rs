@@ -164,11 +164,8 @@ pub trait Latitudes: EllipsoidBase {
             let sinphi = geographic.sin();
             let cosphi = geographic.cos();
             let one_minus_es_sin2phi = 1.0 - es * sinphi * sinphi;
-            let dphi = (one_minus_es_sin2phi * one_minus_es_sin2phi)
-                / (2.0 * cosphi)
-                * (q_div_one_minus_es
-                    - sinphi / one_minus_es_sin2phi
-                    - (e * sinphi).atanh() / e);
+            let dphi = (one_minus_es_sin2phi * one_minus_es_sin2phi) / (2.0 * cosphi)
+                * (q_div_one_minus_es - sinphi / one_minus_es_sin2phi - (e * sinphi).atanh() / e);
             if dphi.abs() < 1e-15 {
                 break;
             }

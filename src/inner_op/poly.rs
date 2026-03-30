@@ -39,7 +39,10 @@ fn fwd_ellipsoidal(
         || ellps.meridian_latitude_to_distance(lat) / a,
         |coefficients| ellps.latitude_geographic_to_rectifying(lat, coefficients),
     );
-    (a * (ms * el.sin()) + x_0, a * ((ml - ml0) + ms * (1.0 - el.cos())) + y_0)
+    (
+        a * (ms * el.sin()) + x_0,
+        a * ((ml - ml0) + ms * (1.0 - el.cos())) + y_0,
+    )
 }
 
 fn spherical_inverse_seed(x: f64, y: f64, lat_0: f64, lon_0: f64) -> Option<(f64, f64)> {
@@ -201,11 +204,17 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (mut lon, mut lat_candidate) = if let Some((seed_lon, seed_lat)) = spherical_seed {
             if analytic_lon.is_finite() {
                 let (fx_a, fy_a) = fwd_ellipsoidal(
-                    &ellps, lon_0, x_0, y_0, ml0, analytic_lon, analytic_lat, rectifying,
+                    &ellps,
+                    lon_0,
+                    x_0,
+                    y_0,
+                    ml0,
+                    analytic_lon,
+                    analytic_lat,
+                    rectifying,
                 );
-                let (fx_s, fy_s) = fwd_ellipsoidal(
-                    &ellps, lon_0, x_0, y_0, ml0, seed_lon, seed_lat, rectifying,
-                );
+                let (fx_s, fy_s) =
+                    fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, ml0, seed_lon, seed_lat, rectifying);
                 if (fx_a - x_raw).hypot(fy_a - y_raw) <= (fx_s - x_raw).hypot(fy_s - y_raw) {
                     (analytic_lon, analytic_lat)
                 } else {
@@ -235,10 +244,24 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let h_lon = if lon > 0.0 { -1e-6 } else { 1e-6 };
             let h_lat = if lat_candidate > 0.0 { -1e-6 } else { 1e-6 };
             let (fx_lon, fy_lon) = fwd_ellipsoidal(
-                &ellps, lon_0, x_0, y_0, ml0, lon + h_lon, lat_candidate, rectifying,
+                &ellps,
+                lon_0,
+                x_0,
+                y_0,
+                ml0,
+                lon + h_lon,
+                lat_candidate,
+                rectifying,
             );
             let (fx_lat, fy_lat) = fwd_ellipsoidal(
-                &ellps, lon_0, x_0, y_0, ml0, lon, lat_candidate + h_lat, rectifying,
+                &ellps,
+                lon_0,
+                x_0,
+                y_0,
+                ml0,
+                lon,
+                lat_candidate + h_lat,
+                rectifying,
             );
             let j11 = (fx_lon - fx) / h_lon;
             let j21 = (fy_lon - fy) / h_lon;

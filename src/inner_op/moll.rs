@@ -105,7 +105,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("lon_0", params.lon(0).to_radians());
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 #[cfg(test)]
@@ -117,7 +121,12 @@ mod tests {
         let mut ctx = Minimal::default();
         let op = ctx.op("moll a=6400000")?;
         let geo = [Coor4D::geo(1.0, 2.0, 0., 0.)];
-        let projected = [Coor4D::raw(201_113.698_641_813, 124_066.283_433_860, 0., 0.)];
+        let projected = [Coor4D::raw(
+            201_113.698_641_813,
+            124_066.283_433_860,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;

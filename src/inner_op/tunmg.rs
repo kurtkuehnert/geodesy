@@ -16,7 +16,11 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let lat_grad = lat.to_degrees() / 0.9;
         let lon_grad = lon.to_degrees() / 0.9;
         let x_km = x_0 + (lon_grad - lon_0) / 0.012_185;
-        let a = if lat_grad > phi_0 { 0.010_015 } else { 0.010_02 };
+        let a = if lat_grad > phi_0 {
+            0.010_015
+        } else {
+            0.010_02
+        };
         let y_km = y_0 + (lat_grad - phi_0) / a;
         operands.set_xy(i, x_km * 1000.0, y_km * 1000.0);
         successes += 1;
@@ -61,7 +65,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     if params.boolean("greenwich") {
         lon_0_grad -= PARIS_PM_GRAD;
     }
-    params.real.insert("lat_0_grad", params.real("lat_0")? / 0.9);
+    params
+        .real
+        .insert("lat_0_grad", params.real("lat_0")? / 0.9);
     params.real.insert("lon_0_grad", lon_0_grad);
     params.real.insert("x_0_km", params.real("x_0")? / 1000.0);
     params.real.insert("y_0_km", params.real("y_0")? / 1000.0);

@@ -154,7 +154,8 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         let sinphi1 = phi1.sin();
         let cosphi1 = phi1.cos();
         let m1 = ellps.meridian_latitude_to_distance(phi1) / ellps.semimajor_axis();
-        let am1 = cosphi1 / ((1.0 - ellps.eccentricity_squared() * sinphi1 * sinphi1).sqrt() * sinphi1);
+        let am1 =
+            cosphi1 / ((1.0 - ellps.eccentricity_squared() * sinphi1 * sinphi1).sqrt() * sinphi1);
         params.real.insert("am1", am1);
         params.real.insert("m1", m1);
         params.real.insert("cphi1", 0.0);

@@ -246,7 +246,10 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                         1.0 / (((1.0 - es) / y).powi(2) + es)
                     };
                     if sinphi2 > 1.0 - 1e-11 {
-                        (0.0, std::f64::consts::FRAC_PI_2 * if y > 0.0 { 1.0 } else { -1.0 })
+                        (
+                            0.0,
+                            std::f64::consts::FRAC_PI_2 * if y > 0.0 { 1.0 } else { -1.0 },
+                        )
                     } else {
                         let phi = sinphi2.sqrt().asin() * if y > 0.0 { 1.0 } else { -1.0 };
                         let sinlam = x * ((1.0 - es * sinphi2) / (1.0 - sinphi2)).sqrt();
@@ -296,10 +299,12 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                         let dlam = (-j21 * dx + j11 * dy) / det;
                         lp.1 += dphi;
                         if lp.1 > std::f64::consts::FRAC_PI_2 {
-                            lp.1 = std::f64::consts::FRAC_PI_2 - (lp.1 - std::f64::consts::FRAC_PI_2);
+                            lp.1 =
+                                std::f64::consts::FRAC_PI_2 - (lp.1 - std::f64::consts::FRAC_PI_2);
                             lp.0 = adjlon(lp.0 + std::f64::consts::PI);
                         } else if lp.1 < -std::f64::consts::FRAC_PI_2 {
-                            lp.1 = -std::f64::consts::FRAC_PI_2 + (-std::f64::consts::FRAC_PI_2 - lp.1);
+                            lp.1 = -std::f64::consts::FRAC_PI_2
+                                + (-std::f64::consts::FRAC_PI_2 - lp.1);
                             lp.0 = adjlon(lp.0 + std::f64::consts::PI);
                         }
                         lp.0 += dlam;
@@ -348,7 +353,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     }
     params.real.insert("lat_0", lat_0);
     params.real.insert("lon_0", lon_0);
-    params.real.insert("alpha", params.real("alpha")?.to_radians());
+    params
+        .real
+        .insert("alpha", params.real("alpha")?.to_radians());
 
     let sinph0 = lat_0.sin();
     let cosph0 = lat_0.cos();
@@ -371,11 +378,17 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         let nu0 = 1.0 / (1.0 - es * sinph0 * sinph0).sqrt();
         params.real.insert("nu0", nu0);
         params.real.insert("y_shift", es * nu0 * sinph0 * cosph0);
-        params.real.insert("y_scale", 1.0 / (1.0 - es * cosph0 * cosph0).sqrt());
+        params
+            .real
+            .insert("y_scale", 1.0 / (1.0 - es * cosph0 * cosph0).sqrt());
     }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op { descriptor, params, steps: None })
+    Ok(Op {
+        descriptor,
+        params,
+        steps: None,
+    })
 }
 
 #[cfg(test)]

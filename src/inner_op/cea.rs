@@ -137,7 +137,12 @@ mod tests {
         let op = ctx.op("cea ellps=GRS80")?;
 
         let geo = [Coor4D::geo(1.0, 2.0, 0., 0.)];
-        let projected = [Coor4D::raw(222_638.981_586_547, 110_568.812_396_267, 0., 0.)];
+        let projected = [Coor4D::raw(
+            222_638.981_586_547,
+            110_568.812_396_267,
+            0.,
+            0.,
+        )];
 
         let mut operands = geo;
         ctx.apply(op, Fwd, &mut operands)?;
