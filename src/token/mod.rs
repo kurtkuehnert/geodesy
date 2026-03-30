@@ -410,12 +410,10 @@ pub fn parse_proj(definition: &str, proj_degrees: bool) -> Result<String, Error>
             }
         }
 
-        // Capture the primary operator name before tidy_proj may alter it
+        proj_adapter::tidy_proj(&mut elements)?;
         if primary_op.is_none() && !is_explicit_pipeline && !elements.is_empty() {
             primary_op = Some(elements[0].clone());
         }
-
-        proj_adapter::tidy_proj(&mut elements)?;
 
         // Skip empty steps, insert pipeline globals, handle step and pipeline
         // inversions, and handle directional omissions (omit_fwd, omit_inv)
@@ -861,6 +859,25 @@ mod tests {
         assert_eq!(
             parse_proj("+proj=longlat +ellps=bessel +lon_0=10 +pm=paris", true)?,
             "unitconvert xy_in=deg xy_out=rad | longlat ellps=bessel lon_0=12.337229166666667 | unitconvert xy_in=rad xy_out=deg"
+        );
+        assert_eq!(
+            parse_proj("+proj=geoc +ellps=GRS80", true)?,
+            "unitconvert xy_in=deg xy_out=rad | latitude geocentric | unitconvert xy_in=rad xy_out=deg"
+        );
+        assert_eq!(
+            parse_proj("+proj=geocent +a=3396190 +b=3376200 +lon_0=0 +units=m", true)?,
+            "unitconvert xy_in=deg xy_out=rad | cart ellps=3396190,169.8944472236118"
+        );
+        assert_eq!(
+            parse_proj("proj=pipeline step proj=longlat ellps=GRS80 geoc inv", true)?,
+            "latitude ellps=GRS80 geocentric"
+        );
+        assert_eq!(
+            parse_proj(
+                "+proj=pipeline +step +inv +proj=geoc +a=2440530 +b=2438260",
+                true
+            )?,
+            "inv latitude geocentric ellps=2440530,1075.123348017621"
         );
         Ok(())
     }

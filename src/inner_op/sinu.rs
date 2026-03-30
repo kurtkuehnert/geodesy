@@ -11,6 +11,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
     let spherical = op.params.boolean("spherical");
+    let rectifying = op.params.fourier_coefficients.get("rectifying");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -21,9 +22,13 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         } else {
             let s = lat.sin();
             let c = lat.cos();
+            let mu = rectifying.map_or_else(
+                || ellps.meridian_latitude_to_distance(lat) / a,
+                |coefficients| ellps.latitude_geographic_to_rectifying(lat, coefficients),
+            );
             (
                 lam * c / (1.0 - es * s * s).sqrt(),
-                ellps.meridian_latitude_to_distance(lat) / a,
+                mu,
             )
         };
         operands.set_xy(i, x_0 + a * x, y_0 + a * y);
@@ -40,6 +45,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let x_0 = op.params.x(0);
     let y_0 = op.params.y(0);
     let spherical = op.params.boolean("spherical");
+    let rectifying = op.params.fourier_coefficients.get("rectifying");
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
@@ -61,7 +67,10 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             };
             (lon, lat)
         } else {
-            let lat = ellps.meridian_distance_to_latitude(y * a);
+            let lat = rectifying.map_or_else(
+                || ellps.meridian_distance_to_latitude(y * a),
+                |coefficients| ellps.latitude_rectifying_to_geographic(y, coefficients),
+            );
             let s = lat.abs();
             if s < std::f64::consts::FRAC_PI_2 {
                 let sinphi = lat.sin();
@@ -100,6 +109,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     if params.ellps(0).flattening() == 0.0 {
         params.boolean.insert("spherical");
+    } else {
+        let rectifying = params.ellps(0).coefficients_for_rectifying_latitude_computations();
+        params.fourier_coefficients.insert("rectifying", rectifying);
     }
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));

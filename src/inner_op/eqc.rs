@@ -214,4 +214,21 @@ mod tests {
         assert!(operands[0].hypot2(&projected[0]) < 1e-6);
         Ok(())
     }
+
+    #[test]
+    fn mercury_ocentric_eqc_pipeline_matches_proj() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "axisswap order=2,1 | unitconvert xy_in=deg xy_out=rad | inv latitude geocentric ellps=2440530,1075.123348017621 | eqc ellps=2440530,1075.123348017621",
+        )?;
+
+        let geo = [Coor4D::raw(45., 0., 0., 0.)];
+        let projected = [Coor4D::raw(0., 1_916_463.956_798_680_6, 0., 0.)];
+
+        let mut operands = geo;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&projected[0]) < 1e-6);
+        Ok(())
+    }
+
 }

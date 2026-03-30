@@ -1,8 +1,16 @@
 //! Transverse Mercator Zoned Grid System
 use crate::authoring::*;
 
+fn conformal_series_forward(lat: f64, coefficients: &FourierCoefficients) -> f64 {
+    lat + fourier::sin(2. * lat, &coefficients.fwd)
+}
+
+fn conformal_series_inverse(lat: f64, coefficients: &FourierCoefficients) -> f64 {
+    lat + fourier::sin(2. * lat, &coefficients.inv)
+}
+
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
+    let _ellps = op.params.ellps(0);
     let x_0 = op.params.x(0);
     let lon_i = op.params.real["lon_i"];
     let zone_width = op.params.real["zone_width"];
@@ -19,7 +27,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let lon_0 = zone_central_meridian(lon_i, zone_width, zone as f64);
         let x_offset = x_0 + zone as f64 * 1_000_000.0;
 
-        let lat = ellps.latitude_geographic_to_conformal(lat, &conformal);
+        let lat = conformal_series_forward(lat, &conformal);
         let lon = lon - lon_0;
 
         let (sin_lat, cos_lat) = lat.sin_cos();
@@ -50,7 +58,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
+    let _ellps = op.params.ellps(0);
     let x_0 = op.params.x(0);
     let lon_i = op.params.real["lon_i"];
     let zone_width = op.params.real["zone_width"];
@@ -87,7 +95,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         operands.set_xy(
             i,
             angular::normalize_symmetric(lon + lon_0),
-            ellps.latitude_conformal_to_geographic(lat, &conformal),
+            conformal_series_inverse(lat, &conformal),
         );
         successes += 1;
     }
@@ -122,7 +130,7 @@ fn precompute(op: &mut Op) {
     let tm = fourier_coefficients(n, &TRANSVERSE_MERCATOR);
     op.params.fourier_coefficients.insert("tm", tm);
 
-    let z = ellps.latitude_geographic_to_conformal(lat_0, &conformal);
+    let z = conformal_series_forward(lat_0, &conformal);
     let zb = y_0 - qs * (z + fourier::sin(2.0 * z, &tm.fwd));
     op.params.real.insert("zb", zb);
 }

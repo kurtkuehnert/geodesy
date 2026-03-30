@@ -1,12 +1,20 @@
 //! Transverse Mercator, following [Engsager & Poder (2007)](crate::bibliography::Bibliography::Eng07)
 use crate::authoring::*;
 
+fn conformal_series_forward(lat: f64, coefficients: &FourierCoefficients) -> f64 {
+    lat + fourier::sin(2. * lat, &coefficients.fwd)
+}
+
+fn conformal_series_inverse(lat: f64, coefficients: &FourierCoefficients) -> f64 {
+    lat + fourier::sin(2. * lat, &coefficients.inv)
+}
+
 // ----- F O R W A R D -----------------------------------------------------------------
 
 // Forward transverse mercator, following Engsager & Poder(2007)
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     // Make all precomputed parameters directly accessible
-    let ellps = op.params.ellps(0);
+    let _ellps = op.params.ellps(0);
     let lon_0 = op.params.lon(0).to_radians();
     let x_0 = op.params.x(0);
     let Some(conformal) = op.params.fourier_coefficients.get("conformal") else {
@@ -35,7 +43,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         // --- 1. Geographical -> Conformal latitude, rotated longitude
 
         // The conformal latitude
-        let lat = ellps.latitude_geographic_to_conformal(lat, conformal);
+        let lat = conformal_series_forward(lat, conformal);
         // The longitude as reckoned from the central meridian
         let lon = lon - lon_0;
 
@@ -91,7 +99,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 // Inverse Transverse Mercator, following Engsager & Poder (2007)
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     // Make all precomputed parameters directly accessible
-    let ellps = op.params.ellps(0);
+    let _ellps = op.params.ellps(0);
     let lon_0 = op.params.lon(0).to_radians();
     let x_0 = op.params.x(0);
     let Some(conformal) = op.params.fourier_coefficients.get("conformal") else {
@@ -139,7 +147,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         // --- 4. Gaussian LAT, LNG -> ellipsoidal LAT, LNG
 
         let lon = angular::normalize_symmetric(lon + lon_0);
-        let lat = ellps.latitude_conformal_to_geographic(lat, conformal);
+        let lat = conformal_series_inverse(lat, conformal);
 
         // Done!
         operands.set_xy(i, lon, lat);

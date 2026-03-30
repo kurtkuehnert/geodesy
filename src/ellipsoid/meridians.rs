@@ -1,4 +1,5 @@
 use super::*;
+use crate::math::series::{fourier, taylor::fourier_coefficients};
 use std::f64::consts::FRAC_PI_2;
 
 /// Meridian geometry
@@ -66,18 +67,11 @@ pub trait Meridians: EllipsoidBase {
     #[allow(clippy::many_single_char_names)] // ditto
     fn meridian_latitude_to_distance(&self, latitude: f64) -> f64 {
         let n = self.third_flattening();
-
-        // The rectifying radius - using a slightly more accurate series than in Bowring (1983)
-        let A = self.rectifying_radius();
-
-        let B = 9. * (1. - 3. * n * n / 8.0);
-        let (s, c) = (2. * latitude).sin_cos();
-        let x = 1. + 13. / 12. * n * c;
-        let y = 0. + 13. / 12. * n * s;
-        let r = y.hypot(x);
-        let v = y.atan2(x);
-        let theta = latitude - B * r.powf(-2. / 13.) * (2. * v / 13.).sin();
-        A * theta
+        let mut coefficients = fourier_coefficients(n, &constants::RECTIFYING);
+        coefficients.etc[0] = self.normalized_meridian_arc_unit();
+        self.semimajor_axis()
+            * coefficients.etc[0]
+            * (latitude + fourier::sin(2.0 * latitude, &coefficients.fwd))
     }
 
     /// Compute the latitude of a point, given *M*, its distance from the equator,
@@ -93,19 +87,10 @@ pub trait Meridians: EllipsoidBase {
     #[allow(clippy::many_single_char_names)] // ditto
     fn meridian_distance_to_latitude(&self, distance_from_equator: f64) -> f64 {
         let n = self.third_flattening();
-
-        // Rectifying radius - using a slightly more accurate series than in Bowring (1983)
-        let A = self.rectifying_radius();
-
-        let theta = distance_from_equator / A;
-        let (s, c) = (2. * theta).sin_cos();
-        let x = 1. - 155. / 84. * n * c;
-        let y = 0. + 155. / 84. * n * s;
-        let r = y.hypot(x);
-        let v = y.atan2(x);
-
-        let C = 1. - 9. * n * n / 16.;
-        theta + 63. / 4. * C * r.powf(8. / 155.) * (8. / 155. * v).sin()
+        let mut coefficients = fourier_coefficients(n, &constants::RECTIFYING);
+        coefficients.etc[0] = self.normalized_meridian_arc_unit();
+        let rectifying_latitude = distance_from_equator / (self.semimajor_axis() * coefficients.etc[0]);
+        rectifying_latitude + fourier::sin(2.0 * rectifying_latitude, &coefficients.inv)
     }
 }
 
@@ -195,4 +180,5 @@ mod tests {
         assert!((ellps.meridian_distance_to_latitude(length) - angle).abs() < 4e-6);
         Ok(())
     }
+
 }

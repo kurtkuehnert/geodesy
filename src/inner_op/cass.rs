@@ -8,26 +8,7 @@ const C3: f64 = 1.0 / 24.0;
 const C4: f64 = 1.0 / 3.0;
 const C5: f64 = 1.0 / 15.0;
 const INV_TOL: f64 = 1e-12;
-const INV_ITER: usize = 12;
-
-fn normalize_inverse_seed(mut lon: f64, mut lat: f64) -> (f64, f64) {
-    if lat > std::f64::consts::FRAC_PI_2 {
-        lat = std::f64::consts::PI - lat;
-        lon += std::f64::consts::PI;
-    } else if lat < -std::f64::consts::FRAC_PI_2 {
-        lat = -std::f64::consts::PI - lat;
-        lon += std::f64::consts::PI;
-    }
-
-    while lon > std::f64::consts::PI {
-        lon -= std::f64::consts::TAU;
-    }
-    while lon < -std::f64::consts::PI {
-        lon += std::f64::consts::TAU;
-    }
-
-    (lon, lat)
-}
+const INV_ITER: usize = 15;
 
 #[allow(clippy::too_many_arguments)]
 fn fwd_ellipsoidal(
@@ -131,22 +112,18 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let hyperbolic = op.params.boolean("hyperbolic");
             let lon = lon_0 + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
             let lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
-            let (mut lon, mut lat) = if hyperbolic {
-                (lon, lat)
-            } else {
-                normalize_inverse_seed(lon, lat)
-            };
+            let (mut lon, mut lat) = (lon, lat);
 
             for _ in 0..INV_ITER {
                 let (fx, fy) = fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon, lat);
-                let dx = x + x_0 - fx;
-                let dy = y + y_0 - fy;
-                if dx.hypot(dy) < INV_TOL {
+                let delta_x = fx - (x + x_0);
+                let delta_y = fy - (y + y_0);
+                if delta_x.abs() < INV_TOL && delta_y.abs() < INV_TOL {
                     break;
                 }
 
-                let h_lon = 1e-8;
-                let h_lat = 1e-8;
+                let h_lon = if lon > 0.0 { -1e-6 } else { 1e-6 };
+                let h_lat = if lat > 0.0 { -1e-6 } else { 1e-6 };
                 let (fx_lon, fy_lon) =
                     fwd_ellipsoidal(&ellps, lon_0, x_0, y_0, m0, hyperbolic, lon + h_lon, lat);
                 let (fx_lat, fy_lat) =
@@ -159,11 +136,15 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 if det.abs() < 1e-24 {
                     break;
                 }
-                lon += (dx * j22 - dy * j12) / det;
-                lat += (dy * j11 - dx * j21) / det;
-                if !hyperbolic {
-                    (lon, lat) = normalize_inverse_seed(lon, lat);
-                }
+                let inv11 = j22 / det;
+                let inv12 = -j12 / det;
+                let inv21 = -j21 / det;
+                let inv22 = j11 / det;
+                let delta_lon = (delta_x * inv11 + delta_y * inv12).clamp(-0.3, 0.3);
+                let delta_lat = (delta_x * inv21 + delta_y * inv22).clamp(-0.3, 0.3);
+                lon = (lon - delta_lon).clamp(-std::f64::consts::PI, std::f64::consts::PI);
+                lat = (lat - delta_lat)
+                    .clamp(-std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);
             }
 
             (lon, lat)
@@ -293,6 +274,19 @@ mod tests {
 
         assert!((projected[0][0].to_degrees() - 179.0).abs() < 1e-8);
         assert!((projected[0][1].to_degrees() - 80.0).abs() < 1e-8);
+        Ok(())
+    }
+
+    #[test]
+    fn cass_world_inverse_matches_proj_far_southern_case() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op("cass lat_0=0 lon_0=0 ellps=WGS84")?;
+
+        let mut projected = [Coor4D::raw(251_999.407_927_484, -11_743_302.693_378_212, 0.0, 0.0)];
+        ctx.apply(op, Inv, &mut projected)?;
+
+        assert!((projected[0][0].to_degrees() + 167.737_751_661_178_2).abs() < 1e-8);
+        assert!((projected[0][1].to_degrees() + 76.449_895_966_577_9).abs() < 1e-8);
         Ok(())
     }
 }

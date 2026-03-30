@@ -234,4 +234,20 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn geocentric_matches_proj_mercury_ographic_to_ocentric() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let op = ctx.op(
+            "axisswap order=-2,1 | unitconvert xy_in=deg xy_out=rad | latitude geocentric ellps=2440530,1075.123348017621 | unitconvert xy_in=rad xy_out=deg | axisswap order=2,1",
+        )?;
+
+        let source = [Coor4D::raw(-53.419625812798856, 49.743387956501664, 0., 0.)];
+        let expected = [Coor4D::raw(-53.3685811656, -49.7433879565, 0., 0.)];
+
+        let mut operands = source;
+        ctx.apply(op, Fwd, &mut operands)?;
+        assert!(operands[0].hypot2(&expected[0]) < 1e-9);
+        Ok(())
+    }
 }

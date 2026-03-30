@@ -202,7 +202,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 80] = [
     BuiltinOp::new("gravity",     gravity::new),
     BuiltinOp::new("gridshift",   gridshift::new),
     BuiltinOp::new("helmert",     helmert::new),
-    BuiltinOp::new("latitude",    latitude::new),
+    BuiltinOp::with_domains("latitude",    latitude::new,    Geographic, Geographic),
     BuiltinOp::with_domains("lsat",        som::lsat,        Geographic, Projected),
     BuiltinOp::with_domains("misrsom",     som::misr,        Geographic, Projected),
     BuiltinOp::new("molobadekas", molobadekas::new),

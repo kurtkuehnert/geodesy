@@ -9,6 +9,7 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     if elements.first().map(String::as_str) == Some("etmerc") {
         elements[0] = "tmerc".to_string();
     }
+    normalize_geoc_aliases(elements)?;
     normalize_ups(elements)?;
 
     // Sphere reduction modifiers (R_A, R_V, R_a, …) must run first so that
@@ -28,6 +29,48 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
 
     normalize_prime_meridian(elements)?;
     normalize_omerc(elements);
+
+    Ok(())
+}
+
+fn normalize_geoc_aliases(elements: &mut Vec<String>) -> Result<(), Error> {
+    let Some(op) = elements.first().cloned() else {
+        return Ok(());
+    };
+
+    if op == "geocent" {
+        elements[0] = "cart".to_string();
+        if let Some(idx) = find_prefix(elements, "lon_0=") {
+            let lon_0 = parse_f64(&elements[idx][6..], "lon_0")?;
+            if lon_0.abs() > f64::EPSILON {
+                return Err(Error::Unsupported(format!(
+                    "parse_proj does not support geocent with lon_0={lon_0}"
+                )));
+            }
+            elements.remove(idx);
+        }
+        return Ok(());
+    }
+
+    let had_geoc_flag = if op == "geoc" {
+        false
+    } else {
+        remove_parameter_flag(elements, "geoc")
+    };
+    let is_longlat = matches!(op.as_str(), "longlat" | "latlon" | "latlong" | "lonlat");
+    if op == "geoc" || (is_longlat && had_geoc_flag) {
+        elements[0] = "latitude".to_string();
+        if is_longlat {
+            if let Some(idx) = elements.iter().position(|element| element == "inv") {
+                elements.remove(idx);
+            } else {
+                elements.insert(1, "inv".to_string());
+            }
+        }
+        if !elements.iter().any(|element| element == "geocentric") {
+            elements.push("geocentric".to_string());
+        }
+    }
 
     Ok(())
 }

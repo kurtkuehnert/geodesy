@@ -1,6 +1,8 @@
 use super::*;
 use crate::authoring::*;
 
+const LARGE_FLATTENING_SERIES_CUTOFF: f64 = 0.01;
+
 /// The many different latitudes
 pub trait Latitudes: EllipsoidBase {
     // --- Classic latitudes: geographic, geocentric & reduced ---
@@ -92,18 +94,29 @@ pub trait Latitudes: EllipsoidBase {
     fn latitude_geographic_to_conformal(
         &self,
         geographic_latitude: f64,
-        coefficients: &FourierCoefficients,
+        _coefficients: &FourierCoefficients,
     ) -> f64 {
-        geographic_latitude + fourier::sin(2. * geographic_latitude, &coefficients.fwd)
+        let e = self.eccentricity();
+        if e == 0.0 {
+            return geographic_latitude;
+        }
+        let (sinphi, cosphi) = geographic_latitude.sin_cos();
+        ((sinphi / cosphi).asinh() - e * (e * sinphi).atanh())
+            .sinh()
+            .atan()
     }
 
     /// Conformal latitude, 𝜒, to geographic, 𝜙
     fn latitude_conformal_to_geographic(
         &self,
         conformal_latitude: f64,
-        coefficients: &FourierCoefficients,
+        _coefficients: &FourierCoefficients,
     ) -> f64 {
-        conformal_latitude + fourier::sin(2. * conformal_latitude, &coefficients.inv)
+        let e = self.eccentricity();
+        if e == 0.0 {
+            return conformal_latitude;
+        }
+        ancillary::sinhpsi_to_tanphi(conformal_latitude.tan(), e).atan()
     }
 
     // --- Authalic latitude ---
@@ -119,6 +132,12 @@ pub trait Latitudes: EllipsoidBase {
         geographic_latitude: f64,
         coefficients: &FourierCoefficients,
     ) -> f64 {
+        if self.third_flattening().abs() >= LARGE_FLATTENING_SERIES_CUTOFF {
+            let e = self.eccentricity();
+            let qp = crate::math::ancillary::qs(1.0, e);
+            let q = crate::math::ancillary::qs(geographic_latitude.sin(), e);
+            return (q / qp).clamp(-1.0, 1.0).asin();
+        }
         geographic_latitude + fourier::sin(2. * geographic_latitude, &coefficients.fwd)
     }
 
@@ -128,7 +147,35 @@ pub trait Latitudes: EllipsoidBase {
         authalic_latitude: f64,
         coefficients: &FourierCoefficients,
     ) -> f64 {
-        authalic_latitude + fourier::sin(2. * authalic_latitude, &coefficients.inv)
+        let mut geographic =
+            authalic_latitude + fourier::sin(2. * authalic_latitude, &coefficients.inv);
+        if self.third_flattening().abs() < LARGE_FLATTENING_SERIES_CUTOFF {
+            return geographic;
+        }
+
+        let e = self.eccentricity();
+        let es = self.eccentricity_squared();
+        let one_es = 1.0 - es;
+        let qp = crate::math::ancillary::qs(1.0, e);
+        let q = authalic_latitude.sin() * qp;
+        let q_div_one_minus_es = q / one_es;
+
+        for _ in 0..10 {
+            let sinphi = geographic.sin();
+            let cosphi = geographic.cos();
+            let one_minus_es_sin2phi = 1.0 - es * sinphi * sinphi;
+            let dphi = (one_minus_es_sin2phi * one_minus_es_sin2phi)
+                / (2.0 * cosphi)
+                * (q_div_one_minus_es
+                    - sinphi / one_minus_es_sin2phi
+                    - (e * sinphi).atanh() / e);
+            if dphi.abs() < 1e-15 {
+                break;
+            }
+            geographic += dphi;
+        }
+
+        geographic
     }
 
     // --- Internal ---
@@ -300,6 +347,19 @@ mod tests {
             assert!((phi - phi_evenden).abs() < 1e-9);
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn authalic_handles_large_flattening_roundtrip() -> Result<(), Error> {
+        let ellps = Ellipsoid::new(8000.0, 0.5);
+        let authalic = ellps.coefficients_for_authalic_latitude_computations();
+        for degrees in [-80.0_f64, -45.0, -10.0, 0.0, 10.0, 45.0, 80.0] {
+            let phi = degrees.to_radians();
+            let beta = ellps.latitude_geographic_to_authalic(phi, &authalic);
+            let roundtrip = ellps.latitude_authalic_to_geographic(beta, &authalic);
+            assert!((phi - roundtrip).abs() < 1e-12);
+        }
         Ok(())
     }
 
