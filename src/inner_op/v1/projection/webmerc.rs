@@ -1,20 +1,33 @@
 //! Web Mercator
 use crate::authoring::*;
+use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 use std::f64::consts::FRAC_PI_4;
+
+#[derive(Clone, Copy, Debug)]
+struct WebMercState {
+    frame: ProjectionFrame,
+}
+
+impl WebMercState {
+    fn new(params: &ParsedParameters) -> Self {
+        Self {
+            frame: ProjectionFrame::from_params(params),
+        }
+    }
+}
 
 // ----- F O R W A R D -----------------------------------------------------------------
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let state = op.state::<WebMercState>();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
 
-        let easting = lon * a;
-        let northing = a * (FRAC_PI_4 + lat / 2.0).tan().ln();
+        let easting = lon * state.frame.a;
+        let northing = state.frame.a * (FRAC_PI_4 + lat / 2.0).tan().ln();
 
         operands.set_xy(i, easting, northing);
         successes += 1;
@@ -26,18 +39,17 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 // ----- I N V E R S E -----------------------------------------------------------------
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let a = ellps.semimajor_axis();
+    let state = op.state::<WebMercState>();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (easting, northing) = operands.xy(i);
 
         // Easting -> Longitude
-        let longitude = easting / a;
+        let longitude = easting / state.frame.a;
 
         // Northing -> Latitude
-        let latitude = FRAC_PI_2 - 2.0 * (-northing / a).exp().atan();
+        let latitude = FRAC_PI_2 - 2.0 * (-northing / state.frame.a).exp().atan();
 
         operands.set_xy(i, longitude, latitude);
         successes += 1;
@@ -57,15 +69,9 @@ pub const GAMUT: [OpParameter; 2] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let params = ParsedParameters::new(parameters, &GAMUT)?;
-
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
+    let state = WebMercState::new(&params);
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 // ----- T E S T S ---------------------------------------------------------------------

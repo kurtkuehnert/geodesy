@@ -307,7 +307,6 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         ],
     )?;
     let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let alf = parse_angle(
         given
             .get("inc_angle")
@@ -349,8 +348,6 @@ pub fn misr(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error>
             },
         ],
     )?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let path = params.natural("path")?;
     if path == 0 || path > 233 {
         return Err(Error::BadParam("path".to_string(), def.clone()));
@@ -388,8 +385,6 @@ pub fn lsat(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error>
             },
         ],
     )?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let land = params.natural("lsat")?;
     if land == 0 || land > 5 {
         return Err(Error::BadParam("lsat".to_string(), def.clone()));

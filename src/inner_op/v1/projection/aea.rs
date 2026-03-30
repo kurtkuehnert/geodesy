@@ -33,7 +33,16 @@ struct AeaState {
 }
 
 impl AeaState {
-    fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> AeaState {
+    fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<AeaState, Error> {
+        if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
+            return Err(Error::BadParam("lat_1/lat_2".to_string(), params.name.clone()));
+        }
+        if (phi1 + phi2).abs() < STANDARD_PARALLEL_TOLERANCE {
+            return Err(Error::General(
+                "Aea: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0",
+            ));
+        }
+
         let ellps = params.ellps(0);
         let frame = ProjectionFrame::from_params(params);
         let spherical = ellps.flattening() == 0.0;
@@ -50,7 +59,7 @@ impl AeaState {
             let c = cosphi1 * cosphi1 + n2 * sinphi1;
             let dd = 1.0 / n;
             let rho0 = dd * (c - n2 * phi0.sin()).sqrt();
-            return Self {
+            return Ok(Self {
                 frame,
                 ellps,
                 authalic: None,
@@ -61,7 +70,7 @@ impl AeaState {
                 qp: 2.0,
                 ec: 2.0,
                 spherical,
-            };
+            });
         }
 
         let e = ellps.eccentricity();
@@ -80,7 +89,7 @@ impl AeaState {
         let dd = 1.0 / n;
         let qp = ancillary::qs(1.0, e);
         let rho0 = dd * (c - n * ancillary::qs(phi0.sin(), e)).sqrt();
-        Self {
+        Ok(Self {
             frame,
             ellps,
             authalic: Some(authalic),
@@ -91,7 +100,7 @@ impl AeaState {
             qp,
             ec,
             spherical,
-        }
+        })
     }
 }
 
@@ -183,25 +192,14 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let phi1 = params.lat(1);
     let phi2 = params.lat(2);
 
-    if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
-        return Err(Error::BadParam("lat_1/lat_2".to_string(), params.name.clone()));
-    }
-    if (phi1 + phi2).abs() < STANDARD_PARALLEL_TOLERANCE {
-        return Err(Error::General(
-            "Aea: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0",
-        ));
-    }
-
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    let state = AeaState::new(&params, phi0, phi1, phi2);
+    let state = AeaState::new(&params, phi0, phi1, phi2)?;
     Ok(Op::with_state(descriptor, params, state))
 }
 
 pub fn leac(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
 
     let phi0 = params.lat(0);
     let phi1 = if params.boolean("south") {
@@ -212,7 +210,7 @@ pub fn leac(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error>
     let phi2 = params.lat(1);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    let state = AeaState::new(&params, phi0, phi1, phi2);
+    let state = AeaState::new(&params, phi0, phi1, phi2)?;
     Ok(Op::with_state(descriptor, params, state))
 }
 

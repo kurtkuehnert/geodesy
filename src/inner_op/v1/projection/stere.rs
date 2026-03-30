@@ -3,9 +3,10 @@ use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
-const EPS10: f64 = 1e-10;
-const TOL: f64 = 1e-8;
-const CONV: f64 = 1e-10;
+const DENOMINATOR_TOLERANCE: f64 = 1e-10;
+const POLAR_TOLERANCE: f64 = 1e-8;
+const INVERSE_CONVERGENCE_TOLERANCE: f64 = 1e-10;
+const POLAR_SOURCE_TOLERANCE: f64 = 1e-15;
 const NITER: usize = 8;
 
 fn ssfn(phi: f64, sinphi: f64, eccen: f64) -> f64 {
@@ -40,7 +41,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let cosphi = lat.cos();
             if equatorial {
                 let denom = 1.0 + cosphi * coslam;
-                if denom <= EPS10 {
+                if denom <= DENOMINATOR_TOLERANCE {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
@@ -48,7 +49,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 (a * cosphi * sinlam, a * sinphi)
             } else if oblique {
                 let denom = 1.0 + sin_x1 * sinphi + cos_x1 * cosphi * coslam;
-                if denom <= EPS10 {
+                if denom <= DENOMINATOR_TOLERANCE {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
@@ -63,7 +64,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     coslam = -coslam;
                     phi = -phi;
                 }
-                if (phi - FRAC_PI_2).abs() < TOL {
+                if (phi - FRAC_PI_2).abs() < POLAR_TOLERANCE {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
@@ -105,7 +106,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     coslam = -coslam;
                     sinphi = -sinphi;
                 }
-                let x = if (phi - FRAC_PI_2).abs() < 1e-15 {
+                let x = if (phi - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
                     0.0
                 } else {
                     akm1 * ancillary::ts((sinphi, phi.cos()), e)
@@ -154,7 +155,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             let sinc = c.sin();
             let cosc = c.cos();
             if equatorial {
-                let lat = if rho.abs() <= EPS10 {
+                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
                     0.0
                 } else {
                     (y * sinc / rho).asin()
@@ -166,7 +167,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 };
                 (lon, lat)
             } else if oblique {
-                let lat = if rho.abs() <= EPS10 {
+                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
                     lat_0
                 } else {
                     (cosc * sin_x1 + y * sinc * cos_x1 / rho).asin()
@@ -182,7 +183,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 if north_polar {
                     y = -y;
                 }
-                let lat = if rho.abs() <= EPS10 {
+                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
                     lat_0
                 } else if south_polar {
                     (-cosc).asin()
@@ -224,7 +225,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             for _ in 0..NITER {
                 let sinphi = e * phi_l.sin();
                 lat = 2.0 * (tp * ((1.0 + sinphi) / (1.0 - sinphi)).powf(halfe)).atan() - halfpi;
-                if (phi_l - lat).abs() < CONV {
+                if (phi_l - lat).abs() < INVERSE_CONVERGENCE_TOLERANCE {
                     converged = true;
                     break;
                 }
@@ -269,11 +270,11 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     let lat_0 = params.lat(0);
     let mut lat_ts = params.real("lat_ts").unwrap_or(FRAC_PI_2);
-    if lat_ts.abs() > FRAC_PI_2 + EPS10 {
+    if lat_ts.abs() > FRAC_PI_2 + DENOMINATOR_TOLERANCE {
         return Err(Error::BadParam("lat_ts".to_string(), def.clone()));
     }
 
-    if (lat_0.abs() - FRAC_PI_2).abs() < EPS10 {
+    if (lat_0.abs() - FRAC_PI_2).abs() < POLAR_TOLERANCE {
         if lat_0.is_sign_negative() {
             params.boolean.insert("south_polar");
             lat_ts = -lat_ts.abs();
@@ -281,7 +282,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
             params.boolean.insert("north_polar");
             lat_ts = lat_ts.abs();
         }
-    } else if lat_0.abs() > EPS10 {
+    } else if lat_0.abs() > DENOMINATOR_TOLERANCE {
         params.boolean.insert("oblique");
     } else {
         params.boolean.insert("equatorial");
@@ -304,7 +305,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let akm1 = if e != 0.0 {
         if params.boolean("north_polar") || params.boolean("south_polar") {
             let lat_ts_abs = lat_ts.abs();
-            if (lat_ts_abs - FRAC_PI_2).abs() < EPS10 {
+            if (lat_ts_abs - FRAC_PI_2).abs() < POLAR_TOLERANCE {
                 let num = 2.0 * k_0;
                 let den = ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
                 a * num / den
@@ -327,7 +328,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         2.0 * a * k_0
     } else if params.boolean("equatorial") {
         2.0 * a * k_0
-    } else if (lat_ts.abs() - FRAC_PI_2).abs() >= EPS10 {
+    } else if (lat_ts.abs() - FRAC_PI_2).abs() >= DENOMINATOR_TOLERANCE {
         a * lat_ts.abs().cos() / (FRAC_PI_4 - 0.5 * lat_ts.abs()).tan()
     } else {
         2.0 * a * k_0

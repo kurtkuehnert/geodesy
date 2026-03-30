@@ -340,8 +340,6 @@ pub const GAMUT: [OpParameter; 8] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
 
     let lat_0 = params.lat(0);
     if lat_0.abs() > std::f64::consts::FRAC_PI_2 + EPS10 {

@@ -1,6 +1,4 @@
 use crate::authoring::*;
-use std::collections::BTreeMap;
-
 // ----- B U I L T I N   O P E R A T O R S ---------------------------------------------
 
 // Install new builtin operators by adding them in the `mod` and
@@ -298,57 +296,6 @@ pub(crate) fn op_domains(name: &str) -> (Option<CoordDomain>, Option<CoordDomain
         .find(|e| e.name == name)
         .map(|e| (e.input_domain, e.output_domain))
         .unwrap_or((None, None))
-}
-
-pub(crate) fn override_ellps_from_proj_params(
-    params: &mut ParsedParameters,
-    def: &str,
-    given: &BTreeMap<String, String>,
-) -> Result<(), Error> {
-    if given.contains_key("ellps") {
-        return Ok(());
-    }
-
-    let a = if let Some(a) = given.get("a") {
-        a.parse::<f64>()
-            .map_err(|_| Error::BadParam("a".to_string(), def.to_string()))?
-    } else if let Some(r) = given.get("R") {
-        r.parse::<f64>()
-            .map_err(|_| Error::BadParam("R".to_string(), def.to_string()))?
-    } else {
-        return Ok(());
-    };
-
-    if a <= 0.0 {
-        return Err(Error::BadParam("a".to_string(), def.to_string()));
-    }
-
-    let rf = if let Some(rf) = given.get("rf") {
-        rf.parse::<f64>()
-            .map_err(|_| Error::BadParam("rf".to_string(), def.to_string()))?
-    } else if let Some(f) = given.get("f") {
-        let f = f
-            .parse::<f64>()
-            .map_err(|_| Error::BadParam("f".to_string(), def.to_string()))?;
-        if f == 0.0 { 0.0 } else { 1.0 / f }
-    } else if let Some(b) = given.get("b") {
-        let b = b
-            .parse::<f64>()
-            .map_err(|_| Error::BadParam("b".to_string(), def.to_string()))?;
-        if b <= 0.0 {
-            return Err(Error::BadParam("b".to_string(), def.to_string()));
-        }
-        if (a - b).abs() < f64::EPSILON {
-            0.0
-        } else {
-            a / (a - b)
-        }
-    } else {
-        0.0
-    };
-
-    params.text.insert("ellps", format!("{a},{rf}"));
-    Ok(())
 }
 
 pub(crate) fn apply_utm_defaults(params: &mut ParsedParameters, zone: usize) {

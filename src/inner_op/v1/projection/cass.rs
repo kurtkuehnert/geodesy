@@ -8,7 +8,9 @@ const C2: f64 = 1.0 / 120.0;
 const C3: f64 = 1.0 / 24.0;
 const C4: f64 = 1.0 / 3.0;
 const C5: f64 = 1.0 / 15.0;
-const INV_TOL: f64 = 1e-12;
+const INVERSE_CONVERGENCE_TOLERANCE: f64 = 1e-12;
+const NUMERICAL_JACOBIAN_STEP: f64 = 1e-6;
+const JACOBIAN_DETERMINANT_TOLERANCE: f64 = 1e-24;
 const INV_ITER: usize = 15;
 
 #[allow(clippy::too_many_arguments)]
@@ -130,12 +132,22 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 );
                 let delta_x = fx - (x + frame.x_0);
                 let delta_y = fy - (y + frame.y_0);
-                if delta_x.abs() < INV_TOL && delta_y.abs() < INV_TOL {
+                if delta_x.abs() < INVERSE_CONVERGENCE_TOLERANCE
+                    && delta_y.abs() < INVERSE_CONVERGENCE_TOLERANCE
+                {
                     break;
                 }
 
-                let h_lon = if lon > 0.0 { -1e-6 } else { 1e-6 };
-                let h_lat = if lat > 0.0 { -1e-6 } else { 1e-6 };
+                let h_lon = if lon > 0.0 {
+                    -NUMERICAL_JACOBIAN_STEP
+                } else {
+                    NUMERICAL_JACOBIAN_STEP
+                };
+                let h_lat = if lat > 0.0 {
+                    -NUMERICAL_JACOBIAN_STEP
+                } else {
+                    NUMERICAL_JACOBIAN_STEP
+                };
                 let (fx_lon, fy_lon) = fwd_ellipsoidal(
                     &ellps,
                     frame.lon_0,
@@ -161,7 +173,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let j12 = (fx_lat - fx) / h_lat;
                 let j22 = (fy_lat - fy) / h_lat;
                 let det = j11 * j22 - j12 * j21;
-                if det.abs() < 1e-24 {
+                if det.abs() < JACOBIAN_DETERMINANT_TOLERANCE {
                     break;
                 }
                 let inv11 = j22 / det;

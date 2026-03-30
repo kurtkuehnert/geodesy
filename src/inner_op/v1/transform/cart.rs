@@ -1,6 +1,8 @@
 /// Geographical to cartesian (and v.v.) conversion
 use crate::authoring::*;
 
+const Z_AXIS_CUTOFF_FACTOR: f64 = 1e-16;
+
 // ----- F O R W A R D --------------------------------------------------------------
 
 fn cart_fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -35,7 +37,7 @@ fn cart_inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> us
     // 1.5 times the fourth power of the eccentricity
     let ce4 = 1.5 * es * es;
     // if we're closer than this to the Z axis, we force latitude to one of the poles
-    let cutoff = ellps.semimajor_axis() * 1e-16;
+    let cutoff = ellps.semimajor_axis() * Z_AXIS_CUTOFF_FACTOR;
 
     let n = operands.len();
     let mut successes = 0;

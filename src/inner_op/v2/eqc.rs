@@ -52,44 +52,6 @@ pub const GAMUT: [OpParameter; 7] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    if given.contains_key("a") && !given.contains_key("ellps") {
-        let a = given["a"]
-            .parse::<f64>()
-            .map_err(|_| Error::MissingParam("a".to_string()))?;
-        if a <= 0.0 {
-            return Err(Error::General(
-                "Eqc: Invalid value for a: a must be positive",
-            ));
-        }
-
-        let rf = if let Some(rf) = given.get("rf") {
-            rf.parse::<f64>()
-                .map_err(|_| Error::MissingParam("rf".to_string()))?
-        } else if let Some(f) = given.get("f") {
-            let f = f
-                .parse::<f64>()
-                .map_err(|_| Error::MissingParam("f".to_string()))?;
-            if f == 0.0 { 0.0 } else { 1.0 / f }
-        } else if let Some(b) = given.get("b") {
-            let b = b
-                .parse::<f64>()
-                .map_err(|_| Error::MissingParam("b".to_string()))?;
-            if b <= 0.0 {
-                return Err(Error::General(
-                    "Eqc: Invalid value for b: b must be positive",
-                ));
-            }
-            if (a - b).abs() < f64::EPSILON {
-                0.0
-            } else {
-                a / (a - b)
-            }
-        } else {
-            0.0
-        };
-        params.text.insert("ellps", format!("{a},{rf}"));
-    }
 
     let lat_ts = params.real("lat_ts")?;
     if lat_ts.abs() > std::f64::consts::FRAC_PI_2 {

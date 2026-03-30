@@ -329,8 +329,6 @@ pub const GAMUT: [OpParameter; 4] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let ellps = params.ellps(0);
     let frame = ProjectionFrame::from_params(&params);
     let lat_0 = frame.lat_0;

@@ -3,7 +3,10 @@ use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
-const DEL_TOL: f64 = 1e-14;
+const GAUSS_CONVERGENCE_TOLERANCE: f64 = 1e-14;
+const GAUSS_K_POLE_TOLERANCE: f64 = 1e-10;
+const POLAR_SOURCE_TOLERANCE: f64 = 1e-14;
+const POLAR_MODE_TOLERANCE: f64 = 1e-12;
 const MAX_ITER: usize = 20;
 
 fn srat(esinp: f64, ratexp: f64) -> f64 {
@@ -31,7 +34,7 @@ fn gauss_ini(e: f64, phi0: f64) -> Option<(f64, f64, f64, f64, f64)> {
     if srat_val == 0.0 {
         return None;
     }
-    let k = if 0.5 * phi0 + FRAC_PI_4 < 1e-10 {
+    let k = if 0.5 * phi0 + FRAC_PI_4 < GAUSS_K_POLE_TOLERANCE {
         1.0 / srat_val
     } else {
         (0.5 * chi + FRAC_PI_4).tan() / ((0.5 * phi0 + FRAC_PI_4).tan().powf(c) * srat_val)
@@ -40,7 +43,7 @@ fn gauss_ini(e: f64, phi0: f64) -> Option<(f64, f64, f64, f64, f64)> {
 }
 
 fn gauss(lon: f64, lat: f64, c: f64, k: f64, e: f64, ratexp: f64) -> (f64, f64) {
-    if (lat.abs() - FRAC_PI_2).abs() < 1e-14 {
+    if (lat.abs() - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
         return (c * lon, lat.signum() * FRAC_PI_2);
     }
     let phi = 2.0
@@ -56,7 +59,7 @@ fn inv_gauss(lon: f64, lat: f64, c: f64, k: f64, e: f64) -> Option<(f64, f64)> {
     let mut slp_phi = lat;
     for _ in 0..MAX_ITER {
         let phi = 2.0 * (num * srat(e * slp_phi.sin(), -0.5 * e)).atan() - FRAC_PI_2;
-        if (phi - slp_phi).abs() < DEL_TOL {
+        if (phi - slp_phi).abs() < GAUSS_CONVERGENCE_TOLERANCE {
             return Some((lam, phi));
         }
         slp_phi = phi;
@@ -202,7 +205,7 @@ fn legacy_fwd(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        if (lat.abs() - FRAC_PI_2).abs() < 1e-14 {
+        if (lat.abs() - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
             let sign = lat.signum();
             let denom = 1.0 + sinc0 * sign;
             if denom == 0.0 {
@@ -281,7 +284,7 @@ fn legacy_inv(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
                 + (((1.0 - e * sinphi) / (1.0 + e * sinphi)).ln() * e * 0.5);
             let next =
                 phi - (psi_i - psi) * phi.cos() * (1.0 - e * e * sinphi * sinphi) / (1.0 - e * e);
-            if (next - phi).abs() < DEL_TOL {
+            if (next - phi).abs() < GAUSS_CONVERGENCE_TOLERANCE {
                 phi = next;
                 converged = true;
                 break;
@@ -342,7 +345,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let legacy_g = a * k0 * legacy_r2 * (FRAC_PI_4 - 0.5 * legacy_chi0).tan();
     let legacy_h = 2.0 * a * k0 * legacy_r2 * legacy_chi0.tan() + legacy_g;
 
-    if (lat_0.abs() - FRAC_PI_2).abs() < 1e-12 {
+    if (lat_0.abs() - FRAC_PI_2).abs() < POLAR_MODE_TOLERANCE {
         params.boolean.insert("proj_polar");
     }
     params.real.insert("gauss_c", gauss_c);

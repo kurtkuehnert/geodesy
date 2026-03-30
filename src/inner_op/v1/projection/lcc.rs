@@ -3,7 +3,7 @@ use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 
-const EPS10: f64 = 1e-10;
+const ANGULAR_TOLERANCE: f64 = 1e-10;
 
 #[derive(Clone, Copy)]
 struct LccCache {
@@ -44,7 +44,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let mut rho = 0.;
 
         // Close to one of the poles?
-        if (phi.abs() - FRAC_PI_2).abs() < EPS10 {
+        if (phi.abs() - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {
             if phi * cache.n <= 0. {
                 operands.set_coord(i, &Coor4D::nan());
                 continue;
@@ -155,7 +155,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let mut lat_0 = params.lat(0);
     if lat_0.is_nan() {
         lat_0 = 0.;
-        if (phi1 - phi2).abs() < EPS10 {
+        if (phi1 - phi2).abs() < ANGULAR_TOLERANCE {
             lat_0 = phi1;
         }
     }
@@ -166,17 +166,17 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let e = ellps.eccentricity();
     let es = ellps.eccentricity_squared();
 
-    if (phi1 + phi2).abs() < EPS10 {
+    if (phi1 + phi2).abs() < ANGULAR_TOLERANCE {
         return Err(Error::General(
             "Lcc: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0",
         ));
     }
-    if sc.1.abs() < EPS10 || phi1.abs() >= FRAC_PI_2 {
+    if sc.1.abs() < ANGULAR_TOLERANCE || phi1.abs() >= FRAC_PI_2 {
         return Err(Error::General(
             "Lcc: Invalid value for lat_1: |lat_1| should be < 90°",
         ));
     }
-    if phi2.cos().abs() < EPS10 || phi2.abs() >= FRAC_PI_2 {
+    if phi2.cos().abs() < ANGULAR_TOLERANCE || phi2.abs() >= FRAC_PI_2 {
         return Err(Error::General(
             "Lcc: Invalid value for lat_2: |lat_2| should be < 90°",
         ));
@@ -189,7 +189,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let ml1 = crate::math::ancillary::ts(sc, e);
 
     // Secant case?
-    if (phi1 - phi2).abs() >= EPS10 {
+    if (phi1 - phi2).abs() >= ANGULAR_TOLERANCE {
         let sc = phi2.sin_cos();
         n = (m1 / crate::math::ancillary::pj_msfn(sc, es)).ln();
         if n == 0. {
@@ -205,7 +205,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 
     let c = m1 * ml1.powf(-n) / n;
     let mut rho0 = 0.;
-    if (lat_0.abs() - FRAC_PI_2).abs() > EPS10 {
+    if (lat_0.abs() - FRAC_PI_2).abs() > ANGULAR_TOLERANCE {
         rho0 = c * crate::math::ancillary::ts(lat_0.sin_cos(), e).powf(n);
     }
 

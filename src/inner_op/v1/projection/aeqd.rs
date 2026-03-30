@@ -3,8 +3,8 @@ use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, PI};
 
-const EPS10: f64 = 1e-10;
-const TOL: f64 = 1e-10;
+const ANGULAR_TOLERANCE: f64 = 1e-10;
+const LONGITUDE_CANONICALIZATION_TOLERANCE: f64 = 1e-12;
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let ellps = op.params.ellps(0);
@@ -31,7 +31,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let coslam = lam.cos();
                 let sinlam = lam.sin();
                 let mut c = cosphi * coslam;
-                if (c.abs() - 1.0).abs() < TOL {
+                if (c.abs() - 1.0).abs() < ANGULAR_TOLERANCE {
                     if c < 0.0 {
                         operands.set_coord(i, &Coor4D::nan());
                         continue;
@@ -49,7 +49,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let sinlam = lam.sin();
                 let cosphi_x_coslam = cosphi * coslam;
                 let mut c = sinph0 * sinphi + cosph0 * cosphi_x_coslam;
-                if (c.abs() - 1.0).abs() < TOL {
+                if (c.abs() - 1.0).abs() < ANGULAR_TOLERANCE {
                     if c < 0.0 {
                         operands.set_coord(i, &Coor4D::nan());
                         continue;
@@ -71,7 +71,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     phi = -phi;
                     coslam = -coslam;
                 }
-                if (phi - FRAC_PI_2).abs() < EPS10 {
+                if (phi - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
@@ -89,9 +89,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     - ellps.meridian_latitude_to_distance(frame.lat_0)
                     + 0.5 * frame.a * lam * lam * cosphi * sinphi * t,
             )
-        } else if (equatorial || oblique) && lam.abs() < EPS10 && (lat - frame.lat_0).abs() < EPS10 {
+        } else if (equatorial || oblique)
+            && lam.abs() < ANGULAR_TOLERANCE
+            && (lat - frame.lat_0).abs() < ANGULAR_TOLERANCE
+        {
             (0.0, 0.0)
-        } else if equatorial && lat.abs() < EPS10 && frame.lat_0.abs() < EPS10 {
+        } else if equatorial
+            && lat.abs() < ANGULAR_TOLERANCE
+            && frame.lat_0.abs() < ANGULAR_TOLERANCE
+        {
             (frame.a * lam, 0.0)
         } else {
             let target = Coor4D::raw(lon, lat, 0.0, 0.0);
@@ -132,13 +138,13 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, lat) = if spherical {
             let mut c_rh = dx.hypot(dy) / ellps.semimajor_axis();
             if c_rh > PI {
-                if c_rh - EPS10 > PI {
+                if c_rh - ANGULAR_TOLERANCE > PI {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
                 c_rh = PI;
             }
-            if c_rh < EPS10 {
+            if c_rh < ANGULAR_TOLERANCE {
                 (0.0, frame.lat_0)
             } else if equatorial || oblique {
                 let sinc = c_rh.sin();
@@ -180,7 +186,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (frame.lon_0 + x_norm * t / lat.cos(), lat)
         } else {
             let distance = dx.hypot(dy);
-            if distance < EPS10 {
+            if distance < ANGULAR_TOLERANCE {
                 (frame.lon_0, frame.lat_0)
             } else {
                 let azimuth = dx.atan2(dy);
@@ -195,7 +201,11 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         let lon = if spherical {
             let lon = angular::normalize_symmetric(frame.lon_0 + lon);
-            if (lon + PI).abs() < 1e-12 { PI } else { lon }
+            if (lon + PI).abs() < LONGITUDE_CANONICALIZATION_TOLERANCE {
+                PI
+            } else {
+                lon
+            }
         } else {
             lon
         };
@@ -220,29 +230,29 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let lat_0 = params.lat(0);
-    if lat_0.abs() > FRAC_PI_2 + EPS10 {
+    if lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
         return Err(Error::BadParam("lat_0".to_string(), def.clone()));
     }
 
     let ellps = params.ellps(0);
     if ellps.flattening() == 0.0 {
         params.boolean.insert("spherical");
-        if (lat_0.abs() - FRAC_PI_2).abs() < EPS10 {
+        if (lat_0.abs() - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {
             if lat_0.is_sign_negative() {
                 params.boolean.insert("south_polar");
             } else {
                 params.boolean.insert("north_polar");
             }
-        } else if lat_0.abs() < EPS10 {
+        } else if lat_0.abs() < ANGULAR_TOLERANCE {
             params.boolean.insert("equatorial");
         } else {
             params.boolean.insert("oblique");
             params.real.insert("sinph0", lat_0.sin());
             params.real.insert("cosph0", lat_0.cos());
         }
-    } else if lat_0.abs() < EPS10 {
+    } else if lat_0.abs() < ANGULAR_TOLERANCE {
         params.boolean.insert("equatorial");
-    } else if (lat_0.abs() - FRAC_PI_2).abs() < EPS10 {
+    } else if (lat_0.abs() - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {
         if lat_0.is_sign_negative() {
             params.boolean.insert("south_polar");
         } else {

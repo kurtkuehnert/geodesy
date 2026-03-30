@@ -91,8 +91,6 @@ pub const GAMUT: [OpParameter; 9] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let given = parameters.instantiated_as.split_into_parameters();
-    super::override_ellps_from_proj_params(&mut params, def, &given)?;
     let phi0 = params.lat(0);
     if phi0.is_nan() {
         return Err(Error::MissingParam("lat_0".to_string()));

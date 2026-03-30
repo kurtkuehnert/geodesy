@@ -319,6 +319,15 @@ impl ParsedParameters {
                 }
 
                 OpParameter::Text { key, default } => {
+                    if key == "ellps" {
+                        if let Some(value) =
+                            canonicalize_proj_ellps(parameters, globals, &locals)?
+                        {
+                            text.insert(key, value);
+                            continue;
+                        }
+                    }
+
                     if let Some(value) = chase(globals, &locals, key)? {
                         // should chase!
                         text.insert(key, value.to_string());
@@ -442,6 +451,57 @@ fn validate_ellipsoid_text_params(text: &BTreeMap<&'static str, String>) -> Resu
         }
     }
     Ok(())
+}
+
+fn canonicalize_proj_ellps(
+    parameters: &RawParameters,
+    globals: &BTreeMap<String, String>,
+    locals: &BTreeMap<String, String>,
+) -> Result<Option<String>, Error> {
+    if locals.contains_key("ellps") {
+        return Ok(None);
+    }
+
+    let definition = parameters.instantiated_as.as_str();
+    let a = if let Some(a) = chase(globals, locals, "a")? {
+        a.parse::<f64>()
+            .map_err(|_| Error::BadParam("a".to_string(), definition.to_string()))?
+    } else if let Some(r) = chase(globals, locals, "R")? {
+        r.parse::<f64>()
+            .map_err(|_| Error::BadParam("R".to_string(), definition.to_string()))?
+    } else {
+        return Ok(None);
+    };
+
+    if a <= 0.0 {
+        return Err(Error::BadParam("a".to_string(), definition.to_string()));
+    }
+
+    let rf = if let Some(rf) = chase(globals, locals, "rf")? {
+        rf.parse::<f64>()
+            .map_err(|_| Error::BadParam("rf".to_string(), definition.to_string()))?
+    } else if let Some(f) = chase(globals, locals, "f")? {
+        let f = f
+            .parse::<f64>()
+            .map_err(|_| Error::BadParam("f".to_string(), definition.to_string()))?;
+        if f == 0.0 { 0.0 } else { 1.0 / f }
+    } else if let Some(b) = chase(globals, locals, "b")? {
+        let b = b
+            .parse::<f64>()
+            .map_err(|_| Error::BadParam("b".to_string(), definition.to_string()))?;
+        if b <= 0.0 {
+            return Err(Error::BadParam("b".to_string(), definition.to_string()));
+        }
+        if (a - b).abs() < f64::EPSILON {
+            0.0
+        } else {
+            a / (a - b)
+        }
+    } else {
+        0.0
+    };
+
+    Ok(Some(format!("{a},{rf}")))
 }
 
 // ----- A N C I L L A R Y   F U N C T I O N S -----------------------------------------
