@@ -270,7 +270,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("misrsom",     som::misr,        Geographic, Projected),
     BuiltinOp::new("molobadekas", molobadekas::new),
     BuiltinOp::with_domains("molodensky",  molodensky::new, Geographic, Geographic),
-    BuiltinOp::new("permtide",    permtide::new),
+    BuiltinOp::new("permtide",    Op::point::<permtide::PermTide>),
     BuiltinOp::new("unitconvert", Op::point::<unitconvert::UnitConvert>),
 
     // Pipeline / flow control

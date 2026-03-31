@@ -1,99 +1,81 @@
 /// Permanent tide systems
 use crate::authoring::*;
 
-// ----- F O R W A R D -----------------------------------------------------------------
-
-fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let mut successes = 0_usize;
-    let n = operands.len();
-    let ellps = op.params.ellps(0);
-    let Ok(coefficient) = op.params.real("coefficient") else {
-        return successes;
-    };
-
-    for i in 0..n {
-        let mut coord = operands.get_coord(i);
-        let phibar = ellps.latitude_geographic_to_geocentric(coord[1]);
-        let s = phibar.sin();
-        coord[2] += coefficient * (-0.198) * (1.5 * s * s - 0.5);
-        operands.set_coord(i, &coord);
-        successes += 1;
-    }
-
-    successes
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PermTide {
+    ellps: Ellipsoid,
+    coefficient: f64,
 }
 
-// ----- I N V E R S E -----------------------------------------------------------------
+impl PointOp for PermTide {
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Real { key: "k",     default: Some(0.3) },
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Text { key: "from",  default: None },
+        OpParameter::Text { key: "to",    default: None }
+    ];
 
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let mut successes = 0_usize;
-    let n = operands.len();
-    let ellps = op.params.ellps(0);
-    let Ok(coefficient) = op.params.real("coefficient") else {
-        return successes;
-    };
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        let ellps = params.ellps(0);
+        let k = params.real("k")?;
 
-    for i in 0..n {
-        let mut coord = operands.get_coord(i);
-        let phibar = ellps.latitude_geographic_to_geocentric(coord[1]);
+        let Ok(to) = params.text("to") else {
+            return Err(Error::MissingParam(
+                "permtide: must specify 'to=' as exactly one of {'mean', 'zero', 'free'}".to_string(),
+            ));
+        };
+        let Ok(from) = params.text("from") else {
+            return Err(Error::MissingParam(
+                "permtide: must specify 'from=' as exactly one of {'mean', 'zero', 'free'}".to_string(),
+            ));
+        };
+
+        let coefficient = match (to.as_str(), from.as_str()) {
+            ("mean", "mean") => 0.0,
+            ("mean", "zero") => 1.0,
+            ("mean", "free") => 1.0 + k,
+            ("zero", "zero") => 0.0,
+            ("zero", "mean") => -1.0,
+            ("zero", "free") => k,
+            ("free", "free") => 0.0,
+            ("free", "mean") => -(1.0 + k),
+            ("free", "zero") => -k,
+            _ => f64::NAN,
+        };
+
+        if coefficient.is_nan() {
+            return Err(Error::BadParam(
+                "'to=' or 'from='".to_string(),
+                "must be one of {'mean', 'zero', 'free'}".to_string(),
+            ));
+        }
+
+        Ok(Self { ellps, coefficient })
+    }
+
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        let phibar = self.ellps.latitude_geographic_to_geocentric(coord[1]);
         let s = phibar.sin();
-        coord[2] -= coefficient * (-0.198) * (1.5 * s * s - 0.5);
-        operands.set_coord(i, &coord);
-        successes += 1;
+        Some(Coor4D::raw(
+            coord[0],
+            coord[1],
+            coord[2] + self.coefficient * (-0.198) * (1.5 * s * s - 0.5),
+            coord[3],
+        ))
     }
 
-    successes
-}
-
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-// Example...
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 5] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Real { key: "k",     default: Some(0.3) },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Text { key: "from",  default: None },
-    OpParameter::Text { key: "to",    default: None }
-];
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let mut op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
-    let k = op.params.real("k")?;
-
-    let Ok(to) = op.params.text("to") else {
-        return Err(Error::MissingParam(
-            "permtide: must specify 'to=' as exactly one of {'mean', 'zero', 'free'}".to_string(),
-        ));
-    };
-    let Ok(from) = op.params.text("from") else {
-        return Err(Error::MissingParam(
-            "permtide: must specify 'from=' as exactly one of {'mean', 'zero', 'free'}".to_string(),
-        ));
-    };
-
-    let coefficient = match (to.as_str(), from.as_str()) {
-        ("mean", "mean") => 0.0,
-        ("mean", "zero") => 1.0,
-        ("mean", "free") => 1.0 + k,
-        ("zero", "zero") => 0.0,
-        ("zero", "mean") => -1.0,
-        ("zero", "free") => k,
-        ("free", "free") => 0.0,
-        ("free", "mean") => -(1.0 + k),
-        ("free", "zero") => -k,
-        _ => f64::NAN,
-    };
-
-    if coefficient.is_nan() {
-        return Err(Error::BadParam(
-            "'to=' or 'from='".to_string(),
-            "must be one of {'mean', 'zero', 'free'}".to_string(),
-        ));
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let phibar = self.ellps.latitude_geographic_to_geocentric(coord[1]);
+        let s = phibar.sin();
+        Some(Coor4D::raw(
+            coord[0],
+            coord[1],
+            coord[2] - self.coefficient * (-0.198) * (1.5 * s * s - 0.5),
+            coord[3],
+        ))
     }
-
-    op.params.real.insert("coefficient", coefficient);
-    Ok(op)
 }
 
 // ----- T E S T S ---------------------------------------------------------------------
