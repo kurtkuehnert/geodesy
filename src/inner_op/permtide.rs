@@ -23,12 +23,14 @@ impl PointOp for PermTide {
 
         let Ok(to) = params.text("to") else {
             return Err(Error::MissingParam(
-                "permtide: must specify 'to=' as exactly one of {'mean', 'zero', 'free'}".to_string(),
+                "permtide: must specify 'to=' as exactly one of {'mean', 'zero', 'free'}"
+                    .to_string(),
             ));
         };
         let Ok(from) = params.text("from") else {
             return Err(Error::MissingParam(
-                "permtide: must specify 'from=' as exactly one of {'mean', 'zero', 'free'}".to_string(),
+                "permtide: must specify 'from=' as exactly one of {'mean', 'zero', 'free'}"
+                    .to_string(),
             ));
         };
 
