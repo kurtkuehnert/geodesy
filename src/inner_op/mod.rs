@@ -255,7 +255,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("cart",        Op::point::<cart::Cart>, Geographic, Cartesian),
 
     // Domain-agnostic operators
-    BuiltinOp::new("adapt",       adapt::new),
+    BuiltinOp::new("adapt",       Op::point::<adapt::Adapt>),
     BuiltinOp::new("addone",      addone::new),
     BuiltinOp::new("axisswap",    Op::point::<axisswap::AxisSwap>),
     BuiltinOp::new("curvature",   curvature::new),

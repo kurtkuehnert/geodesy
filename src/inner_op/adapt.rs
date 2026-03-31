@@ -59,124 +59,66 @@ geo:in | cart ... | helmert ... | cart inv ... | geo:out
 
 use crate::authoring::*;
 
-const POST_DEFAULT: [f64; 4] = [0., 1., 2., 3.];
-const MULT_DEFAULT: [f64; 4] = [1., 1., 1., 1.];
-
-// ----- F O R W A R D --------------------------------------------------------------
-
-fn fwd(op: &Op, _ctx: &dyn Context, data: &mut dyn CoordinateSet) -> usize {
-    let n = data.len();
-    if op.params.boolean("noop") {
-        return n;
-    }
-
-    let post = op.params.series("post").unwrap_or(&POST_DEFAULT);
-    let post = [
-        post[0] as usize,
-        post[1] as usize,
-        post[2] as usize,
-        post[3] as usize,
-    ];
-    let mult = op.params.series("mult").unwrap_or(&MULT_DEFAULT);
-    for i in 0..n {
-        let mut coord = data.get_coord(i);
-        coord = Coor4D([
-            coord[post[0]] * mult[0],
-            coord[post[1]] * mult[1],
-            coord[post[2]] * mult[2],
-            coord[post[3]] * mult[3],
-        ]);
-        data.set_coord(i, &coord);
-    }
-    n
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Adapt {
+    post: [usize; 4],
+    mult: [f64; 4],
+    inv_mult: [f64; 4],
+    noop: bool,
 }
 
-// ----- I N V E R S E --------------------------------------------------------------
-
-fn inv(op: &Op, _ctx: &dyn Context, data: &mut dyn CoordinateSet) -> usize {
-    let n = data.len();
-    if op.params.boolean("noop") {
-        return n;
-    }
-
-    let post = op.params.series("post").unwrap_or(&POST_DEFAULT);
-    let post = [
-        post[0] as usize,
-        post[1] as usize,
-        post[2] as usize,
-        post[3] as usize,
+impl PointOp for Adapt {
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Text { key: "from", default: Some("enuf") },
+        OpParameter::Text { key: "to", default: Some("enuf") },
     ];
 
-    let mult = op.params.series("mult").unwrap_or(&MULT_DEFAULT);
-    let mult = [1. / mult[0], 1. / mult[1], 1. / mult[2], 1. / mult[3]];
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        let from = coordinate_order_descriptor(&params.text("from")?)
+            .ok_or(Error::Operator("Adapt", "Bad value for 'from'"))?;
+        let to = coordinate_order_descriptor(&params.text("to")?)
+            .ok_or(Error::Operator("Adapt", "Bad value for 'to'"))?;
 
-    for i in 0..n {
-        let coord = data.get_coord(i);
-        let mut c = Coor4D::default();
-        for j in 0..4_usize {
-            c[post[j]] = coord[j] * mult[post[j]];
+        let give = combine_descriptors(&from, &to);
+        Ok(Self {
+            post: give.post,
+            mult: give.mult,
+            inv_mult: [
+                1.0 / give.mult[0],
+                1.0 / give.mult[1],
+                1.0 / give.mult[2],
+                1.0 / give.mult[3],
+            ],
+            noop: give.noop,
+        })
+    }
+
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        if self.noop {
+            return Some(coord);
         }
-        data.set_coord(i, &c);
+
+        Some(Coor4D([
+            coord[self.post[0]] * self.mult[0],
+            coord[self.post[1]] * self.mult[1],
+            coord[self.post[2]] * self.mult[2],
+            coord[self.post[3]] * self.mult[3],
+        ]))
     }
 
-    n
-}
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        if self.noop {
+            return Some(coord);
+        }
 
-// ----- C O N S T R U C T O R ------------------------------------------------------
-
-// Example...
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 3] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "from", default: Some("enuf") },
-    OpParameter::Text { key: "to", default: Some("enuf") },
-];
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    let descriptor = OpDescriptor::new(
-        &parameters.instantiated_as,
-        InnerOp(fwd),
-        Some(InnerOp(inv)),
-    );
-
-    // What we go `from` and what we go `to` both defaults to the internal
-    // representation - i.e. "do nothing", neither on in- nor output.
-    let from = params.text("from")?;
-    let to = params.text("to")?;
-
-    let desc = coordinate_order_descriptor(&from);
-    if desc.is_none() {
-        return Err(Error::Operator("Adapt", "Bad value for 'from'"));
+        let mut out = Coor4D::default();
+        for index in 0..4 {
+            out[self.post[index]] = coord[index] * self.inv_mult[self.post[index]];
+        }
+        Some(out)
     }
-    let from = desc.unwrap();
-
-    let desc = coordinate_order_descriptor(&to);
-    if desc.is_none() {
-        return Err(Error::Operator("Adapt", "Bad value for 'to'"));
-    }
-    let to = desc.unwrap();
-
-    // Eliminate redundancy for over-specified cases.
-    let give = combine_descriptors(&from, &to);
-    if give.noop {
-        params.boolean.insert("noop");
-    }
-    let post = [
-        give.post[0] as f64,
-        give.post[1] as f64,
-        give.post[2] as f64,
-        give.post[3] as f64,
-    ];
-    params.series.insert("post", Vec::from(post));
-    params.series.insert("mult", Vec::from(give.mult));
-
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
 }
 
 // ----- A N C I L L A R Y   F U N C T I O N S   G O   H E R E -------------------------
