@@ -77,11 +77,11 @@ impl AeaState {
 
         let es = ellps.eccentricity_squared();
         let m1 = ancillary::pj_msfn((sinphi1, cosphi1), es);
-        let q1 = authalic.qs(sinphi1);
+        let q1 = authalic.q_from_phi(phi1);
         if secant {
             let (sinphi2, cosphi2) = phi2.sin_cos();
             let m2 = ancillary::pj_msfn((sinphi2, cosphi2), es);
-            let q2 = authalic.qs(sinphi2);
+            let q2 = authalic.q_from_phi(phi2);
             n = (m1 * m1 - m2 * m2) / (q2 - q1);
         }
         let e = ellps.eccentricity();
@@ -89,7 +89,7 @@ impl AeaState {
         let c = m1 * m1 + n * q1;
         let dd = 1.0 / n;
         let qp = authalic.qp();
-        let rho0 = dd * (c - n * authalic.qs(phi0.sin())).sqrt();
+        let rho0 = dd * (c - n * authalic.q_from_phi(phi0)).sqrt();
         Ok(Self {
             frame,
             authalic,
@@ -113,7 +113,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let rho_term = if state.spherical {
             state.c - 2.0 * state.n * lat.sin()
         } else {
-            state.c - state.n * state.authalic.qs(lat.sin())
+            state.c - state.n * state.authalic.q_from_phi(lat)
         };
         if rho_term < 0.0 {
             operands.set_coord(i, &Coor4D::nan());

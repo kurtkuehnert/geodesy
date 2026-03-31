@@ -80,6 +80,14 @@ impl ParsedParameters {
         Err(Error::MissingParam(key.to_string()))
     }
 
+    pub fn get_real(&self, key: &str) -> Option<f64> {
+        self.real.get(key).copied()
+    }
+
+    pub fn given_real(&self, key: &str) -> Option<f64> {
+        self.given.contains_key(key).then(|| self.get_real(key)).flatten()
+    }
+
     pub fn series(&self, key: &str) -> Result<&[f64], Error> {
         if let Some(value) = self.series.get(key) {
             return Ok(value);

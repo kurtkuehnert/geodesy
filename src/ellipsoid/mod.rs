@@ -28,6 +28,12 @@ pub trait EllipsoidBase {
     /// The flattening, *f = (a - b)/a*
     fn flattening(&self) -> f64;
 
+    /// Whether the ellipsoid degenerates to a sphere.
+    #[must_use]
+    fn is_spherical(&self) -> bool {
+        self.flattening() == 0.0
+    }
+
     /// Synonym for [Self::semimajor_axis]
     fn a(&self) -> f64 {
         self.semimajor_axis()
@@ -119,7 +125,7 @@ pub trait EllipsoidBase {
     #[must_use]
     fn prime_vertical_radius_of_curvature(&self, latitude: f64) -> f64 {
         let a = self.semimajor_axis();
-        if self.flattening() == 0.0 {
+        if self.is_spherical() {
             return a;
         }
         a / (1.0 - latitude.sin().powi(2) * self.eccentricity_squared()).sqrt()
@@ -128,7 +134,7 @@ pub trait EllipsoidBase {
     /// The meridian radius of curvature, *M*
     #[must_use]
     fn meridian_radius_of_curvature(&self, latitude: f64) -> f64 {
-        if self.flattening() == 0.0 {
+        if self.is_spherical() {
             return self.semimajor_axis();
         }
         let num = self.semimajor_axis() * (1.0 - self.eccentricity_squared());

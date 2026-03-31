@@ -114,7 +114,7 @@ mod webmerc;
 mod bonne;
 #[path = "v2/calcofi.rs"]
 mod calcofi;
-#[path = "v2/cea.rs"]
+#[path = "v1/projection/cea.rs"]
 mod cea;
 #[path = "v2/col_urban.rs"]
 mod col_urban;

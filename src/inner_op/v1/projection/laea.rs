@@ -188,7 +188,7 @@ impl LaeaState {
         let c = 2.0 * half_rho.asin();
         let (sin_c, cos_c) = c.sin_cos();
 
-        match self.aspect {
+        let (x, y, lat) = match self.aspect {
             ProjectionAspect::Equatorial => {
                 let lat = if rho <= EPS10 {
                     0.0
@@ -197,12 +197,7 @@ impl LaeaState {
                 };
                 let x = x * sin_c;
                 let y = cos_c * rho;
-                let lon = if y == 0.0 && x == 0.0 {
-                    0.0
-                } else {
-                    x.atan2(y)
-                };
-                Some((lon, lat))
+                (x, y, lat)
             }
             ProjectionAspect::Oblique => {
                 let lat = if rho <= EPS10 {
@@ -212,78 +207,84 @@ impl LaeaState {
                 };
                 let x = x * sin_c * self.cosb1;
                 let y = (cos_c - lat.sin() * self.sinb1) * rho;
-                let lon = if y == 0.0 && x == 0.0 {
-                    0.0
-                } else {
-                    x.atan2(y)
-                };
-                Some((lon, lat))
+                (x, y, lat)
             }
-            ProjectionAspect::NorthPolar => Some((x.atan2(-y), FRAC_PI_2 - c)),
-            ProjectionAspect::SouthPolar => Some((x.atan2(y), c - FRAC_PI_2)),
-        }
+            ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
+                let (y, lat) = if self.aspect.is_north_polar() {
+                    (-y, FRAC_PI_2 - c)
+                } else {
+                    (y, c - FRAC_PI_2)
+                };
+
+                (x, y, lat)
+            }
+        };
+
+        let lam = if y == 0.0 && x == 0.0 {
+            0.0
+        } else {
+            x.atan2(y)
+        };
+
+        Some((self.frame.lon_0 + lam, lat))
     }
 
     fn inv_ellipsoidal(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        match self.aspect {
-            ProjectionAspect::Equatorial | ProjectionAspect::Oblique => {
-                let x = x / self.dd;
-                let y = y * self.dd;
-                let rho = x.hypot(y);
-                if rho < EPS10 {
-                    return Some((0.0, self.frame.lat_0));
-                }
+        let (x, y, rho, sin_c, cos_c) = if self.aspect.is_equatorial() || self.aspect.is_oblique() {
+            let x = x / self.dd;
+            let y = y * self.dd;
+            let rho = x.hypot(y);
+            if rho < EPS10 {
+                return Some((self.frame.lon_0, self.frame.lat_0));
+            }
 
-                let asin_argument = 0.5 * rho / self.rq;
-                if asin_argument > 1.0 {
-                    return None;
-                }
+            let asin_argument = 0.5 * rho / self.rq;
+            if asin_argument > 1.0 {
+                return None;
+            }
 
-                let mut c = 2.0 * asin_argument.asin();
-                let cos_c = c.cos();
-                c = c.sin();
-                let x = x * c;
+            let c = 2.0 * asin_argument.asin();
+            let (sin_c, cos_c) = c.sin_cos();
+            (x, y, rho, sin_c, cos_c)
+        } else {
+            (x, y, 0.0, 0.0, 0.0)
+        };
 
-                let (ab, y) = if self.aspect.is_oblique() {
-                    let ab = cos_c * self.sinb1 + y * c * self.cosb1 / rho;
-                    let y = rho * self.cosb1 * cos_c - y * self.sinb1 * c;
-                    (ab, y)
-                } else {
-                    let ab = y * c / rho;
-                    let y = rho * cos_c;
-                    (ab, y)
-                };
-
-                if ab.abs() > 1.0 + EPS10 {
-                    return None;
-                }
-
-                let lat = self.authalic.phi_from_beta(ab.clamp(-1.0, 1.0).asin());
-                let lon = x.atan2(y);
-                Some((lon, lat))
+        let (x, y, ab) = match self.aspect {
+            ProjectionAspect::Equatorial => {
+                let x = x * sin_c;
+                let ab = y * sin_c / rho;
+                let y = rho * cos_c;
+                (x, y, ab)
+            }
+            ProjectionAspect::Oblique => {
+                let x = x * sin_c;
+                let ab = cos_c * self.sinb1 + y * sin_c * self.cosb1 / rho;
+                let y = rho * self.cosb1 * cos_c - y * self.sinb1 * sin_c;
+                (x, y, ab)
             }
             ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
-                let mut y = y;
-                if self.aspect.is_north_polar() {
-                    y = -y;
-                }
+                let y = if self.aspect.is_north_polar() { -y } else { y };
                 let q = x * x + y * y;
                 if q == 0.0 {
-                    return Some((0.0, self.frame.lat_0));
+                    return Some((self.frame.lon_0, self.frame.lat_0));
                 }
 
                 let mut ab = 1.0 - q / self.qp;
                 if self.aspect.is_south_polar() {
                     ab = -ab;
                 }
-                if ab.abs() > 1.0 + EPS10 {
-                    return None;
-                }
-
-                let lat = self.authalic.phi_from_beta(ab.clamp(-1.0, 1.0).asin());
-                Some((x.atan2(y), lat))
+                (x, y, ab)
             }
+        };
+
+        if ab.abs() > 1.0 + EPS10 {
+            return None;
         }
+
+        let lam = x.atan2(y);
+        let lat = self.authalic.phi_from_beta(ab.clamp(-1.0, 1.0).asin());
+        Some((self.frame.lon_0 + lam, lat))
     }
 }
 
@@ -300,14 +301,17 @@ impl PointOp for Laea {
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
         let lam = state.frame.lon_delta(lon);
+
         let (x, y) = if state.authalic.spherical() {
             state.fwd_spherical(lam, lat)?
         } else {
             state.fwd_ellipsoidal(lam, lat)?
         };
+
         let (x, y) = state
             .frame
             .apply_false_origin(state.frame.a * x, state.frame.a * y);
+
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
@@ -322,12 +326,7 @@ impl PointOp for Laea {
             state.inv_ellipsoidal(x, y)?
         };
 
-        Some(Coor4D::raw(
-            state.frame.lon_0 + lon,
-            lat,
-            coord[2],
-            coord[3],
-        ))
+        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }
 

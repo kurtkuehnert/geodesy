@@ -39,6 +39,11 @@ impl ProjectionFrame {
         angular::normalize_symmetric(lon - self.lon_0)
     }
 
+    /// Absolute longitude from a central-meridian delta.
+    pub fn apply_lon_delta(&self, lam: f64) -> f64 {
+        self.lon_0 + lam
+    }
+
     /// Central-meridian delta without wrapping.
     pub fn lon_delta_raw(&self, lon: f64) -> f64 {
         lon - self.lon_0
@@ -127,9 +132,11 @@ mod tests {
         let lon_delta = frame.lon_delta((-179_f64).to_radians());
         let lat_delta = frame.lat_delta(13_f64.to_radians());
         let raw_lon_delta = frame.lon_delta_raw((-179_f64).to_radians());
+        let restored_lon = frame.apply_lon_delta(lon_delta);
 
         assert!((lon_delta - 2_f64.to_radians()).abs() < 1e-15);
         assert!((raw_lon_delta + 358_f64.to_radians()).abs() < 1e-15);
+        assert!((restored_lon - 181_f64.to_radians()).abs() < 1e-15);
         assert!((lat_delta - 3_f64.to_radians()).abs() < 1e-15);
     }
 }

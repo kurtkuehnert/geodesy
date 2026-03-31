@@ -14,6 +14,8 @@ pub(crate) enum AuthalicLatitude {
 }
 
 impl AuthalicLatitude {
+    const DOMAIN_TOLERANCE: f64 = 1e-10;
+
     pub fn new(ellps: Ellipsoid) -> Self {
         if ellps.flattening() == 0.0 {
             return Self::Spherical;
@@ -37,7 +39,8 @@ impl AuthalicLatitude {
         }
     }
 
-    pub fn qs(self, sinphi: f64) -> f64 {
+    pub fn q_from_phi(self, phi: f64) -> f64 {
+        let sinphi = phi.sin();
         match self {
             Self::Spherical => 2.0 * sinphi,
             Self::Ellipsoidal { ellps, .. } => ancillary::qs(sinphi, ellps.eccentricity()),
@@ -47,7 +50,7 @@ impl AuthalicLatitude {
     pub fn beta_from_phi(self, phi: f64) -> f64 {
         match self {
             Self::Spherical => phi,
-            Self::Ellipsoidal { .. } => (self.qs(phi.sin()) / self.qp()).clamp(-1.0, 1.0).asin(),
+            Self::Ellipsoidal { .. } => (self.q_from_phi(phi) / self.qp()).clamp(-1.0, 1.0).asin(),
         }
     }
 
@@ -60,5 +63,13 @@ impl AuthalicLatitude {
                 ..
             } => ellps.latitude_authalic_to_geographic(beta, &coefficients),
         }
+    }
+
+    pub fn phi_from_q(self, q: f64) -> Option<f64> {
+        let normalized_q = q / self.qp();
+        if normalized_q.abs() > 1.0 + Self::DOMAIN_TOLERANCE {
+            return None;
+        }
+        Some(self.phi_from_beta(normalized_q.clamp(-1.0, 1.0).asin()))
     }
 }

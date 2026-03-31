@@ -163,6 +163,7 @@ pub fn proj_constructor(parameters: &RawParameters, _ctx: &dyn Context) -> Resul
     Ok(Op {
         descriptor,
         params,
+        state: None,
         steps: None,
     })
 }
