@@ -9,6 +9,15 @@
 use super::units::UnitParam;
 use crate::authoring::*;
 
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 5] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "xy_in", default: Some("m") },
+    OpParameter::Text { key: "xy_out", default: Some("m") },
+    OpParameter::Text { key: "z_in", default: Some("m") },
+    OpParameter::Text { key: "z_out", default: Some("m") },
+];
+
 // ----- F O R W A R D -----------------------------------------------------------------
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -58,17 +67,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     successes
 }
-
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 5] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "xy_in", default: Some("m") },
-    OpParameter::Text { key: "xy_out", default: Some("m") },
-    OpParameter::Text { key: "z_in", default: Some("m") },
-    OpParameter::Text { key: "z_out", default: Some("m") },
-];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;

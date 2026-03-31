@@ -59,10 +59,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             };
             (x.atan2(y) / n + frame.lon_0, lat)
         } else {
-            (
-                frame.lon_0,
-                if n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 },
-            )
+            (frame.lon_0, if n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 })
         };
         operands.set_xy(i, lon, lat);
         successes += 1;

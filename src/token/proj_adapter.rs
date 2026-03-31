@@ -10,6 +10,7 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
         elements[0] = "tmerc".to_string();
     }
     normalize_geoc_aliases(elements)?;
+    normalize_aeqd_variants(elements);
     normalize_ups(elements)?;
 
     // Sphere reduction modifiers (R_A, R_V, R_a, …) must run first so that
@@ -31,6 +32,16 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     normalize_omerc(elements);
 
     Ok(())
+}
+
+fn normalize_aeqd_variants(elements: &mut Vec<String>) {
+    if elements.first().map(String::as_str) != Some("aeqd") {
+        return;
+    }
+
+    if remove_parameter_flag(elements, "guam") {
+        elements[0] = "guam_aeqd".to_string();
+    }
 }
 
 fn normalize_geoc_aliases(elements: &mut Vec<String>) -> Result<(), Error> {

@@ -79,6 +79,7 @@ mod ops {
     pub use crate::op::OpDescriptor;
     pub use crate::op::OpParameter;
     pub use crate::op::ParsedParameters;
+    pub use crate::op::PointOp;
     pub use crate::op::RawParameters;
 }
 

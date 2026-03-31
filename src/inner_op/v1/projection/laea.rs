@@ -1,7 +1,7 @@
 //! Lambert azimuthal equal area: EPSG coordinate operation method 9820, implemented
 //! following [IOGP, 2019](crate::Bibliography::Iogp19), pp. 78-80
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
+use crate::projection::{AuthalicLatitude, ProjectionAspect, ProjectionFrame};
 
 use std::f64::consts::FRAC_PI_2;
 
@@ -18,20 +18,11 @@ pub const GAMUT: [OpParameter; 6] = [
     OpParameter::Real { key: "y_0",   default: Some(0_f64) },
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LaeaMode {
-    Equatorial,
-    Oblique,
-    NorthPolar,
-    SouthPolar,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct LaeaState {
     frame: ProjectionFrame,
-    ellps: Ellipsoid,
-    authalic: FourierCoefficients,
-    mode: LaeaMode,
+    authalic: AuthalicLatitude,
+    aspect: ProjectionAspect,
     qp: f64,
     rq: f64,
     dd: f64,
@@ -51,42 +42,31 @@ impl LaeaState {
             return Err(Error::BadParam("lat_0".to_string(), params.name.clone()));
         }
 
-        let mode = if (abs_lat_0 - FRAC_PI_2).abs() < ASPECT_TOLERANCE {
-            if lat_0 < 0.0 {
-                LaeaMode::SouthPolar
-            } else {
-                LaeaMode::NorthPolar
-            }
-        } else if abs_lat_0 < ASPECT_TOLERANCE {
-            LaeaMode::Equatorial
-        } else {
-            LaeaMode::Oblique
-        };
+        let aspect = ProjectionAspect::classify(lat_0, ASPECT_TOLERANCE);
 
         let ellps = params.ellps(0);
+        let authalic = AuthalicLatitude::new(ellps);
         let e = ellps.eccentricity();
         let es = ellps.eccentricity_squared();
-        let qp = ancillary::qs(1.0, e);
+        let qp = authalic.qp();
         let rq = (0.5 * qp).sqrt();
-        let authalic = ellps.coefficients_for_authalic_latitude_computations();
 
-        let (dd, xmf, ymf, sinb1, cosb1) = match mode {
-            LaeaMode::NorthPolar | LaeaMode::SouthPolar => (1.0, 1.0, 1.0, 0.0, 1.0),
-            LaeaMode::Equatorial => (rq.recip(), 1.0, 0.5 * qp, 0.0, 1.0),
-            LaeaMode::Oblique => {
-                let (sin_phi_0, cos_phi_0) = lat_0.sin_cos();
-                let xi_0 = (ancillary::qs(sin_phi_0, e) / qp).asin();
-                let (sinb1, cosb1) = xi_0.sin_cos();
-                let dd = cos_phi_0 / ((1.0 - es * sin_phi_0 * sin_phi_0).sqrt() * rq * cosb1);
-                (dd, rq * dd, rq / dd, sinb1, cosb1)
-            }
+        let (dd, xmf, ymf, sinb1, cosb1) = if aspect.is_polar() {
+            (1.0, 1.0, 1.0, 0.0, 1.0)
+        } else if aspect.is_equatorial() {
+            (rq.recip(), 1.0, 0.5 * qp, 0.0, 1.0)
+        } else {
+            let (sin_phi_0, cos_phi_0) = lat_0.sin_cos();
+            let xi_0 = (ancillary::qs(sin_phi_0, e) / qp).asin();
+            let (sinb1, cosb1) = xi_0.sin_cos();
+            let dd = cos_phi_0 / ((1.0 - es * sin_phi_0 * sin_phi_0).sqrt() * rq * cosb1);
+            (dd, rq * dd, rq / dd, sinb1, cosb1)
         };
 
         Ok(Self {
             frame,
-            ellps,
             authalic,
-            mode,
+            aspect,
             qp,
             rq,
             dd,
@@ -100,71 +80,61 @@ impl LaeaState {
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let state = op.state::<LaeaState>();
-    let e = state.ellps.eccentricity();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
         let (sin_lon, cos_lon) = state.frame.lon_delta(lon).sin_cos();
 
-        let xi = (ancillary::qs(lat.sin(), e) / state.qp)
-            .clamp(-1.0, 1.0)
-            .asin();
+        let xi = state.authalic.beta_from_phi(lat);
         let (sin_xi, cos_xi) = xi.sin_cos();
         let authalic_q = sin_xi * state.qp;
 
-        let (x, y) = match state.mode {
-            LaeaMode::Oblique => {
-                let denom = 1.0 + state.sinb1 * sin_xi + state.cosb1 * cos_xi * cos_lon;
-                if denom.abs() < ASPECT_TOLERANCE {
-                    operands.set_coord(i, &Coor4D::nan());
-                    continue;
-                }
-                let scale = (2.0 / denom).sqrt();
-                (
-                    state.xmf * scale * cos_xi * sin_lon,
-                    state.ymf
-                        * scale
-                        * (state.cosb1 * sin_xi - state.sinb1 * cos_xi * cos_lon),
-                )
+        let (x, y) = if state.aspect.is_oblique() {
+            let denom = 1.0 + state.sinb1 * sin_xi + state.cosb1 * cos_xi * cos_lon;
+            if denom.abs() < ASPECT_TOLERANCE {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
             }
-            LaeaMode::Equatorial => {
-                let denom = 1.0 + cos_xi * cos_lon;
-                if denom.abs() < ASPECT_TOLERANCE {
-                    operands.set_coord(i, &Coor4D::nan());
-                    continue;
-                }
-                let scale = (2.0 / denom).sqrt();
-                (
-                    state.xmf * scale * cos_xi * sin_lon,
-                    state.ymf * scale * sin_xi,
-                )
+            let scale = (2.0 / denom).sqrt();
+            (
+                state.xmf * scale * cos_xi * sin_lon,
+                state.ymf * scale * (state.cosb1 * sin_xi - state.sinb1 * cos_xi * cos_lon),
+            )
+        } else if state.aspect.is_equatorial() {
+            let denom = 1.0 + cos_xi * cos_lon;
+            if denom.abs() < ASPECT_TOLERANCE {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
             }
-            LaeaMode::NorthPolar => {
-                if (lat + state.frame.lat_0).abs() < ASPECT_TOLERANCE {
-                    operands.set_coord(i, &Coor4D::nan());
-                    continue;
-                }
-                let q = state.qp - authalic_q;
-                if q < POLAR_DOMAIN_TOLERANCE {
-                    (0.0, 0.0)
-                } else {
-                    let root_q = q.sqrt();
-                    (root_q * sin_lon, -root_q * cos_lon)
-                }
+            let scale = (2.0 / denom).sqrt();
+            (
+                state.xmf * scale * cos_xi * sin_lon,
+                state.ymf * scale * sin_xi,
+            )
+        } else if state.aspect.is_north_polar() {
+            if (lat + state.frame.lat_0).abs() < ASPECT_TOLERANCE {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
             }
-            LaeaMode::SouthPolar => {
-                if (lat + state.frame.lat_0).abs() < ASPECT_TOLERANCE {
-                    operands.set_coord(i, &Coor4D::nan());
-                    continue;
-                }
-                let q = state.qp + authalic_q;
-                if q < POLAR_DOMAIN_TOLERANCE {
-                    (0.0, 0.0)
-                } else {
-                    let root_q = q.sqrt();
-                    (root_q * sin_lon, root_q * cos_lon)
-                }
+            let q = state.qp - authalic_q;
+            if q < POLAR_DOMAIN_TOLERANCE {
+                (0.0, 0.0)
+            } else {
+                let root_q = q.sqrt();
+                (root_q * sin_lon, -root_q * cos_lon)
+            }
+        } else {
+            if (lat + state.frame.lat_0).abs() < ASPECT_TOLERANCE {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
+            }
+            let q = state.qp + authalic_q;
+            if q < POLAR_DOMAIN_TOLERANCE {
+                (0.0, 0.0)
+            } else {
+                let root_q = q.sqrt();
+                (root_q * sin_lon, root_q * cos_lon)
             }
         };
 
@@ -188,58 +158,51 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         x /= state.frame.a;
         y /= state.frame.a;
 
-        let (ab, lam) = match state.mode {
-            LaeaMode::Oblique | LaeaMode::Equatorial => {
-                x /= state.dd;
-                y *= state.dd;
+        let (ab, lam) = if state.aspect.is_oblique() || state.aspect.is_equatorial() {
+            x /= state.dd;
+            y *= state.dd;
 
-                let rho = x.hypot(y);
-                if rho < ASPECT_TOLERANCE {
-                    operands.set_xy(i, state.frame.lon_0, state.frame.lat_0);
-                    successes += 1;
-                    continue;
-                }
-
-                let asin_argument = 0.5 * rho / state.rq;
-                if asin_argument > 1.0 {
-                    operands.set_coord(i, &Coor4D::nan());
-                    continue;
-                }
-
-                let c = 2.0 * asin_argument.asin();
-                let (sin_c, cos_c) = c.sin_cos();
-                x *= sin_c;
-
-                match state.mode {
-                    LaeaMode::Oblique => {
-                        let ab = cos_c * state.sinb1 + y * sin_c * state.cosb1 / rho;
-                        let y = rho * state.cosb1 * cos_c - y * state.sinb1 * sin_c;
-                        (ab, x.atan2(y))
-                    }
-                    LaeaMode::Equatorial => {
-                        let ab = y * sin_c / rho;
-                        let y = rho * cos_c;
-                        (ab, x.atan2(y))
-                    }
-                    _ => unreachable!(),
-                }
+            let rho = x.hypot(y);
+            if rho < ASPECT_TOLERANCE {
+                operands.set_xy(i, state.frame.lon_0, state.frame.lat_0);
+                successes += 1;
+                continue;
             }
-            LaeaMode::NorthPolar | LaeaMode::SouthPolar => {
-                if matches!(state.mode, LaeaMode::NorthPolar) {
-                    y = -y;
-                }
-                let q = x * x + y * y;
-                if q == 0.0 {
-                    operands.set_xy(i, state.frame.lon_0, state.frame.lat_0);
-                    successes += 1;
-                    continue;
-                }
-                let mut ab = 1.0 - q / state.qp;
-                if matches!(state.mode, LaeaMode::SouthPolar) {
-                    ab = -ab;
-                }
+
+            let asin_argument = 0.5 * rho / state.rq;
+            if asin_argument > 1.0 {
+                operands.set_coord(i, &Coor4D::nan());
+                continue;
+            }
+
+            let c = 2.0 * asin_argument.asin();
+            let (sin_c, cos_c) = c.sin_cos();
+            x *= sin_c;
+
+            if state.aspect.is_oblique() {
+                let ab = cos_c * state.sinb1 + y * sin_c * state.cosb1 / rho;
+                let y = rho * state.cosb1 * cos_c - y * state.sinb1 * sin_c;
+                (ab, x.atan2(y))
+            } else {
+                let ab = y * sin_c / rho;
+                let y = rho * cos_c;
                 (ab, x.atan2(y))
             }
+        } else {
+            if state.aspect.is_north_polar() {
+                y = -y;
+            }
+            let q = x * x + y * y;
+            if q == 0.0 {
+                operands.set_xy(i, state.frame.lon_0, state.frame.lat_0);
+                successes += 1;
+                continue;
+            }
+            let mut ab = 1.0 - q / state.qp;
+            if state.aspect.is_south_polar() {
+                ab = -ab;
+            }
+            (ab, x.atan2(y))
         };
 
         if ab.abs() > 1.0 + ASPECT_TOLERANCE {
@@ -247,9 +210,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             continue;
         }
 
-        let lat = state
-            .ellps
-            .latitude_authalic_to_geographic(ab.clamp(-1.0, 1.0).asin(), &state.authalic);
+        let lat = state.authalic.phi_from_beta(ab.clamp(-1.0, 1.0).asin());
         let lon = state.frame.lon_0 + lam;
         operands.set_xy(i, lon, lat);
         successes += 1;

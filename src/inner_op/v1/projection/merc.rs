@@ -2,20 +2,34 @@
 use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 
-// ----- F O R W A R D -----------------------------------------------------------------
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 8] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "ellps",  default: Some("GRS80") },
+    OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
+    OpParameter::Real { key: "lon_0",  default: Some(0_f64) },
+    OpParameter::Real { key: "x_0",    default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",    default: Some(0_f64) },
+    OpParameter::Real { key: "k_0",    default: Some(1_f64) },
+    OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
+];
+
+struct MercState {
+    frame: ProjectionFrame,
+    ellps: Ellipsoid,
+}
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let frame = ProjectionFrame::from_params(&op.params);
+    let state = op.state::<MercState>();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let easting = frame.lon_delta(lon) * frame.k_0 * frame.a;
-        let isometric = ellps.latitude_geographic_to_isometric(lat);
-        let northing = frame.a * frame.k_0 * isometric;
+        let easting = state.frame.lon_delta(lon) * state.frame.k_0 * state.frame.a;
+        let isometric = state.ellps.latitude_geographic_to_isometric(lat);
+        let northing = state.frame.a * state.frame.k_0 * isometric;
 
-        let (x, y) = frame.apply_false_origin(easting, northing);
+        let (x, y) = state.frame.apply_false_origin(easting, northing);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -26,16 +40,15 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 // ----- I N V E R S E -----------------------------------------------------------------
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let frame = ProjectionFrame::from_params(&op.params);
+    let state = op.state::<MercState>();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (x_raw, y_raw) = operands.xy(i);
-        let (x, y) = frame.remove_false_origin(x_raw, y_raw);
-        let lon = x / (frame.a * frame.k_0) + frame.lon_0;
-        let psi = y / (frame.a * frame.k_0);
-        let lat = ellps.latitude_isometric_to_geographic(psi);
+        let (x, y) = state.frame.remove_false_origin(x_raw, y_raw);
+        let lon = x / (state.frame.a * state.frame.k_0) + state.frame.lon_0;
+        let psi = y / (state.frame.a * state.frame.k_0);
+        let lat = state.ellps.latitude_isometric_to_geographic(psi);
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
@@ -44,20 +57,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 // ----- C O N S T R U C T O R ---------------------------------------------------------
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 8] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps",  default: Some("GRS80") },
-
-    OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0",  default: Some(0_f64) },
-    OpParameter::Real { key: "x_0",    default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",    default: Some(0_f64) },
-
-    OpParameter::Real { key: "k_0",    default: Some(1_f64) },
-    OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
-];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
@@ -78,14 +77,12 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         params.real.insert("k_0", k_0);
     }
 
+    let state = MercState {
+        frame: ProjectionFrame::from_params(&params),
+        ellps,
+    };
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 // ----- T E S T S ---------------------------------------------------------------------

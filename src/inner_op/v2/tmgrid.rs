@@ -181,9 +181,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         return Err(Error::General("TM Grid: zone_width must be > 0"));
     }
     let zone_count = (360.0 / zone_width_deg).round() as usize;
-    params
-        .real
-        .insert("lon_i", params.real("lon_i")?);
+    params.real.insert("lon_i", params.real("lon_i")?);
     params
         .real
         .insert("zone_width", zone_width_deg.to_radians());

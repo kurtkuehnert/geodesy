@@ -13,6 +13,49 @@ pub use parameter::OpParameter;
 pub use parsed_parameters::ParsedParameters;
 pub use raw_parameters::RawParameters;
 
+pub trait PointOp {
+    type State: Send + Sync + 'static;
+    const GAMUT: &'static [OpParameter];
+
+    // TODO: Once the point-op path is the default, prefer op types that are
+    // their own runtime state (`type State = Self`) and drop the extra
+    // `FooState` split where it does not buy us anything.
+    fn build(params: &ParsedParameters, ctx: &dyn Context) -> Result<Self::State, Error>;
+    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D>;
+    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D>;
+}
+
+trait DynPointOp: Send + Sync {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D>;
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D>;
+}
+
+struct PointOpInstance<T: PointOp> {
+    state: T::State,
+}
+
+impl<T: PointOp> DynPointOp for PointOpInstance<T> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        T::fwd(&self.state, coord)
+    }
+
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        T::inv(&self.state, coord)
+    }
+}
+
+struct PointRuntime(Box<dyn DynPointOp>);
+
+impl PointRuntime {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.fwd(coord)
+    }
+
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.inv(coord)
+    }
+}
+
 /// The defining parameters and functions for an operator
 pub struct Op {
     pub descriptor: OpDescriptor,
@@ -27,12 +70,19 @@ impl Debug for Op {
             .field("descriptor", &self.descriptor)
             .field("params", &self.params)
             .field("has_state", &self.state.is_some())
+            .field("has_point_runtime", &self.point_runtime().is_some())
             .field("steps", &self.steps)
             .finish()
     }
 }
 
 impl Op {
+    fn point_runtime(&self) -> Option<&PointRuntime> {
+        self.state
+            .as_ref()
+            .and_then(|state| state.downcast_ref::<PointRuntime>())
+    }
+
     // operate fwd/inv, taking operator inversion into account.
     pub fn apply(
         &self,
@@ -41,6 +91,26 @@ impl Op {
         direction: Direction,
     ) -> usize {
         let going_forward = direction == Direction::Fwd;
+
+        if let Some(point_op) = self.point_runtime() {
+            let use_fwd = self.descriptor.inverted != going_forward;
+            let mut successes = 0_usize;
+            for i in 0..operands.len() {
+                let coord = operands.get_coord(i);
+                let output = if use_fwd {
+                    point_op.fwd(coord)
+                } else {
+                    point_op.inv(coord)
+                };
+                if let Some(output) = output {
+                    operands.set_coord(i, &output);
+                    successes += 1;
+                } else {
+                    operands.set_coord(i, &Coor4D::nan());
+                }
+            }
+            return successes;
+        }
 
         // We use the .fwd method if we're either not inverted and going forward
         // or inverted and not going forward
@@ -103,6 +173,24 @@ impl Op {
         }
     }
 
+    pub fn point<T: PointOp + 'static>(
+        parameters: &RawParameters,
+        ctx: &dyn Context,
+    ) -> Result<Op, Error> {
+        let def = parameters.instantiated_as.as_str();
+        let params = ParsedParameters::new(parameters, T::GAMUT)?;
+        let state = T::build(&params, ctx)?;
+        let descriptor = OpDescriptor::new(def, InnerOp::default(), Some(InnerOp::default()));
+        Ok(Op {
+            descriptor,
+            params,
+            state: Some(Box::new(PointRuntime(Box::new(PointOpInstance::<T> {
+                state,
+            })))),
+            steps: None,
+        })
+    }
+
     pub fn state<T: Any + Send + Sync>(&self) -> &T {
         if self.state.is_none() {
             panic!(
@@ -116,11 +204,11 @@ impl Op {
             .as_ref()
             .and_then(|state| state.downcast_ref::<T>())
             .unwrap_or_else(|| {
-            panic!(
-                "operator '{}' carries state, but not expected type {}",
-                self.descriptor.instantiated_as,
-                std::any::type_name::<T>()
-            )
+                panic!(
+                    "operator '{}' carries state, but not expected type {}",
+                    self.descriptor.instantiated_as,
+                    std::any::type_name::<T>()
+                )
             })
     }
 
@@ -238,6 +326,25 @@ impl Op {
 mod tests {
     use super::*;
 
+    struct AddOnePointOp;
+
+    impl PointOp for AddOnePointOp {
+        type State = ();
+        const GAMUT: &'static [OpParameter] = &[];
+
+        fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+            Ok(())
+        }
+
+        fn fwd(_state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+            Some(Coor4D([coord[0] + 1.0, coord[1], coord[2], coord[3]]))
+        }
+
+        fn inv(_state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+            Some(Coor4D([coord[0] - 1.0, coord[1], coord[2], coord[3]]))
+        }
+    }
+
     // Test the fundamental Op-functionality: That we can actually instantiate
     // an Op, and invoke its forward and backward operational modes
     #[test]
@@ -269,6 +376,23 @@ mod tests {
         assert_eq!(data[0][0], 55.);
         assert_eq!(data[1][0], 59.);
 
+        Ok(())
+    }
+
+    #[test]
+    fn point_runtime() -> Result<(), Error> {
+        let ctx = Minimal::default();
+        let raw = RawParameters::new("addone_point", &ctx.globals());
+        let op = Op::point::<AddOnePointOp>(&raw, &ctx)?;
+
+        let mut data = crate::test_data::coor2d();
+        assert_eq!(op.apply(&ctx, &mut data, Fwd), 2);
+        assert_eq!(data[0][0], 56.);
+        assert_eq!(data[1][0], 60.);
+
+        assert_eq!(op.apply(&ctx, &mut data, Inv), 2);
+        assert_eq!(data[0][0], 55.);
+        assert_eq!(data[1][0], 59.);
         Ok(())
     }
 

@@ -818,6 +818,13 @@ mod tests {
             "unitconvert xy_in=deg xy_out=rad | tmerc ellps=GRS80"
         );
         assert_eq!(
+            parse_proj(
+                "+proj=aeqd +guam +ellps=clrk66 +x_0=50000 +y_0=50000 +lon_0=144.74875069444445 +lat_0=13.47246633333333",
+                true
+            )?,
+            "unitconvert xy_in=deg xy_out=rad | guam_aeqd ellps=clrk66 x_0=50000 y_0=50000 lon_0=144.74875069444445 lat_0=13.47246633333333"
+        );
+        assert_eq!(
             parse_proj("+proj=ups +ellps=GRS80", true)?,
             "unitconvert xy_in=deg xy_out=rad | stere ellps=GRS80 lat_0=90 lon_0=0 k_0=0.994 x_0=2000000 y_0=2000000"
         );

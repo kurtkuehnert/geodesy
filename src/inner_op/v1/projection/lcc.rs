@@ -5,220 +5,197 @@ use std::f64::consts::FRAC_PI_2;
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 
-#[derive(Clone, Copy)]
-struct LccCache {
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 10] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "west_oriented" },
+    OpParameter::Text { key: "ellps", default: Some("GRS80") },
+    OpParameter::Real { key: "lat_1", default: Some(0_f64) },
+    OpParameter::Real { key: "lat_2", default: Some(f64::NAN) },
+    OpParameter::Real { key: "lat_0", default: Some(f64::NAN) },
+    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
+    OpParameter::Real { key: "k_0",   default: Some(1_f64) },
+    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
+];
+
+#[derive(Clone, Copy, Debug)]
+struct LccState {
+    frame: ProjectionFrame,
+    ellps: Ellipsoid,
     n: f64,
     c: f64,
     rho0: f64,
     west_oriented: bool,
 }
 
-impl LccCache {
-    fn from_params(params: &ParsedParameters) -> Option<Self> {
-        Some(Self {
-            n: params.real("n").ok()?,
-            c: params.real("c").ok()?,
-            rho0: params.real("rho0").ok()?,
+impl LccState {
+    fn new(
+        params: &ParsedParameters,
+        frame: ProjectionFrame,
+        ellps: Ellipsoid,
+        phi1: f64,
+        phi2: f64,
+        lat_0: f64,
+    ) -> Result<Self, Error> {
+        let sc = phi1.sin_cos();
+        let mut n = sc.0;
+        let e = ellps.eccentricity();
+        let es = ellps.eccentricity_squared();
+
+        if (phi1 + phi2).abs() < ANGULAR_TOLERANCE {
+            return Err(Error::General(
+                "Lcc: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0",
+            ));
+        }
+        if sc.1.abs() < ANGULAR_TOLERANCE || phi1.abs() >= FRAC_PI_2 {
+            return Err(Error::General(
+                "Lcc: Invalid value for lat_1: |lat_1| should be < 90°",
+            ));
+        }
+        if phi2.cos().abs() < ANGULAR_TOLERANCE || phi2.abs() >= FRAC_PI_2 {
+            return Err(Error::General(
+                "Lcc: Invalid value for lat_2: |lat_2| should be < 90°",
+            ));
+        }
+
+        let m1 = crate::math::ancillary::pj_msfn(sc, es);
+        let ml1 = crate::math::ancillary::ts(sc, e);
+
+        if (phi1 - phi2).abs() >= ANGULAR_TOLERANCE {
+            let sc = phi2.sin_cos();
+            n = (m1 / crate::math::ancillary::pj_msfn(sc, es)).ln();
+            if n == 0.0 {
+                return Err(Error::General("Lcc: Invalid value for eccentricity"));
+            }
+            let ml2 = crate::math::ancillary::ts(sc, e);
+            let denom = (ml1 / ml2).ln();
+            if denom == 0.0 {
+                return Err(Error::General("Lcc: Invalid value for eccentricity"));
+            }
+            n /= denom;
+        }
+
+        let c = m1 * ml1.powf(-n) / n;
+        let rho0 = if (lat_0.abs() - FRAC_PI_2).abs() > ANGULAR_TOLERANCE {
+            c * crate::math::ancillary::ts(lat_0.sin_cos(), e).powf(n)
+        } else {
+            0.0
+        };
+
+        Ok(Self {
+            frame,
+            ellps,
+            n,
+            c,
+            rho0,
             west_oriented: params.boolean("west_oriented"),
         })
     }
 }
 
-// ----- F O R W A R D -----------------------------------------------------------------
-
-// Forward Lambert conformal conic, following the PROJ implementation,
-// cf.  https://proj.org/operations/projections/lcc.html
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let e = ellps.eccentricity();
-    let frame = ProjectionFrame::from_params(&op.params);
-    let Some(cache) = LccCache::from_params(&op.params) else {
-        return 0;
-    };
+    let state = op.state::<LccState>();
+    let e = state.ellps.eccentricity();
     let mut successes = 0_usize;
     let length = operands.len();
 
     for i in 0..length {
         let (mut lam, phi) = operands.xy(i);
-        lam = frame.lon_delta(lam);
+        lam = state.frame.lon_delta(lam);
         let mut rho = 0.;
 
-        // Close to one of the poles?
         if (phi.abs() - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {
-            if phi * cache.n <= 0. {
+            if phi * state.n <= 0.0 {
                 operands.set_coord(i, &Coor4D::nan());
                 continue;
             }
         } else {
-            rho = cache.c * crate::math::ancillary::ts(phi.sin_cos(), e).powf(cache.n);
+            rho = state.c * crate::math::ancillary::ts(phi.sin_cos(), e).powf(state.n);
         }
-        let sc = (lam * cache.n).sin_cos();
-        let x = if cache.west_oriented {
-            frame.x_0 - frame.a * frame.k_0 * rho * sc.0
+        let sc = (lam * state.n).sin_cos();
+        let x = if state.west_oriented {
+            state.frame.x_0 - state.frame.a * state.frame.k_0 * rho * sc.0
         } else {
-            frame.a * frame.k_0 * rho * sc.0 + frame.x_0
+            state.frame.a * state.frame.k_0 * rho * sc.0 + state.frame.x_0
         };
-        let y = frame.a * frame.k_0 * (cache.rho0 - rho * sc.1) + frame.y_0;
+        let y = state.frame.a * state.frame.k_0 * (state.rho0 - rho * sc.1) + state.frame.y_0;
         operands.set_xy(i, x, y);
         successes += 1;
     }
     successes
 }
 
-// ----- I N V E R S E -----------------------------------------------------------------
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let e = ellps.eccentricity();
-    let frame = ProjectionFrame::from_params(&op.params);
-    let Some(cache) = LccCache::from_params(&op.params) else {
-        return 0;
-    };
+    let state = op.state::<LccState>();
+    let e = state.ellps.eccentricity();
     let mut successes = 0_usize;
 
     for i in 0..operands.len() {
         let (mut x, mut y) = operands.xy(i);
-        x = if cache.west_oriented {
-            (frame.x_0 - x) / (frame.a * frame.k_0)
+        x = if state.west_oriented {
+            (state.frame.x_0 - x) / (state.frame.a * state.frame.k_0)
         } else {
-            (x - frame.x_0) / (frame.a * frame.k_0)
+            (x - state.frame.x_0) / (state.frame.a * state.frame.k_0)
         };
-        y = cache.rho0 - (y - frame.y_0) / (frame.a * frame.k_0);
+        y = state.rho0 - (y - state.frame.y_0) / (state.frame.a * state.frame.k_0);
 
         let mut rho = x.hypot(y);
 
-        // On one of the poles?
         if rho == 0. {
-            let lon = 0.;
-            let lat = FRAC_PI_2.copysign(cache.n);
+            let lon = 0.0;
+            let lat = FRAC_PI_2.copysign(state.n);
             operands.set_xy(i, lon, lat);
             successes += 1;
             continue;
         }
 
-        // Standard parallel on the southern hemisphere?
-        if cache.n < 0. {
+        if state.n < 0.0 {
             rho = -rho;
             x = -x;
             y = -y;
         }
 
-        let ts0 = (rho / cache.c).powf(1. / cache.n);
+        let ts0 = (rho / state.c).powf(1.0 / state.n);
         let lat = crate::math::ancillary::pj_phi2(ts0, e);
         if lat.is_infinite() || lat.is_nan() {
             operands.set_coord(i, &Coor4D::nan());
             continue;
         }
-        let lon = x.atan2(y) / cache.n + frame.lon_0;
+        let lon = x.atan2(y) / state.n + state.frame.lon_0;
         operands.set_xy(i, lon, lat);
         successes += 1;
     }
     successes
 }
 
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-// Example...
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 10] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Flag { key: "west_oriented" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-
-    OpParameter::Real { key: "lat_1", default: Some(0_f64) },
-    OpParameter::Real { key: "lat_2", default: Some(f64::NAN) },
-    OpParameter::Real { key: "lat_0", default: Some(f64::NAN) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-
-    OpParameter::Real { key: "k_0",   default: Some(1_f64) },
-    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-];
-
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
     if !params.given.contains_key("lat_1") {
         return Err(Error::MissingParam("lat_1".to_string()));
     }
-    if !params.real.contains_key("lat_2") {
-        params.real.insert("lat_2", params.lat(1));
-    }
 
     let phi1 = params.lat(1);
-    let mut phi2 = params.lat(2);
-    if phi2.is_nan() {
-        phi2 = phi1;
-    }
-    params.real.insert("lat_1", phi1);
-    params.real.insert("lat_2", phi2);
+    let phi2 = if params.lat(2).is_nan() {
+        phi1
+    } else {
+        params.lat(2)
+    };
 
     let mut lat_0 = params.lat(0);
     if lat_0.is_nan() {
-        lat_0 = 0.;
+        lat_0 = 0.0;
         if (phi1 - phi2).abs() < ANGULAR_TOLERANCE {
             lat_0 = phi1;
         }
     }
 
-    let sc = phi1.sin_cos();
-    let mut n = sc.0;
-    let ellps = params.ellps(0);
-    let e = ellps.eccentricity();
-    let es = ellps.eccentricity_squared();
-
-    if (phi1 + phi2).abs() < ANGULAR_TOLERANCE {
-        return Err(Error::General(
-            "Lcc: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0",
-        ));
-    }
-    if sc.1.abs() < ANGULAR_TOLERANCE || phi1.abs() >= FRAC_PI_2 {
-        return Err(Error::General(
-            "Lcc: Invalid value for lat_1: |lat_1| should be < 90°",
-        ));
-    }
-    if phi2.cos().abs() < ANGULAR_TOLERANCE || phi2.abs() >= FRAC_PI_2 {
-        return Err(Error::General(
-            "Lcc: Invalid value for lat_2: |lat_2| should be < 90°",
-        ));
-    }
-
-    // Snyder (1982) eq. 12-15
-    let m1 = crate::math::ancillary::pj_msfn(sc, es);
-
-    // Snyder (1982) eq. 7-10: exp(-𝜓)
-    let ml1 = crate::math::ancillary::ts(sc, e);
-
-    // Secant case?
-    if (phi1 - phi2).abs() >= ANGULAR_TOLERANCE {
-        let sc = phi2.sin_cos();
-        n = (m1 / crate::math::ancillary::pj_msfn(sc, es)).ln();
-        if n == 0. {
-            return Err(Error::General("Lcc: Invalid value for eccentricity"));
-        }
-        let ml2 = crate::math::ancillary::ts(sc, e);
-        let denom = (ml1 / ml2).ln();
-        if denom == 0. {
-            return Err(Error::General("Lcc: Invalid value for eccentricity"));
-        }
-        n /= denom;
-    }
-
-    let c = m1 * ml1.powf(-n) / n;
-    let mut rho0 = 0.;
-    if (lat_0.abs() - FRAC_PI_2).abs() > ANGULAR_TOLERANCE {
-        rho0 = c * crate::math::ancillary::ts(lat_0.sin_cos(), e).powf(n);
-    }
-
-    params.real.insert("c", c);
-    params.real.insert("n", n);
-    params.real.insert("rho0", rho0);
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
+    let frame = ProjectionFrame::from_params(&params);
+    let ellps = params.ellps(0);
+    let state = LccState::new(&params, frame, ellps, phi1, phi2, lat_0)?;
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 // ----- T E S T S ---------------------------------------------------------------------

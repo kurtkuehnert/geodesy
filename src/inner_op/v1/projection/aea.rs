@@ -1,6 +1,6 @@
 //! Albers Equal Area
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
+use crate::projection::{AuthalicLatitude, ProjectionFrame};
 use std::f64::consts::FRAC_PI_2;
 
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
@@ -14,15 +14,14 @@ pub const GAMUT: [OpParameter; 8] = [
     OpParameter::Real { key: "lon_0", default: Some(0_f64) },
     OpParameter::Real { key: "lat_1", default: None },
     OpParameter::Real { key: "lat_2", default: None },
-    OpParameter::Real { key: "x_0", default: Some(0_f64) },
-    OpParameter::Real { key: "y_0", default: Some(0_f64) },
+    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
 ];
 
 #[derive(Clone, Copy, Debug)]
 struct AeaState {
     frame: ProjectionFrame,
-    ellps: Ellipsoid,
-    authalic: Option<FourierCoefficients>,
+    authalic: AuthalicLatitude,
     n: f64,
     c: f64,
     dd: f64,
@@ -35,7 +34,10 @@ struct AeaState {
 impl AeaState {
     fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<AeaState, Error> {
         if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
-            return Err(Error::BadParam("lat_1/lat_2".to_string(), params.name.clone()));
+            return Err(Error::BadParam(
+                "lat_1/lat_2".to_string(),
+                params.name.clone(),
+            ));
         }
         if (phi1 + phi2).abs() < STANDARD_PARALLEL_TOLERANCE {
             return Err(Error::General(
@@ -45,7 +47,8 @@ impl AeaState {
 
         let ellps = params.ellps(0);
         let frame = ProjectionFrame::from_params(params);
-        let spherical = ellps.flattening() == 0.0;
+        let authalic = AuthalicLatitude::new(ellps);
+        let spherical = authalic.spherical();
 
         let (sinphi1, cosphi1) = phi1.sin_cos();
         let secant = (phi1 - phi2).abs() >= STANDARD_PARALLEL_TOLERANCE;
@@ -61,8 +64,7 @@ impl AeaState {
             let rho0 = dd * (c - n2 * phi0.sin()).sqrt();
             return Ok(Self {
                 frame,
-                ellps,
-                authalic: None,
+                authalic,
                 n,
                 c,
                 dd,
@@ -73,26 +75,24 @@ impl AeaState {
             });
         }
 
-        let e = ellps.eccentricity();
         let es = ellps.eccentricity_squared();
         let m1 = ancillary::pj_msfn((sinphi1, cosphi1), es);
-        let q1 = ancillary::qs(sinphi1, e);
+        let q1 = authalic.qs(sinphi1);
         if secant {
             let (sinphi2, cosphi2) = phi2.sin_cos();
             let m2 = ancillary::pj_msfn((sinphi2, cosphi2), es);
-            let q2 = ancillary::qs(sinphi2, e);
+            let q2 = authalic.qs(sinphi2);
             n = (m1 * m1 - m2 * m2) / (q2 - q1);
         }
-        let authalic = ellps.coefficients_for_authalic_latitude_computations();
+        let e = ellps.eccentricity();
         let ec = 1.0 - 0.5 * (1.0 - es) * ((1.0 - e) / (1.0 + e)).ln() / e;
         let c = m1 * m1 + n * q1;
         let dd = 1.0 / n;
-        let qp = ancillary::qs(1.0, e);
-        let rho0 = dd * (c - n * ancillary::qs(phi0.sin(), e)).sqrt();
+        let qp = authalic.qp();
+        let rho0 = dd * (c - n * authalic.qs(phi0.sin())).sqrt();
         Ok(Self {
             frame,
-            ellps,
-            authalic: Some(authalic),
+            authalic,
             n,
             c,
             dd,
@@ -113,7 +113,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let rho_term = if state.spherical {
             state.c - 2.0 * state.n * lat.sin()
         } else {
-            state.c - state.n * ancillary::qs(lat.sin(), state.ellps.eccentricity())
+            state.c - state.n * state.authalic.qs(lat.sin())
         };
         if rho_term < 0.0 {
             operands.set_coord(i, &Coor4D::nan());
@@ -151,9 +151,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let arg = (state.c - (rho / state.dd).powi(2)) / (2.0 * state.n);
                 arg.clamp(-1.0, 1.0).asin()
             } else {
-                let authalic = state
-                    .authalic
-                    .expect("ellipsoidal AEA state must carry authalic coefficients");
                 let qs = (state.c - (rho / state.dd).powi(2)) / state.n;
                 if (state.ec - qs.abs()).abs() > AUTHALIC_LIMIT_TOLERANCE {
                     if qs.abs() > 2.0 {
@@ -161,7 +158,7 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                         continue;
                     }
                     let xi = (qs / state.qp).clamp(-1.0, 1.0).asin();
-                    state.ellps.latitude_authalic_to_geographic(xi, &authalic)
+                    state.authalic.phi_from_beta(xi)
                 } else if qs < 0.0 {
                     -FRAC_PI_2
                 } else {

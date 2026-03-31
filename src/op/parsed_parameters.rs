@@ -320,8 +320,7 @@ impl ParsedParameters {
 
                 OpParameter::Text { key, default } => {
                     if key == "ellps" {
-                        if let Some(value) =
-                            canonicalize_proj_ellps(parameters, globals, &locals)?
+                        if let Some(value) = canonicalize_proj_ellps(parameters, globals, &locals)?
                         {
                             text.insert(key, value);
                             continue;

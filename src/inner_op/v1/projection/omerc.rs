@@ -14,20 +14,20 @@ pub const GAMUT: [OpParameter; 18] = [
     OpParameter::Flag { key: "no_rot" },
     OpParameter::Flag { key: "no_off" },
     OpParameter::Flag { key: "variant" },
-    OpParameter::Text { key: "ellps",  default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0",  default: Some(0_f64) },
-    OpParameter::Real { key: "x_0",    default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",    default: Some(0_f64) },
-    OpParameter::Real { key: "k_0",    default: Some(1_f64) },
-    OpParameter::Real { key: "latc",  default: Some(0_f64) },
-    OpParameter::Real { key: "lonc",  default: Some(0_f64) },
-    OpParameter::Real { key: "alpha",  default: Some(f64::NAN) },
-    OpParameter::Real { key: "gamma_c",  default: Some(f64::NAN) },
-    OpParameter::Real { key: "lat_1", default: Some(f64::NAN) },
-    OpParameter::Real { key: "lon_1", default: Some(0_f64) },
-    OpParameter::Real { key: "lat_2", default: Some(f64::NAN) },
-    OpParameter::Real { key: "lon_2", default: Some(0_f64) },
+    OpParameter::Text { key: "ellps",   default: Some("GRS80") },
+    OpParameter::Real { key: "lat_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "lon_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "x_0",     default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",     default: Some(0_f64) },
+    OpParameter::Real { key: "k_0",     default: Some(1_f64) },
+    OpParameter::Real { key: "latc",    default: Some(0_f64) },
+    OpParameter::Real { key: "lonc",    default: Some(0_f64) },
+    OpParameter::Real { key: "alpha",   default: Some(f64::NAN) },
+    OpParameter::Real { key: "gamma_c", default: Some(f64::NAN) },
+    OpParameter::Real { key: "lat_1",   default: Some(f64::NAN) },
+    OpParameter::Real { key: "lon_1",   default: Some(0_f64) },
+    OpParameter::Real { key: "lat_2",   default: Some(f64::NAN) },
+    OpParameter::Real { key: "lon_2",   default: Some(0_f64) },
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,219 +281,178 @@ fn aasin(value: f64) -> f64 {
     value.clamp(-1.0, 1.0).asin()
 }
 
-fn fwd_central_with_ctx(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    fwd_central(op, operands)
-}
-
-fn inv_central_with_ctx(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    inv_central(op, operands)
-}
-
-#[allow(non_snake_case)]
-fn fwd_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
-    let state = op.state::<OmercState>();
-    let es = state.ellps.eccentricity_squared();
-    let e = es.sqrt();
-
-    let kc = state.frame.k_0;
-    let fe = state.frame.x_0;
-    let fn_ = state.frame.y_0;
-    let ec = fe;
-    let nc = fn_;
-    let ninety = state.alpha.to_degrees() == 90.0;
-    let laborde = state.central_laborde;
-    let mut variant = !state.no_off;
-    if laborde {
-        variant = true;
-    }
-
-    let (s, c) = state.latc.sin_cos();
-    let b = (1_f64 + c.powi(4) * state.ellps.second_eccentricity_squared()).sqrt();
-    let a = state.ellps.semimajor_axis() * b * kc * (1_f64 - es).sqrt() / (1.0 - es * s * s);
-    let t0 = tsfn(state.latc, s, e);
-    let d = b * (1.0 - es).sqrt() / (c * (1.0 - es * s * s).sqrt());
-    let dd = if d < 1.0 { 0.0 } else { (d * d - 1.0).sqrt() };
-    let f = d + dd * state.latc.signum();
-    let h = f * t0.powf(b);
-    let g = (f - 1.0 / f) / 2.0;
-    let gamma_0 = aasin(state.alpha.sin() / d);
-    let lambda_0 = state.lonc - aasin(g * gamma_0.tan()) / b;
-
-    let (s0, c0) = gamma_0.sin_cos();
-    let (sc, cc) = (if laborde { state.alpha } else { state.gamma_c }).sin_cos();
-
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (lon, lat) = operands.xy(i);
-        let lon = adjlon(lon - lambda_0);
-        let slat = lat.sin();
-
-        let t = tsfn(lat, slat, e);
-        let q = h / t.powf(b);
-        let s = (q - 1.0 / q) / 2.0;
-        let t = (q + 1.0 / q) / 2.0;
-        let v = (b * lon).sin();
-        let u = (s * s0 - v * c0) / t;
-        let v_coord = a * ((1.0 - u) / (1.0 + u)).ln() / (2.0 * b);
-
-        let cblon = (b * lon).cos();
-        let base_u = a * (s * c0 + v * s0).atan2(cblon) / b;
-
-        if !variant {
-            let (x, y) = if state.no_rot {
-                (base_u + fe, v_coord + fn_)
-            } else {
-                (
-                    v_coord * cc + base_u * sc + fe,
-                    base_u * cc - v_coord * sc + fn_,
-                )
-            };
-            operands.set_xy(i, x, y);
-            successes += 1;
-            continue;
+#[allow(clippy::too_many_arguments)]
+fn forward_core(
+    lon: f64,
+    lat: f64,
+    lon_0: f64,
+    e: f64,
+    b_scale: f64,
+    e_scale: f64,
+    ar_b: f64,
+    a_scale: f64,
+    singam: f64,
+    cosgam: f64,
+    v_pole_n: f64,
+    v_pole_s: f64,
+) -> Option<(f64, f64)> {
+    let lon = adjlon(lon - lon_0);
+    if (lat.abs() - FRAC_PI_2).abs() > ANGULAR_TOLERANCE {
+        let w = e_scale / tsfn(lat, lat.sin(), e).powf(b_scale);
+        let inv_w = 1.0 / w;
+        let s = 0.5 * (w - inv_w);
+        let t = 0.5 * (w + inv_w);
+        let v_term = (b_scale * lon).sin();
+        let u = (s * singam - v_term * cosgam) / t;
+        if u.abs() >= 1.0 {
+            return None;
         }
-
-        if ninety {
-            let base_u = if lon == lambda_0 { 0.0 } else { base_u };
-            let (x, y) = if state.no_rot {
-                (base_u + ec, v_coord + nc)
-            } else {
-                let u = base_u - state.u_0;
-                (v_coord * cc + u * sc + ec, u * cc - v_coord * sc + nc)
-            };
-            operands.set_xy(i, x, y);
-            successes += 1;
-            continue;
-        }
-
-        let (x, y) = if state.no_rot {
-            (base_u + ec, v_coord + nc)
+        let v = 0.5 * ar_b * ((1.0 - u) / (1.0 + u)).ln();
+        let temp = (b_scale * lon).cos();
+        let base_u = if temp.abs() < PARAMETER_TOLERANCE {
+            a_scale * lon
         } else {
-            let u = base_u - state.u_0;
-            (v_coord * cc + u * sc + ec, u * cc - v_coord * sc + nc)
+            ar_b * (s * cosgam + v_term * singam).atan2(temp)
         };
-        operands.set_xy(i, x, y);
-        successes += 1;
+        Some((base_u, v))
+    } else {
+        let v = if lat > 0.0 { v_pole_n } else { v_pole_s };
+        let base_u = ar_b * lat;
+        Some((base_u, v))
     }
-
-    successes
 }
 
-#[allow(non_snake_case)]
-fn inv_central(op: &Op, operands: &mut dyn CoordinateSet) -> usize {
-    let state = op.state::<OmercState>();
-    let es = state.ellps.eccentricity_squared();
-    let e = es.sqrt();
-
-    let kc = state.frame.k_0;
-    let fe = state.frame.x_0;
-    let fn_ = state.frame.y_0;
-    let laborde = state.central_laborde;
-    let gamma_c = if laborde { state.alpha } else { state.gamma_c };
-    let variant = !state.no_off || laborde;
-
-    let (s, c) = state.latc.sin_cos();
-    let b = (1_f64 + c.powi(4) * state.ellps.second_eccentricity_squared()).sqrt();
-    let a = state.ellps.semimajor_axis() * b * kc * (1_f64 - es).sqrt() / (1.0 - es * s * s);
-    let t0 = tsfn(state.latc, s, e);
-    let d = b * (1.0 - es).sqrt() / (c * (1.0 - es * s * s).sqrt());
-    let dd = if d < 1.0 { 0.0 } else { (d * d - 1.0).sqrt() };
-    let f = d + dd * state.latc.signum();
-    let h = f * t0.powf(b);
-    let g = (f - 1.0 / f) / 2.0;
-    let gamma_0 = aasin(state.alpha.sin() / d);
-    let lambda_0 = state.lonc - aasin(g * gamma_0.tan()) / b;
-
-    let (s0, c0) = gamma_0.sin_cos();
-    let (sc, cc) = gamma_c.sin_cos();
-    let offset = if variant { state.u_0 } else { 0.0 };
-
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (easting, northing) = operands.xy(i);
-
-        let (v, u_coord) = if state.no_rot {
-            (northing - fn_, easting - fe)
-        } else {
-            (
-                (easting - fe) * cc - (northing - fn_) * sc,
-                (northing - fn_) * cc + (easting - fe) * sc + offset,
-            )
-        };
-
-        let q = (-b * v / a).exp();
-        let s = (q - 1.0 / q) / 2.0;
-        let t = (q + 1.0 / q) / 2.0;
-        let v = (b * u_coord / a).sin();
-        let u = (v * c0 + s * s0) / t;
-        let t = (h / ((1.0 + u) / (1.0 - u)).sqrt()).powf(1.0 / b);
-
-        let chi = FRAC_PI_2 - 2.0 * t.atan();
-        let f = [
-            0.5 + es * (5.0 / 24.0 + es * (1.0 / 12.0 + es * 13.0 / 360.0)),
-            es * (7.0 / 48.0 + es * (29.0 / 240.0 + es * 811.0 / 11520.0)),
-            es * es * (7.0 / 120.0 + es * 81.0 / 1120.0),
-            es * es * es * 4279.0 / 161280.0,
-        ];
-        let sines = [
-            (2.0 * chi).sin(),
-            (4.0 * chi).sin(),
-            (6.0 * chi).sin(),
-            (8.0 * chi).sin(),
-        ];
-
-        let lat =
-            chi + es * (f[0] * sines[0] + f[1] * sines[1] + f[2] * sines[2] + f[3] * sines[3]);
-        let lon = lambda_0 - (s * c0 - v * s0).atan2((b * u_coord / a).cos()) / b;
-        operands.set_xy(i, lon, lat);
-        successes += 1;
+#[allow(clippy::too_many_arguments)]
+fn inverse_core(
+    u: f64,
+    v: f64,
+    e: f64,
+    e_scale: f64,
+    b_scale: f64,
+    br_a: f64,
+    r_b: f64,
+    singam: f64,
+    cosgam: f64,
+    lon_0: f64,
+) -> Option<(f64, f64)> {
+    let q = (-br_a * v).exp();
+    if q == 0.0 {
+        return None;
     }
-
-    successes
+    let s = 0.5 * (q - 1.0 / q);
+    let t = 0.5 * (q + 1.0 / q);
+    let vv = (br_a * u).sin();
+    let up = (vv * cosgam + s * singam) / t;
+    if (up.abs() - 1.0).abs() < ANGULAR_TOLERANCE {
+        let lat = if up < 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 };
+        return Some((lon_0, lat));
+    }
+    let ts = e_scale / ((1.0 + up) / (1.0 - up)).sqrt();
+    let lat = ancillary::pj_phi2(ts.powf(1.0 / b_scale), e);
+    let lon = lon_0 - r_b * (s * cosgam - vv * singam).atan2((br_a * u).cos());
+    Some((lon, lat))
 }
 
 #[allow(non_snake_case)]
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let state = op.state::<OmercState>();
-    let e = state.ellps.eccentricity();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lon = adjlon(lon - state.lam0);
-        let (u, v) = if (lat.abs() - FRAC_PI_2).abs() > ANGULAR_TOLERANCE {
-            let w = state.e_scale / tsfn(lat, lat.sin(), e).powf(state.b_scale);
-            let inv_w = 1.0 / w;
-            let s = 0.5 * (w - inv_w);
-            let t = 0.5 * (w + inv_w);
-            let v_term = (state.b_scale * lon).sin();
-            let u = (s * state.singam - v_term * state.cosgam) / t;
-            if u.abs() >= 1.0 {
-                operands.set_xy(i, f64::NAN, f64::NAN);
-                continue;
+        let Some((x, y)) = (match state.mode {
+            OmercMode::TwoPoint => {
+                match forward_core(
+                    lon,
+                    lat,
+                    state.lam0,
+                    state.ellps.eccentricity(),
+                    state.b_scale,
+                    state.e_scale,
+                    state.ar_b,
+                    state.a_scale,
+                    state.singam,
+                    state.cosgam,
+                    state.v_pole_n,
+                    state.v_pole_s,
+                ) {
+                    Some((base_u, v)) => {
+                        if state.no_rot {
+                            Some(state.frame.apply_false_origin(base_u, v))
+                        } else {
+                            let u = base_u - state.u_0;
+                            Some(state.frame.apply_false_origin(
+                                v * state.cosrot + u * state.sinrot,
+                                u * state.cosrot - v * state.sinrot,
+                            ))
+                        }
+                    }
+                    None => None,
+                }
             }
-            let v = 0.5 * state.ar_b * ((1.0 - u) / (1.0 + u)).ln();
-            let temp = (state.b_scale * lon).cos();
-            let u = if temp.abs() < PARAMETER_TOLERANCE {
-                state.a_scale * lon
-            } else {
-                state.ar_b * (s * state.cosgam + v_term * state.singam).atan2(temp)
-            };
-            (u, v)
-        } else {
-            let v = if lat > 0.0 { state.v_pole_n } else { state.v_pole_s };
-            let u = state.ar_b * lat;
-            (u, v)
-        };
+            OmercMode::CentralPoint => {
+                let es = state.ellps.eccentricity_squared();
+                let e = es.sqrt();
+                let kc = state.frame.k_0;
+                let laborde = state.central_laborde;
 
-        let (x, y) = if state.no_rot {
-            state.frame.apply_false_origin(u, v)
-        } else {
-            let u = u - state.u_0;
-            state.frame.apply_false_origin(
-                v * state.cosrot + u * state.sinrot,
-                u * state.cosrot - v * state.sinrot,
-            )
+                let (s, c) = state.latc.sin_cos();
+                let b = (1.0 + c.powi(4) * state.ellps.second_eccentricity_squared()).sqrt();
+                let a =
+                    state.ellps.semimajor_axis() * b * kc * (1.0 - es).sqrt() / (1.0 - es * s * s);
+                let t0 = tsfn(state.latc, s, e);
+                let d = b * (1.0 - es).sqrt() / (c * (1.0 - es * s * s).sqrt());
+                let dd = if d < 1.0 { 0.0 } else { (d * d - 1.0).sqrt() };
+                let f = d + dd * state.latc.signum();
+                let h = f * t0.powf(b);
+                let g = (f - 1.0 / f) / 2.0;
+                let gamma_0 = aasin(state.alpha.sin() / d);
+                let lambda_0 = state.lonc - aasin(g * gamma_0.tan()) / b;
+                let (s0, c0) = gamma_0.sin_cos();
+                let (sc, cc) = (if laborde { state.alpha } else { state.gamma_c }).sin_cos();
+
+                match forward_core(
+                    lon,
+                    lat,
+                    lambda_0,
+                    e,
+                    b,
+                    h,
+                    a / b,
+                    a,
+                    s0,
+                    c0,
+                    a / b * (FRAC_PI_4 - 0.5 * gamma_0).tan().ln(),
+                    a / b * (FRAC_PI_4 + 0.5 * gamma_0).tan().ln(),
+                ) {
+                    Some((base_u, v)) => {
+                        let variant = !state.no_off || state.central_laborde;
+                        let base_u = if variant
+                            && (state.alpha.abs() - FRAC_PI_2).abs() <= ANGULAR_TOLERANCE
+                            && adjlon(lon - lambda_0) == 0.0
+                        {
+                            0.0
+                        } else {
+                            base_u
+                        };
+
+                        if state.no_rot {
+                            Some(state.frame.apply_false_origin(base_u, v))
+                        } else {
+                            let u = if variant { base_u - state.u_0 } else { base_u };
+                            Some(
+                                state
+                                    .frame
+                                    .apply_false_origin(v * cc + u * sc, u * cc - v * sc),
+                            )
+                        }
+                    }
+                    None => None,
+                }
+            }
+        }) else {
+            operands.set_xy(i, f64::NAN, f64::NAN);
+            continue;
         };
         operands.set_xy(i, x, y);
         successes += 1;
@@ -505,37 +464,71 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 #[allow(non_snake_case)]
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let state = op.state::<OmercState>();
-    let e = state.ellps.eccentricity();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let (x_raw, y_raw) = operands.xy(i);
-        let (x, y) = state.frame.remove_false_origin(x_raw, y_raw);
-        let (u, v) = if state.no_rot {
-            (x, y)
-        } else {
-            (
-                y * state.cosrot + x * state.sinrot + state.u_0,
-                x * state.cosrot - y * state.sinrot,
-            )
-        };
-        let q = (-state.br_a * v).exp();
-        if q == 0.0 {
+        let (easting, northing) = operands.xy(i);
+        let Some((lon, lat)) = (match state.mode {
+            OmercMode::TwoPoint => {
+                let (x, y) = state.frame.remove_false_origin(easting, northing);
+                let (u, v) = if state.no_rot {
+                    (x, y)
+                } else {
+                    (
+                        y * state.cosrot + x * state.sinrot + state.u_0,
+                        x * state.cosrot - y * state.sinrot,
+                    )
+                };
+                inverse_core(
+                    u,
+                    v,
+                    state.ellps.eccentricity(),
+                    state.e_scale,
+                    state.b_scale,
+                    state.br_a,
+                    state.r_b,
+                    state.singam,
+                    state.cosgam,
+                    state.lam0,
+                )
+            }
+            OmercMode::CentralPoint => {
+                let es = state.ellps.eccentricity_squared();
+                let e = es.sqrt();
+                let kc = state.frame.k_0;
+
+                let (s, c) = state.latc.sin_cos();
+                let b = (1.0 + c.powi(4) * state.ellps.second_eccentricity_squared()).sqrt();
+                let a =
+                    state.ellps.semimajor_axis() * b * kc * (1.0 - es).sqrt() / (1.0 - es * s * s);
+                let t0 = tsfn(state.latc, s, e);
+                let d = b * (1.0 - es).sqrt() / (c * (1.0 - es * s * s).sqrt());
+                let dd = if d < 1.0 { 0.0 } else { (d * d - 1.0).sqrt() };
+                let f = d + dd * state.latc.signum();
+                let h = f * t0.powf(b);
+                let g = (f - 1.0 / f) / 2.0;
+                let gamma_0 = aasin(state.alpha.sin() / d);
+                let lambda_0 = state.lonc - aasin(g * gamma_0.tan()) / b;
+                let (s0, c0) = gamma_0.sin_cos();
+                let (x, y) = state.frame.remove_false_origin(easting, northing);
+                let (u, v) = if state.no_rot {
+                    (x, y)
+                } else {
+                    let offset = if !state.no_off || state.central_laborde {
+                        state.u_0
+                    } else {
+                        0.0
+                    };
+                    (
+                        y * state.cosrot + x * state.sinrot + offset,
+                        x * state.cosrot - y * state.sinrot,
+                    )
+                };
+                inverse_core(u, v, e, h, b, b / a, 1.0 / b, s0, c0, lambda_0)
+            }
+        }) else {
             operands.set_xy(i, f64::NAN, f64::NAN);
             continue;
-        }
-        let s = 0.5 * (q - 1.0 / q);
-        let t = 0.5 * (q + 1.0 / q);
-        let vv = (state.br_a * u).sin();
-        let up = (vv * state.cosgam + s * state.singam) / t;
-        let (lat, lon) = if (up.abs() - 1.0).abs() < ANGULAR_TOLERANCE {
-            (if up < 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 }, 0.0)
-        } else {
-            let ts = state.e_scale / ((1.0 + up) / (1.0 - up)).sqrt();
-            let lat = ancillary::pj_phi2(ts.powf(1.0 / state.b_scale), e);
-            let lon = state.lam0
-                - state.r_b * (s * state.cosgam - vv * state.singam).atan2((state.br_a * u).cos());
-            (lat, lon)
         };
         operands.set_xy(i, lon, lat);
         successes += 1;
@@ -548,14 +541,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let params = ParsedParameters::new(parameters, &GAMUT)?;
     let state = OmercState::new(&params)?;
-    let descriptor = match state.mode {
-        OmercMode::CentralPoint => OpDescriptor::new(
-            def,
-            InnerOp(fwd_central_with_ctx),
-            Some(InnerOp(inv_central_with_ctx)),
-        ),
-        OmercMode::TwoPoint => OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv))),
-    };
+    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op::with_state(descriptor, params, state))
 }
 

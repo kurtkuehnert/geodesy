@@ -130,6 +130,8 @@ mod geogoffset;
 mod geos;
 #[path = "v2/gstmerc.rs"]
 mod gstmerc;
+#[path = "v2/guam_aeqd.rs"]
+mod guam_aeqd;
 #[path = "v2/krovak.rs"]
 mod krovak;
 #[path = "v2/labrd.rs"]
@@ -177,12 +179,12 @@ mod tunmg;
 #[path = "v3/latitude.rs"]
 mod latitude;
 
-use CoordDomain::{Cartesian, Geographic, Projected};
 #[allow(unused_imports)]
 pub(crate) use crate::projection::ProjectionFrame;
+use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 80] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 81] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::with_domains("aea",         aea::new,         Geographic, Projected),
     BuiltinOp::with_domains("aeqd",        aeqd::new,        Geographic, Projected),
@@ -199,6 +201,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 80] = [
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
     BuiltinOp::with_domains("etmerc",      tmerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("geos",        geos::new,        Geographic, Projected),
+    BuiltinOp::with_domains("guam_aeqd",   guam_aeqd::new,   Geographic, Projected),
     BuiltinOp::with_domains("gs48",        mod_ster::gs48,   Geographic, Projected),
     BuiltinOp::with_domains("gs50",        mod_ster::gs50,   Geographic, Projected),
     BuiltinOp::with_domains("gstmerc",     gstmerc::new,     Geographic, Projected),

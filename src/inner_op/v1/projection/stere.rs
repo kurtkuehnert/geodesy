@@ -1,66 +1,159 @@
 //! Stereographic projection, following PROJ's mode-specific implementation.
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
+use crate::projection::{
+    ConformalLatitude, ProjectionAspect, ProjectionFrame, spherical_inverse_equatorial,
+    spherical_inverse_oblique,
+};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 const DENOMINATOR_TOLERANCE: f64 = 1e-10;
 const POLAR_TOLERANCE: f64 = 1e-8;
-const INVERSE_CONVERGENCE_TOLERANCE: f64 = 1e-10;
 const POLAR_SOURCE_TOLERANCE: f64 = 1e-15;
-const NITER: usize = 8;
 
-fn ssfn(phi: f64, sinphi: f64, eccen: f64) -> f64 {
-    (0.5 * (FRAC_PI_2 + phi)).tan()
-        * ((1.0 - eccen * sinphi) / (1.0 + eccen * sinphi)).powf(0.5 * eccen)
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 9] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Flag { key: "variant_c" },
+    OpParameter::Text { key: "ellps",  default: Some("GRS80") },
+    OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
+    OpParameter::Real { key: "lat_ts", default: Some(90_f64) },
+    OpParameter::Real { key: "lon_0",  default: Some(0_f64) },
+    OpParameter::Real { key: "k_0",    default: Some(1_f64) },
+    OpParameter::Real { key: "x_0",    default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",    default: Some(0_f64) },
+];
+
+#[derive(Clone, Copy, Debug)]
+struct StereState {
+    frame: ProjectionFrame,
+    conformal: ConformalLatitude,
+    aspect: ProjectionAspect,
+    oblique: Option<(f64, f64)>,
+    akm1: f64,
+}
+
+impl StereState {
+    fn new(params: &ParsedParameters) -> Result<Self, Error> {
+        let def = &params.name;
+        let lat_0 = params.lat(0);
+        let mut lat_ts = params.real("lat_ts").unwrap_or(FRAC_PI_2);
+        if lat_ts.abs() > FRAC_PI_2 + DENOMINATOR_TOLERANCE {
+            return Err(Error::BadParam("lat_ts".to_string(), def.clone()));
+        }
+
+        let aspect = ProjectionAspect::classify(lat_0, POLAR_TOLERANCE);
+        if aspect.is_polar() {
+            lat_ts = lat_ts.copysign(lat_0);
+        }
+
+        let ellps = params.ellps(0);
+        let a = ellps.semimajor_axis();
+        let conformal = ConformalLatitude::new(ellps);
+        let e = conformal.eccentricity();
+        let k_0 = params.k(0);
+        let variant_c = params.boolean("variant_c");
+
+        if variant_c && !aspect.is_polar() {
+            return Err(Error::Unsupported(
+                "stere variant_c is only supported for polar stereographic aspects".into(),
+            ));
+        }
+
+        let oblique = if aspect.is_oblique() {
+            if e != 0.0 {
+                let xang = conformal.reduced(lat_0);
+                Some((xang.sin(), xang.cos()))
+            } else {
+                Some((lat_0.sin(), lat_0.cos()))
+            }
+        } else {
+            None
+        };
+
+        let akm1 = if e != 0.0 {
+            if aspect.is_polar() {
+                let lat_ts_abs = lat_ts.abs();
+                if (lat_ts_abs - FRAC_PI_2).abs() < POLAR_TOLERANCE {
+                    let num = 2.0 * k_0;
+                    let den = ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
+                    a * num / den
+                } else {
+                    let sin_ts = lat_ts_abs.sin();
+                    let factor = lat_ts_abs.cos() / conformal.ts(lat_ts_abs);
+                    a * k_0 * factor / (1.0 - (e * sin_ts).powi(2)).sqrt()
+                }
+            } else {
+                let te = e * lat_0.sin();
+                2.0 * a * k_0 * lat_0.cos() / (1.0 - te * te).sqrt()
+            }
+        } else {
+            if !aspect.is_polar() {
+                2.0 * a * k_0
+            } else if (lat_ts.abs() - FRAC_PI_2).abs() >= DENOMINATOR_TOLERANCE {
+                a * lat_ts.abs().cos() / (FRAC_PI_4 - 0.5 * lat_ts.abs()).tan()
+            } else {
+                2.0 * a * k_0
+            }
+        };
+
+        let mut frame = ProjectionFrame::from_params(params);
+        if variant_c {
+            let lat_ts_abs = lat_ts.abs();
+            let sin_ts = lat_ts_abs.sin();
+            let cos_ts = lat_ts_abs.cos();
+            let rho_f = a * cos_ts / (1.0 - (e * sin_ts).powi(2)).sqrt();
+            frame.y_0 += if aspect.is_south_polar() {
+                -rho_f
+            } else {
+                rho_f
+            };
+        }
+
+        Ok(Self {
+            frame,
+            conformal,
+            aspect,
+            oblique,
+            akm1,
+        })
+    }
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let Ok(akm1) = op.params.real("akm1") else {
-        return 0;
-    };
-
-    let frame = ProjectionFrame::from_params(&op.params);
-    let ellps = op.params.ellps(0);
-    let e = ellps.eccentricity();
-    let spherical = e == 0.0;
-    let north_polar = op.params.boolean("north_polar");
-    let south_polar = op.params.boolean("south_polar");
-    let equatorial = op.params.boolean("equatorial");
-    let oblique = op.params.boolean("oblique");
-    let sin_x1 = op.params.real("sin_x1").unwrap_or(0.0);
-    let cos_x1 = op.params.real("cos_x1").unwrap_or(0.0);
+    let state = op.state::<StereState>();
+    let spherical = state.conformal.spherical();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = frame.lon_delta_raw(lon);
+        let lam = state.frame.lon_delta_raw(lon);
         let sinlam = lam.sin();
         let mut coslam = lam.cos();
         let (x, y) = if spherical {
             let sinphi = lat.sin();
             let cosphi = lat.cos();
-            if equatorial {
+            if state.aspect.is_equatorial() {
                 let denom = 1.0 + cosphi * coslam;
                 if denom <= DENOMINATOR_TOLERANCE {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
-                let a = akm1 / denom;
+                let a = state.akm1 / denom;
                 (a * cosphi * sinlam, a * sinphi)
-            } else if oblique {
+            } else if let Some((sin_x1, cos_x1)) = state.oblique {
                 let denom = 1.0 + sin_x1 * sinphi + cos_x1 * cosphi * coslam;
                 if denom <= DENOMINATOR_TOLERANCE {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
-                let a = akm1 / denom;
+                let a = state.akm1 / denom;
                 (
                     a * cosphi * sinlam,
                     a * (cos_x1 * sinphi - sin_x1 * cosphi * coslam),
                 )
             } else {
                 let mut phi = lat;
-                if north_polar {
+                if state.aspect.is_north_polar() {
                     coslam = -coslam;
                     phi = -phi;
                 }
@@ -68,40 +161,40 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
-                let y = akm1 * (FRAC_PI_4 + 0.5 * phi).tan();
+                let y = state.akm1 * (FRAC_PI_4 + 0.5 * phi).tan();
                 (sinlam * y, y * coslam)
             }
         } else {
             let mut sin_x = 0.0;
             let mut cos_x = 0.0;
             let a;
-            let mut sinphi = lat.sin();
+            let mut phi = lat;
+            let mut sinphi = phi.sin();
 
-            if oblique || equatorial {
-                let xang = 2.0 * ssfn(lat, sinphi, e).atan() - FRAC_PI_2;
+            if !state.aspect.is_polar() {
+                let xang = state.conformal.reduced(phi);
                 sin_x = xang.sin();
                 cos_x = xang.cos();
             }
 
-            let (mut x, y) = if oblique {
+            let (mut x, y) = if let Some((sin_x1, cos_x1)) = state.oblique {
                 let denom = cos_x1 * (1.0 + sin_x1 * sin_x + cos_x1 * cos_x * coslam);
                 if denom == 0.0 {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
-                a = akm1 / denom;
+                a = state.akm1 / denom;
                 (a * cos_x, a * (cos_x1 * sin_x - sin_x1 * cos_x * coslam))
-            } else if equatorial {
+            } else if state.aspect.is_equatorial() {
                 let denom = 1.0 + cos_x * coslam;
                 if denom == 0.0 {
                     operands.set_coord(i, &Coor4D::nan());
                     continue;
                 }
-                a = akm1 / denom;
+                a = state.akm1 / denom;
                 (a * cos_x, a * sin_x)
             } else {
-                let mut phi = lat;
-                if south_polar {
+                if state.aspect.is_south_polar() {
                     phi = -phi;
                     coslam = -coslam;
                     sinphi = -sinphi;
@@ -109,7 +202,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 let x = if (phi - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
                     0.0
                 } else {
-                    akm1 * ancillary::ts((sinphi, phi.cos()), e)
+                    state.akm1 * state.conformal.ts(phi)
                 };
                 (x, -x * coslam)
             };
@@ -117,7 +210,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (x, y)
         };
 
-        let (x, y) = frame.apply_false_origin(x, y);
+        let (x, y) = state.frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);
         successes += 1;
     }
@@ -126,66 +219,41 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let Ok(akm1) = op.params.real("akm1") else {
-        return 0;
-    };
-
-    let frame = ProjectionFrame::from_params(&op.params);
-    let ellps = op.params.ellps(0);
-    let e = ellps.eccentricity();
-    let spherical = e == 0.0;
-    let north_polar = op.params.boolean("north_polar");
-    let south_polar = op.params.boolean("south_polar");
-    let equatorial = op.params.boolean("equatorial");
-    let oblique = op.params.boolean("oblique");
-    let sin_x1 = op.params.real("sin_x1").unwrap_or(0.0);
-    let cos_x1 = op.params.real("cos_x1").unwrap_or(0.0);
-    let lat_0 = frame.lat_0;
+    let state = op.state::<StereState>();
+    let spherical = state.conformal.spherical();
+    let lat_0 = state.frame.lat_0;
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (mut x, mut y) = operands.xy(i);
-        let (xf, yf) = frame.remove_false_origin(x, y);
+        let (xf, yf) = state.frame.remove_false_origin(x, y);
         x = xf;
         y = yf;
         let rho = x.hypot(y);
 
         let (lon, lat) = if spherical {
-            let c = 2.0 * (rho / akm1).atan();
-            let sinc = c.sin();
-            let cosc = c.cos();
-            if equatorial {
-                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
-                    0.0
-                } else {
-                    (y * sinc / rho).asin()
-                };
-                let lon = if cosc != 0.0 || x != 0.0 {
-                    (x * sinc).atan2(cosc * rho)
-                } else {
-                    0.0
-                };
-                (lon, lat)
-            } else if oblique {
-                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
-                    lat_0
-                } else {
-                    (cosc * sin_x1 + y * sinc * cos_x1 / rho).asin()
-                };
-                let c = cosc - sin_x1 * lat.sin();
-                let lon = if c != 0.0 || x != 0.0 {
-                    (x * sinc * cos_x1).atan2(c * rho)
-                } else {
-                    0.0
-                };
-                (lon, lat)
+            let c = 2.0 * (rho / state.akm1).atan();
+            if state.aspect.is_equatorial() {
+                spherical_inverse_equatorial(x, y, rho, c, DENOMINATOR_TOLERANCE, 0.0)
+            } else if let Some((sin_x1, cos_x1)) = state.oblique {
+                spherical_inverse_oblique(
+                    x,
+                    y,
+                    rho,
+                    c,
+                    DENOMINATOR_TOLERANCE,
+                    lat_0,
+                    sin_x1,
+                    cos_x1,
+                )
             } else {
-                if north_polar {
+                let cosc = c.cos();
+                if state.aspect.is_north_polar() {
                     y = -y;
                 }
                 let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
                     lat_0
-                } else if south_polar {
+                } else if state.aspect.is_south_polar() {
                     (-cosc).asin()
                 } else {
                     cosc.asin()
@@ -198,44 +266,44 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                 (lon, lat)
             }
         } else {
-            let (tp, mut phi_l, halfpi, halfe) = if oblique || equatorial {
-                let tp = 2.0 * (rho * cos_x1).atan2(akm1);
+            let (chi, x, y) = if let Some((sin_x1, cos_x1)) = state.oblique {
+                let tp = 2.0 * (rho * cos_x1).atan2(state.akm1);
                 let cosphi = tp.cos();
                 let sinphi = tp.sin();
-                let phi_l = if rho == 0.0 {
+                let chi = if rho == 0.0 {
                     (cosphi * sin_x1).asin()
                 } else {
                     (cosphi * sin_x1 + y * sinphi * cos_x1 / rho).asin()
                 };
-                let tp = (0.5 * (FRAC_PI_2 + phi_l)).tan();
-                x *= sinphi;
-                y = rho * cos_x1 * cosphi - y * sin_x1 * sinphi;
-                (tp, phi_l, FRAC_PI_2, 0.5 * e)
+                (chi, x * sinphi, rho * cos_x1 * cosphi - y * sin_x1 * sinphi)
+            } else if state.aspect.is_equatorial() {
+                let tp = 2.0 * rho.atan2(state.akm1);
+                let cosphi = tp.cos();
+                let sinphi = tp.sin();
+                let chi = if rho == 0.0 {
+                    0.0
+                } else {
+                    (y * sinphi / rho).asin()
+                };
+                (chi, x * sinphi, rho * cosphi)
             } else {
-                if north_polar {
+                let mut y = y;
+                if state.aspect.is_north_polar() {
                     y = -y;
                 }
-                let tp = -rho / akm1;
-                let phi_l = FRAC_PI_2 - 2.0 * tp.atan();
-                (tp, phi_l, -FRAC_PI_2, -0.5 * e)
+                (FRAC_PI_2 - 2.0 * (-rho / state.akm1).atan(), x, y)
             };
 
-            let mut lat = f64::NAN;
-            let mut converged = false;
-            for _ in 0..NITER {
-                let sinphi = e * phi_l.sin();
-                lat = 2.0 * (tp * ((1.0 + sinphi) / (1.0 - sinphi)).powf(halfe)).atan() - halfpi;
-                if (phi_l - lat).abs() < INVERSE_CONVERGENCE_TOLERANCE {
-                    converged = true;
-                    break;
+            let lat = if state.aspect.is_polar() {
+                let lat = state.conformal.geographic(std::f64::consts::PI - chi);
+                if state.aspect.is_south_polar() {
+                    -lat
+                } else {
+                    lat
                 }
-                phi_l = lat;
-            }
-            if !converged {
-                operands.set_coord(i, &Coor4D::nan());
-                continue;
-            }
-            let lat = if south_polar { -lat } else { lat };
+            } else {
+                state.conformal.geographic(chi)
+            };
             let lon = if x == 0.0 && y == 0.0 {
                 0.0
             } else {
@@ -244,118 +312,19 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             (lon, lat)
         };
 
-        operands.set_xy(i, frame.lon_0 + lon, lat);
+        operands.set_xy(i, state.frame.lon_0 + lon, lat);
         successes += 1;
     }
 
     successes
 }
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 9] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Flag { key: "variant_c" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lat_ts", default: Some(90_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "k_0", default: Some(1_f64) },
-    OpParameter::Real { key: "x_0", default: Some(0_f64) },
-    OpParameter::Real { key: "y_0", default: Some(0_f64) },
-];
-
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-
-    let lat_0 = params.lat(0);
-    let mut lat_ts = params.real("lat_ts").unwrap_or(FRAC_PI_2);
-    if lat_ts.abs() > FRAC_PI_2 + DENOMINATOR_TOLERANCE {
-        return Err(Error::BadParam("lat_ts".to_string(), def.clone()));
-    }
-
-    if (lat_0.abs() - FRAC_PI_2).abs() < POLAR_TOLERANCE {
-        if lat_0.is_sign_negative() {
-            params.boolean.insert("south_polar");
-            lat_ts = -lat_ts.abs();
-        } else {
-            params.boolean.insert("north_polar");
-            lat_ts = lat_ts.abs();
-        }
-    } else if lat_0.abs() > DENOMINATOR_TOLERANCE {
-        params.boolean.insert("oblique");
-    } else {
-        params.boolean.insert("equatorial");
-    }
-
-    params.real.insert("lat_ts", lat_ts);
-
-    let ellps = params.ellps(0);
-    let a = ellps.semimajor_axis();
-    let e = ellps.eccentricity();
-    let k_0 = params.k(0);
-    let variant_c = params.boolean("variant_c");
-
-    if variant_c && !(params.boolean("north_polar") || params.boolean("south_polar")) {
-        return Err(Error::Unsupported(
-            "stere variant_c is only supported for polar stereographic aspects".into(),
-        ));
-    }
-
-    let akm1 = if e != 0.0 {
-        if params.boolean("north_polar") || params.boolean("south_polar") {
-            let lat_ts_abs = lat_ts.abs();
-            if (lat_ts_abs - FRAC_PI_2).abs() < POLAR_TOLERANCE {
-                let num = 2.0 * k_0;
-                let den = ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
-                a * num / den
-            } else {
-                let sin_ts = lat_ts_abs.sin();
-                let factor = lat_ts_abs.cos() / ancillary::ts((sin_ts, lat_ts_abs.cos()), e);
-                a * k_0 * factor / (1.0 - (e * sin_ts).powi(2)).sqrt()
-            }
-        } else {
-            let t = lat_0.sin();
-            let xang = 2.0 * ssfn(lat_0, t, e).atan() - FRAC_PI_2;
-            let te = e * t;
-            params.real.insert("sin_x1", xang.sin());
-            params.real.insert("cos_x1", xang.cos());
-            2.0 * a * k_0 * lat_0.cos() / (1.0 - te * te).sqrt()
-        }
-    } else if params.boolean("oblique") {
-        params.real.insert("sin_x1", lat_0.sin());
-        params.real.insert("cos_x1", lat_0.cos());
-        2.0 * a * k_0
-    } else if params.boolean("equatorial") {
-        2.0 * a * k_0
-    } else if (lat_ts.abs() - FRAC_PI_2).abs() >= DENOMINATOR_TOLERANCE {
-        a * lat_ts.abs().cos() / (FRAC_PI_4 - 0.5 * lat_ts.abs()).tan()
-    } else {
-        2.0 * a * k_0
-    };
-
-    params.real.insert("akm1", akm1);
-    if variant_c {
-        let lat_ts_abs = lat_ts.abs();
-        let sin_ts = lat_ts_abs.sin();
-        let cos_ts = lat_ts_abs.cos();
-        let rho_f = a * cos_ts / (1.0 - (e * sin_ts).powi(2)).sqrt();
-        let y_0 = params.y(0)
-            + if params.boolean("south_polar") {
-                -rho_f
-            } else {
-                rho_f
-            };
-        params.real.insert("y_0", y_0);
-    }
-
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
+    let state = StereState::new(&params)?;
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 pub fn ups(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {

@@ -72,10 +72,9 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         "rc",
         ellps.prime_vertical_radius_of_curvature(lat_ts) * cos_lat_ts,
     );
-    params.real.insert(
-        "m0",
-        ellps.meridian_latitude_to_distance(params.lat(0)),
-    );
+    params
+        .real
+        .insert("m0", ellps.meridian_latitude_to_distance(params.lat(0)));
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

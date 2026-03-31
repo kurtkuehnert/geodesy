@@ -76,8 +76,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let phic = (frame.lat_0.sin() / n1).asin();
     let c = ancillary::ts((-phic).sin_cos(), 0.0).ln()
         - n1 * ancillary::ts((-frame.lat_0).sin_cos(), e).ln();
-    let n2 =
-        frame.k_0 * frame.a * (1.0 - es).sqrt() / (1.0 - es * frame.lat_0.sin().powi(2));
+    let n2 = frame.k_0 * frame.a * (1.0 - es).sqrt() / (1.0 - es * frame.lat_0.sin().powi(2));
     let xs = frame.x_0;
     let ys = frame.y_0 - n2 * phic;
 

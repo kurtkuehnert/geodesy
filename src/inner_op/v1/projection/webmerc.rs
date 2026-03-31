@@ -4,6 +4,12 @@ use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 use std::f64::consts::FRAC_PI_4;
 
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 2] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "ellps",  default: Some("WGS84") },
+];
+
 #[derive(Clone, Copy, Debug)]
 struct WebMercState {
     frame: ProjectionFrame,
@@ -59,12 +65,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 // ----- C O N S T R U C T O R ---------------------------------------------------------
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 2] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps",  default: Some("WGS84") },
-];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;

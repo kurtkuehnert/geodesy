@@ -3,6 +3,12 @@ use crate::authoring::*;
 
 const Z_AXIS_CUTOFF_FACTOR: f64 = 1e-16;
 
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 2] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "ellps", default: Some("GRS80") },
+];
+
 // ----- F O R W A R D --------------------------------------------------------------
 
 fn cart_fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
@@ -98,12 +104,6 @@ fn cart_inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> us
 }
 
 // ----- C O N S T R U C T O R ------------------------------------------------------
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 2] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     Op::basic(

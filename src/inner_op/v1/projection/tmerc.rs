@@ -1,38 +1,39 @@
 //! Transverse Mercator, following [Engsager & Poder (2007)](crate::bibliography::Bibliography::Eng07)
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
+use crate::projection::{ConformalLatitude, ProjectionFrame};
 
-fn conformal_series_forward(lat: f64, coefficients: &FourierCoefficients) -> f64 {
-    lat + fourier::sin(2. * lat, &coefficients.fwd)
-}
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 7] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "ellps", default: Some("GRS80") },
+    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
+    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
+    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "k_0",   default: Some(1_f64) },
+];
 
-fn conformal_series_inverse(lat: f64, coefficients: &FourierCoefficients) -> f64 {
-    lat + fourier::sin(2. * lat, &coefficients.inv)
+#[rustfmt::skip]
+pub const UTM_GAMUT: [OpParameter; 4] = [
+    OpParameter::Flag    { key: "inv" },
+    OpParameter::Flag    { key: "south" },
+    OpParameter::Text    { key: "ellps", default: Some("GRS80") },
+    OpParameter::Natural { key: "zone",  default: None },
+];
+
+struct TmercState {
+    frame: ProjectionFrame,
+    conformal: ConformalLatitude,
+    tm: FourierCoefficients,
+    scaled_radius: f64,
+    zb: f64,
 }
 
 // ----- F O R W A R D -----------------------------------------------------------------
 
 // Forward transverse mercator, following Engsager & Poder(2007)
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    // Make all precomputed parameters directly accessible
-    let _ellps = op.params.ellps(0);
-    let frame = ProjectionFrame::from_params(&op.params);
-    let Some(conformal) = op.params.fourier_coefficients.get("conformal") else {
-        warn!("Missing Fourier coefficients for conformal mapping!");
-        return 0;
-    };
-    let Some(tm) = op.params.fourier_coefficients.get("tm") else {
-        warn!("Missing Fourier coefficients for TM!");
-        return 0;
-    };
-    let Some(qs) = op.params.real.get("scaled_radius") else {
-        warn!("Missing a scaled radius!");
-        return 0;
-    };
-    let Some(zb) = op.params.real.get("zb") else {
-        warn!("Missing a zombie parameter!");
-        return 0;
-    };
+    let state = op.state::<TmercState>();
 
     let range = 0..operands.len();
     let mut successes = 0_usize;
@@ -43,9 +44,9 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         // --- 1. Geographical -> Conformal latitude, rotated longitude
 
         // The conformal latitude
-        let lat = conformal_series_forward(lat, conformal);
+        let lat = state.conformal.series_reduced(lat);
         // The longitude as reckoned from the central meridian
-        let lon = frame.lon_delta_raw(lon);
+        let lon = state.frame.lon_delta_raw(lon);
 
         // --- 2. Conformal LAT, LNG -> complex spherical LAT
 
@@ -77,14 +78,14 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         ];
 
         // Evaluate and apply the differential term
-        let dc = fourier::complex_sin_optimized_for_tmerc(trig, hyp, &tm.fwd);
+        let dc = fourier::complex_sin_optimized_for_tmerc(trig, hyp, &state.tm.fwd);
         lat += dc[0];
         lon += dc[1];
 
         // --- 4. ellipsoidal normalized N, E -> metric N, E
 
-        let easting = qs * lon + frame.x_0; // Easting
-        let northing = qs * lat + zb; // Northing
+        let easting = state.scaled_radius * lon + state.frame.x_0; // Easting
+        let northing = state.scaled_radius * lat + state.zb; // Northing
 
         // Done!
         operands.set_xy(i, easting, northing);
@@ -98,25 +99,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
 // Inverse Transverse Mercator, following Engsager & Poder (2007)
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    // Make all precomputed parameters directly accessible
-    let _ellps = op.params.ellps(0);
-    let frame = ProjectionFrame::from_params(&op.params);
-    let Some(conformal) = op.params.fourier_coefficients.get("conformal") else {
-        warn!("Missing Fourier coefficients for conformal mapping!");
-        return 0;
-    };
-    let Some(tm) = op.params.fourier_coefficients.get("tm") else {
-        warn!("Missing Fourier coefficients for TM!");
-        return 0;
-    };
-    let Some(qs) = op.params.real.get("scaled_radius") else {
-        warn!("Missing a scaled radius!");
-        return 0;
-    };
-    let Some(zb) = op.params.real.get("zb") else {
-        warn!("Missing a zombie parameter!");
-        return 0;
-    };
+    let state = op.state::<TmercState>();
 
     let range = 0..operands.len();
     let mut successes = 0_usize;
@@ -125,12 +108,12 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         // --- 1. Normalize N, E
 
-        let mut lon = (x - frame.x_0) / qs;
-        let mut lat = (y - zb) / qs;
+        let mut lon = (x - state.frame.x_0) / state.scaled_radius;
+        let mut lat = (y - state.zb) / state.scaled_radius;
 
         // --- 2. Normalized N, E -> complex spherical LAT, LNG
 
-        let dc = fourier::complex_sin([2. * lat, 2. * lon], &tm.inv);
+        let dc = fourier::complex_sin([2. * lat, 2. * lon], &state.tm.inv);
         lat += dc[0];
         lon += dc[1];
         lon = gudermannian::fwd(lon);
@@ -145,8 +128,8 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
         // --- 4. Gaussian LAT, LNG -> ellipsoidal LAT, LNG
 
-        let lon = angular::normalize_symmetric(lon + frame.lon_0);
-        let lat = conformal_series_inverse(lat, conformal);
+        let lon = angular::normalize_symmetric(lon + state.frame.lon_0);
+        let lat = state.conformal.series_geographic(lat);
 
         // Done!
         operands.set_xy(i, lon, lat);
@@ -155,31 +138,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     successes
 }
-
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 7] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-
-    OpParameter::Real { key: "k_0",   default: Some(1_f64) },
-];
-
-#[rustfmt::skip]
-pub const UTM_GAMUT: [OpParameter; 4] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Flag { key: "south" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Natural { key: "zone", default: None },
-];
-
-// ----- C O N S T R U C T O R,   U T M ------------------------------------------------
 
 pub fn utm(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
@@ -208,16 +166,8 @@ pub fn utm(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     super::apply_utm_defaults(&mut params, zone);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-
-    let mut op = Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    };
-
-    precompute(&mut op);
-    Ok(op)
+    let state = precompute(&params);
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 // ----- A N C I L L A R Y   F U N C T I O N S -----------------------------------------
@@ -248,40 +198,43 @@ const TRANSVERSE_MERCATOR: PolynomialCoefficients = PolynomialCoefficients {
 // Common setup workhorse between utm and the plain tmerc:
 // Pre-compute some of the computationally heavy prerequisites,
 // to get better amortization over the full operator lifetime.
-fn precompute(op: &mut Op) {
-    let ellps = op.params.ellps(0);
+fn precompute(params: &ParsedParameters) -> TmercState {
+    let ellps = params.ellps(0);
     let n = ellps.third_flattening();
-    let lat_0 = op.params.lat(0);
-    let y_0 = op.params.y(0);
+    let frame = ProjectionFrame::from_params(params);
 
     // The scaled spherical Earth radius - Qn in Engsager's implementation
-    let qs = op.params.k(0) * ellps.semimajor_axis() * ellps.normalized_meridian_arc_unit();
-    op.params.real.insert("scaled_radius", qs);
+    let scaled_radius = frame.k_0 * ellps.semimajor_axis() * ellps.normalized_meridian_arc_unit();
 
     // The Fourier series for the conformal latitude
-    let conformal = ellps.coefficients_for_conformal_latitude_computations();
-    op.params
-        .fourier_coefficients
-        .insert("conformal", conformal);
+    let conformal = ConformalLatitude::new(ellps);
 
     // The Fourier series for the transverse mercator coordinates,
     // from [Engsager & Poder, 2007](crate::bibliography::Bibliography::Eng07),
     // with extensions to 6th order by [Karney, 2011](crate::bibliography::Bibliography::Kar11).
     let tm = fourier_coefficients(n, &TRANSVERSE_MERCATOR);
-    op.params.fourier_coefficients.insert("tm", tm);
 
     // Conformal latitude value of the latitude-of-origin - Z in Engsager's notation
-    let z = ellps.latitude_geographic_to_conformal(lat_0, &conformal);
+    let z = conformal.series_reduced(frame.lat_0);
     // Origin northing minus true northing at the origin latitude
     // i.e. true northing = N - zb
-    let zb = y_0 - qs * (z + fourier::sin(2. * z, &tm.fwd));
-    op.params.real.insert("zb", zb);
+    let zb = frame.y_0 - scaled_radius * (z + fourier::sin(2. * z, &tm.fwd));
+
+    TmercState {
+        frame,
+        conformal,
+        tm,
+        scaled_radius,
+        zb,
+    }
 }
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let mut op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
-    precompute(&mut op);
-    Ok(op)
+    let def = &parameters.instantiated_as;
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
+    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
+    let state = precompute(&params);
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 // ----- T E S T S ---------------------------------------------------------------------

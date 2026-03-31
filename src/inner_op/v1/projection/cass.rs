@@ -13,6 +13,26 @@ const NUMERICAL_JACOBIAN_STEP: f64 = 1e-6;
 const JACOBIAN_DETERMINANT_TOLERANCE: f64 = 1e-24;
 const INV_ITER: usize = 15;
 
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 7] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "ellps", default: Some("GRS80") },
+    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
+    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
+    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
+    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
+    OpParameter::Flag { key: "hyperbolic" },
+];
+
+struct CassState {
+    frame: ProjectionFrame,
+    ellps: Ellipsoid,
+    m0: f64,
+    spherical: bool,
+    hyperbolic: bool,
+    es: f64,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fwd_ellipsoidal(
     ellps: &Ellipsoid,
@@ -47,32 +67,26 @@ fn fwd_ellipsoidal(
 }
 
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let frame = ProjectionFrame::from_params(&op.params);
-    let Ok(m0) = op.params.real("m0") else {
-        return 0;
-    };
-    let spherical = op.params.boolean("spherical");
-    let hyperbolic = op.params.boolean("hyperbolic");
+    let state = op.state::<CassState>();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
 
-        let (x, y) = if spherical {
-            let lam = frame.lon_delta(lon);
+        let (x, y) = if state.spherical {
+            let lam = state.frame.lon_delta(lon);
             (
-                frame.a * (lat.cos() * lam.sin()).asin(),
-                frame.a * (lat.tan().atan2(lam.cos()) - frame.lat_0),
+                state.frame.a * (lat.cos() * lam.sin()).asin(),
+                state.frame.a * (lat.tan().atan2(lam.cos()) - state.frame.lat_0),
             )
         } else {
             fwd_ellipsoidal(
-                &ellps,
-                frame.lon_0,
-                frame.x_0,
-                frame.y_0,
-                m0,
-                hyperbolic,
+                &state.ellps,
+                state.frame.lon_0,
+                state.frame.x_0,
+                state.frame.y_0,
+                state.m0,
+                state.hyperbolic,
                 lon,
                 lat,
             )
@@ -85,53 +99,50 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 }
 
 fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let ellps = op.params.ellps(0);
-    let frame = ProjectionFrame::from_params(&op.params);
-    let es = ellps.eccentricity_squared();
-    let Ok(m0) = op.params.real("m0") else {
-        return 0;
-    };
-    let spherical = op.params.boolean("spherical");
+    let state = op.state::<CassState>();
 
     let mut successes = 0_usize;
     for i in 0..operands.len() {
-        let (x, y) = frame.remove_false_origin(operands.xy(i).0, operands.xy(i).1);
+        let (x, y) = state
+            .frame
+            .remove_false_origin(operands.xy(i).0, operands.xy(i).1);
 
-        let (lon, lat) = if spherical {
-            let dd = y / frame.a + frame.lat_0;
+        let (lon, lat) = if state.spherical {
+            let dd = y / state.frame.a + state.frame.lat_0;
             (
-                frame.lon_0 + (x / frame.a).tan().atan2(dd.cos()),
-                (dd.sin() * (x / frame.a).cos()).asin(),
+                state.frame.lon_0 + (x / state.frame.a).tan().atan2(dd.cos()),
+                (dd.sin() * (x / state.frame.a).cos()).asin(),
             )
         } else {
-            let phi1 = ellps.meridian_distance_to_latitude(frame.a * (m0 + y / frame.a));
+            let phi1 = state
+                .ellps
+                .meridian_distance_to_latitude(state.frame.a * (state.m0 + y / state.frame.a));
             let tanphi1 = phi1.tan();
             let t1 = tanphi1 * tanphi1;
             let sinphi1 = phi1.sin();
-            let nu1_sq = 1.0 / (1.0 - es * sinphi1 * sinphi1);
+            let nu1_sq = 1.0 / (1.0 - state.es * sinphi1 * sinphi1);
             let nu1 = nu1_sq.sqrt();
-            let rho1 = nu1_sq * (1.0 - es) * nu1;
-            let d = x / (frame.a * nu1);
+            let rho1 = nu1_sq * (1.0 - state.es) * nu1;
+            let d = x / (state.frame.a * nu1);
             let d2 = d * d;
-            let hyperbolic = op.params.boolean("hyperbolic");
-            let lon = frame.lon_0
+            let lon = state.frame.lon_0
                 + d * (1.0 + t1 * d2 * (-C4 + (1.0 + 3.0 * t1) * d2 * C5)) / phi1.cos();
             let lat = phi1 - (nu1 * tanphi1 / rho1) * d2 * (0.5 - (1.0 + 3.0 * t1) * d2 * C3);
             let (mut lon, mut lat) = (lon, lat);
 
             for _ in 0..INV_ITER {
                 let (fx, fy) = fwd_ellipsoidal(
-                    &ellps,
-                    frame.lon_0,
-                    frame.x_0,
-                    frame.y_0,
-                    m0,
-                    hyperbolic,
+                    &state.ellps,
+                    state.frame.lon_0,
+                    state.frame.x_0,
+                    state.frame.y_0,
+                    state.m0,
+                    state.hyperbolic,
                     lon,
                     lat,
                 );
-                let delta_x = fx - (x + frame.x_0);
-                let delta_y = fy - (y + frame.y_0);
+                let delta_x = fx - (x + state.frame.x_0);
+                let delta_y = fy - (y + state.frame.y_0);
                 if delta_x.abs() < INVERSE_CONVERGENCE_TOLERANCE
                     && delta_y.abs() < INVERSE_CONVERGENCE_TOLERANCE
                 {
@@ -149,22 +160,22 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
                     NUMERICAL_JACOBIAN_STEP
                 };
                 let (fx_lon, fy_lon) = fwd_ellipsoidal(
-                    &ellps,
-                    frame.lon_0,
-                    frame.x_0,
-                    frame.y_0,
-                    m0,
-                    hyperbolic,
+                    &state.ellps,
+                    state.frame.lon_0,
+                    state.frame.x_0,
+                    state.frame.y_0,
+                    state.m0,
+                    state.hyperbolic,
                     lon + h_lon,
                     lat,
                 );
                 let (fx_lat, fy_lat) = fwd_ellipsoidal(
-                    &ellps,
-                    frame.lon_0,
-                    frame.x_0,
-                    frame.y_0,
-                    m0,
-                    hyperbolic,
+                    &state.ellps,
+                    state.frame.lon_0,
+                    state.frame.x_0,
+                    state.frame.y_0,
+                    state.m0,
+                    state.hyperbolic,
                     lon,
                     lat + h_lat,
                 );
@@ -196,40 +207,28 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     successes
 }
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 7] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "x_0", default: Some(0_f64) },
-    OpParameter::Real { key: "y_0", default: Some(0_f64) },
-    OpParameter::Flag { key: "hyperbolic" },
-];
-
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
-    let mut params = ParsedParameters::new(parameters, &GAMUT)?;
+    let params = ParsedParameters::new(parameters, &GAMUT)?;
     let frame = ProjectionFrame::from_params(&params);
 
     let ellps = params.ellps(0);
-    if ellps.flattening() == 0.0 {
-        params.boolean.insert("spherical");
-        params.real.insert("m0", frame.lat_0);
-    } else {
-        params.real.insert(
-            "m0",
-            ellps.meridian_latitude_to_distance(frame.lat_0) / ellps.semimajor_axis(),
-        );
-    }
+    let spherical = ellps.flattening() == 0.0;
+    let state = CassState {
+        frame,
+        ellps,
+        m0: if spherical {
+            frame.lat_0
+        } else {
+            ellps.meridian_latitude_to_distance(frame.lat_0) / ellps.semimajor_axis()
+        },
+        spherical,
+        hyperbolic: params.boolean("hyperbolic"),
+        es: ellps.eccentricity_squared(),
+    };
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
+    Ok(Op::with_state(descriptor, params, state))
 }
 
 #[cfg(test)]

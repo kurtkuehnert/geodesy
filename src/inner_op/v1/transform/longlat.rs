@@ -1,6 +1,13 @@
 //! Geographic longitude/latitude with optional prime meridian offset.
 use crate::authoring::*;
 
+#[rustfmt::skip]
+pub const GAMUT: [OpParameter; 3] = [
+    OpParameter::Flag { key: "inv" },
+    OpParameter::Text { key: "ellps", default: Some("GRS80") },
+    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
+];
+
 fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let lon_0 = op.params.lon(0);
     for i in 0..operands.len() {
@@ -18,13 +25,6 @@ fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     }
     operands.len()
 }
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 3] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-];
 
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let mut op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
