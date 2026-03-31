@@ -11,6 +11,7 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     }
     normalize_geoc_aliases(elements)?;
     normalize_aeqd_variants(elements);
+    normalize_sterec(elements);
     normalize_ups(elements)?;
 
     // Sphere reduction modifiers (R_A, R_V, R_a, …) must run first so that
@@ -41,6 +42,16 @@ fn normalize_aeqd_variants(elements: &mut Vec<String>) {
 
     if remove_parameter_flag(elements, "guam") {
         elements[0] = "guam_aeqd".to_string();
+    }
+}
+
+fn normalize_sterec(elements: &mut Vec<String>) {
+    if elements.first().map(String::as_str) != Some("stere") {
+        return;
+    }
+
+    if remove_parameter_flag(elements, "variant_c") {
+        elements[0] = "sterec".to_string();
     }
 }
 

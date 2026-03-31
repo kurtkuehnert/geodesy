@@ -19,14 +19,8 @@ pub const GAMUT: &[OpParameter] = projection_gamut!(
     OpParameter::Real { key: "lat_2", default: None },
 );
 
-#[rustfmt::skip]
-const LEAC_GAMUT: &[OpParameter] = projection_gamut!(
-    OpParameter::Flag { key: "south" },
-    OpParameter::Real { key: "lat_1", default: None },
-);
-
 #[derive(Clone, Copy, Debug)]
-struct Aea {
+pub(crate) struct Aea {
     frame: ProjectionFrame,
     authalic: AuthalicLatitude,
     n: f64,
@@ -35,7 +29,12 @@ struct Aea {
 }
 
 impl Aea {
-    fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<Self, Error> {
+    pub(crate) fn with_standard_parallels(
+        params: &ParsedParameters,
+        phi0: f64,
+        phi1: f64,
+        phi2: f64,
+    ) -> Result<Self, Error> {
         if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
             return Err(Error::BadParam(
                 "lat_1/lat_2".to_string(),
@@ -82,7 +81,7 @@ impl PointOp for Aea {
     const GAMUT: &'static [OpParameter] = GAMUT;
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        Self::new(params, params.lat(0), params.lat(1), params.lat(2))
+        Self::with_standard_parallels(params, params.lat(0), params.lat(1), params.lat(2))
     }
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
@@ -121,39 +120,8 @@ impl PointOp for Aea {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Leac(Aea);
-
-impl PointOp for Leac {
-    type State = Self;
-    const GAMUT: &'static [OpParameter] = LEAC_GAMUT;
-
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        let phi0 = params.lat(0);
-        let phi1 = if params.boolean("south") {
-            -FRAC_PI_2
-        } else {
-            FRAC_PI_2
-        };
-        let phi2 = params.lat(1);
-        Ok(Self(Aea::new(params, phi0, phi1, phi2)?))
-    }
-
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Aea::fwd(&state.0, coord)
-    }
-
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Aea::inv(&state.0, coord)
-    }
-}
-
 pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
     Op::point::<Aea>(parameters, ctx)
-}
-
-pub fn leac(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Leac>(parameters, ctx)
 }
 
 #[cfg(test)]
