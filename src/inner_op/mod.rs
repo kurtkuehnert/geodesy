@@ -257,7 +257,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     // Domain-agnostic operators
     BuiltinOp::new("adapt",       adapt::new),
     BuiltinOp::new("addone",      addone::new),
-    BuiltinOp::new("axisswap",    axisswap::new),
+    BuiltinOp::new("axisswap",    Op::point::<axisswap::AxisSwap>),
     BuiltinOp::new("curvature",   curvature::new),
     BuiltinOp::new("deflection",  deflection::new),
     BuiltinOp::new("deformation", deformation::new),

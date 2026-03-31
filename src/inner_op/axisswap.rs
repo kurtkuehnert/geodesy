@@ -1,126 +1,90 @@
 use super::*;
 
-// ----- F O R W A R D -----------------------------------------------------------------
-
-fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let n = operands.len();
-
-    // We default to order=1,2,3,4, so if order is not given, we are done already
-    let Ok(order) = op.params.series("order") else {
-        return n;
-    };
-
-    let dimensionality = order.len();
-
-    let mut pos = [0_usize, 1, 2, 3];
-    let mut sgn = [1., 1., 1., 1.];
-    for (index, value) in order.iter().enumerate() {
-        pos[index] = (value.abs() - 1.) as usize;
-        sgn[index] = 1_f64.copysign(*value);
-    }
-
-    let mut successes = 0_usize;
-    for i in 0..n {
-        let inp = operands.get_coord(i);
-        let mut out = inp;
-        for index in 0..dimensionality {
-            out[index] = inp[pos[index]] * sgn[index];
-        }
-        operands.set_coord(i, &out);
-        successes += 1;
-    }
-
-    successes
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AxisSwap {
+    dimensionality: usize,
+    pos: [usize; 4],
+    sgn: [f64; 4],
 }
 
-// ----- I N V E R S E -----------------------------------------------------------------
+impl PointOp for AxisSwap {
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Series { key: "order", default: None },
+    ];
 
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let n = operands.len();
-
-    // We default to order=1,2,3,4, so if order is not given, we are done already
-    let Ok(order) = op.params.series("order") else {
-        return n;
-    };
-
-    let dimensionality = order.len();
-
-    let mut pos = [0_usize, 1, 2, 3];
-    let mut sgn = [1., 1., 1., 1.];
-    for (index, value) in order.iter().enumerate() {
-        pos[index] = (value.abs() - 1.) as usize;
-        sgn[index] = 1_f64.copysign(*value);
-    }
-
-    let mut successes = 0_usize;
-    for i in 0..n {
-        let inp = operands.get_coord(i);
-        let mut out = inp;
-        for index in 0..dimensionality {
-            out[pos[index]] = inp[index] * sgn[index];
-        }
-        operands.set_coord(i, &out);
-        successes += 1;
-    }
-
-    successes
-}
-
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-// Example...
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 2] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Series { key: "order", default: None },
-];
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
-    let given = parameters.instantiated_as.split_into_parameters();
-
-    if given.contains_key("axis") && given.contains_key("order") {
-        return Err(Error::BadParam(
-            "axis/order".to_string(),
-            "axisswap does not allow both axis and order on the same step".to_string(),
-        ));
-    }
-
-    let Ok(order) = op.params.series("order") else {
-        return Err(Error::BadParam(
-            "order".to_string(),
-            "axisswap requires an explicit order or axis parameter".to_string(),
-        ));
-    };
-
-    if order.len() > 4 {
-        return Err(Error::BadParam(
-            "order".to_string(),
-            "More than 4 indices given".to_string(),
-        ));
-    }
-
-    // While the Series type returns a Vec<f64>, the elements must be convertible to i64
-    // and further to (x.abs() as usize) for use as array indices
-    for &o in order {
-        let i = o as i64;
-        if (i as f64) != o || i == 0 || (i.unsigned_abs() as usize) > order.len() {
-            return Err(Error::BadParam("order".to_string(), o.to_string()));
-        }
-    }
-
-    // PROJ does not allow duplicate axes, presumably for a well considered reason,
-    // so neither do we
-    for o in 1_u64..5 {
-        if order.iter().filter(|x| (x.abs() as u64) == o).count() > 1 {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        if params.given.contains_key("axis") && params.given.contains_key("order") {
             return Err(Error::BadParam(
-                "order".to_string(),
-                "duplicate axis specified".to_string(),
+                "axis/order".to_string(),
+                "axisswap does not allow both axis and order on the same step".to_string(),
             ));
         }
+
+        let order = params.series("order").map_err(|_| {
+            Error::BadParam(
+                "order".to_string(),
+                "axisswap requires an explicit order or axis parameter".to_string(),
+            )
+        })?;
+
+        if order.len() > 4 {
+            return Err(Error::BadParam(
+                "order".to_string(),
+                "More than 4 indices given".to_string(),
+            ));
+        }
+
+        let dimensionality = order.len();
+        let mut pos = [0_usize, 1, 2, 3];
+        let mut sgn = [1.0, 1.0, 1.0, 1.0];
+        let mut seen = [false; 4];
+
+        for (index, value) in order.iter().copied().enumerate() {
+            let axis = value as i64;
+            if (axis as f64) != value
+                || axis == 0
+                || (axis.unsigned_abs() as usize) > dimensionality
+            {
+                return Err(Error::BadParam("order".to_string(), value.to_string()));
+            }
+
+            let source = value.abs() as usize - 1;
+            if seen[source] {
+                return Err(Error::BadParam(
+                    "order".to_string(),
+                    "duplicate axis specified".to_string(),
+                ));
+            }
+            seen[source] = true;
+
+            pos[index] = source;
+            sgn[index] = 1.0_f64.copysign(value);
+        }
+
+        Ok(Self {
+            dimensionality,
+            pos,
+            sgn,
+        })
     }
 
-    Ok(op)
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        let mut out = coord;
+        for index in 0..self.dimensionality {
+            out[index] = coord[self.pos[index]] * self.sgn[index];
+        }
+        Some(out)
+    }
+
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let mut out = coord;
+        for index in 0..self.dimensionality {
+            out[self.pos[index]] = coord[index] * self.sgn[index];
+        }
+        Some(out)
+    }
 }
 
 // ----- T E S T S ---------------------------------------------------------------------
@@ -133,22 +97,13 @@ mod tests {
     fn four_dim() -> Result<(), Error> {
         let mut ctx = Minimal::default();
         let op = ctx.op("axisswap order=2,1,-3,-4")?;
-
         let mut operands = [Coor4D([1., 2., 3., 4.])];
 
-        // Forward
         ctx.apply(op, Fwd, &mut operands)?;
-        assert_eq!(operands[0][0], 2.);
-        assert_eq!(operands[0][1], 1.);
-        assert_eq!(operands[0][2], -3.);
-        assert_eq!(operands[0][3], -4.);
+        assert_eq!(operands[0], Coor4D([2., 1., -3., -4.]));
 
-        // Inverse + roundtrip
         ctx.apply(op, Inv, &mut operands)?;
-        assert_eq!(operands[0][0], 1.);
-        assert_eq!(operands[0][1], 2.);
-        assert_eq!(operands[0][2], 3.);
-        assert_eq!(operands[0][3], 4.);
+        assert_eq!(operands[0], Coor4D([1., 2., 3., 4.]));
 
         Ok(())
     }
@@ -162,23 +117,14 @@ mod tests {
     #[test]
     fn two_dim() -> Result<(), Error> {
         let mut ctx = Minimal::default();
-
         let op = ctx.op("axisswap order=2,-1")?;
         let mut operands = [Coor4D([1., 2., 3., 4.])];
 
-        // Forward
         ctx.apply(op, Fwd, &mut operands)?;
-        assert_eq!(operands[0][0], 2.);
-        assert_eq!(operands[0][1], -1.);
-        assert_eq!(operands[0][2], 3.);
-        assert_eq!(operands[0][3], 4.);
+        assert_eq!(operands[0], Coor4D([2., -1., 3., 4.]));
 
-        // Inverse + roundtrip
         ctx.apply(op, Inv, &mut operands)?;
-        assert_eq!(operands[0][0], 1.);
-        assert_eq!(operands[0][1], 2.);
-        assert_eq!(operands[0][2], 3.);
-        assert_eq!(operands[0][3], 4.);
+        assert_eq!(operands[0], Coor4D([1., 2., 3., 4.]));
         Ok(())
     }
 
@@ -186,25 +132,11 @@ mod tests {
     fn bad_parameters() -> Result<(), Error> {
         let mut ctx = Minimal::default();
 
-        // Too many indices
-        let op = ctx.op("axisswap order=4,4,4,2,-1");
-        assert!(matches!(op, Err(Error::BadParam(_, _))));
-
-        // Repeated indices
-        let op = ctx.op("axisswap order=4,-4,2,-1");
-        assert!(matches!(op, Err(Error::BadParam(_, _))));
-
-        // Index exceeding dimensionality
-        let op = ctx.op("axisswap order=2,3");
-        assert!(matches!(op, Err(Error::BadParam(_, _))));
-
-        // Missing indices ('order' becomes a flag)
-        let op = ctx.op("axisswap order");
-        assert!(matches!(op, Err(Error::BadParam(_, _))));
-
-        // Missing all args: error — PROJ requires explicit order or axis
-        let op = ctx.op("axisswap");
-        assert!(op.is_err());
+        assert!(ctx.op("axisswap order=4,4,4,2,-1").is_err());
+        assert!(ctx.op("axisswap order=4,-4,2,-1").is_err());
+        assert!(ctx.op("axisswap order=2,3").is_err());
+        assert!(ctx.op("axisswap order").is_err());
+        assert!(ctx.op("axisswap").is_err());
 
         Ok(())
     }
