@@ -6,21 +6,14 @@
 //! - PROJ 9.8.0 `cea` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/cea.rst>
 use crate::authoring::*;
-use crate::projection::{AuthalicLatitude, ProjectionFrame};
+use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
 
 use std::f64::consts::FRAC_PI_2;
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 8] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps",  default: Some("GRS80") },
-    OpParameter::Real { key: "lon_0",  default: Some(0_f64) },
+pub const GAMUT: &[OpParameter] = projection_gamut!(
     OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
-    OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
-    OpParameter::Real { key: "x_0",    default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",    default: Some(0_f64) },
     OpParameter::Real { key: "k_0",    default: Some(1_f64) },
-];
+);
 
 #[derive(Clone, Copy, Debug)]
 struct CeaState {
@@ -58,7 +51,7 @@ struct Cea;
 
 impl PointOp for Cea {
     type State = CeaState;
-    const GAMUT: &'static [OpParameter] = &GAMUT;
+    const GAMUT: &'static [OpParameter] = GAMUT;
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
         CeaState::new(params)
@@ -68,18 +61,22 @@ impl PointOp for Cea {
         let (lon, lat) = coord.xy();
         let lam = state.frame.lon_delta(lon);
         let q = state.authalic.q_from_phi(lat);
+
         let x_local = state.frame.a * state.frame.k_0 * lam;
         let y_local = state.frame.a / state.frame.k_0 * 0.5 * q;
+
         let (x, y) = state.frame.apply_false_origin(x_local, y_local);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
     fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
-        let q = 2.0 * y_local * state.frame.k_0 / state.frame.a;
+
         let lam = x_local / (state.frame.a * state.frame.k_0);
-        let lat = state.authalic.phi_from_q(q)?;
+        let q = 2.0 * y_local * state.frame.k_0 / state.frame.a;
+
         let lon = state.frame.apply_lon_delta(lam);
+        let lat = state.authalic.phi_from_q(q)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }

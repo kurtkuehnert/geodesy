@@ -49,6 +49,21 @@ pub(crate) fn assert_roundtrip(
     Ok(())
 }
 
+pub(crate) fn assert_inverse(
+    definition: &str,
+    input: Coor4D,
+    expected: Coor4D,
+    tolerance: f64,
+) -> Result<(), Error> {
+    let mut ctx = Minimal::default();
+    let op = ctx.op(definition)?;
+    let mut operands = [input];
+
+    ctx.apply(op, Inv, &mut operands)?;
+    assert!(operands[0].hypot2(&expected) < tolerance);
+    Ok(())
+}
+
 pub(crate) fn assert_inverse_rejects(
     definition: &str,
     input: Coor4D,

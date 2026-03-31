@@ -2,6 +2,22 @@ use crate::authoring::ParsedParameters;
 use crate::ellipsoid::EllipsoidBase;
 use crate::math::angular;
 
+macro_rules! projection_gamut {
+    ( $( $extra:expr ),* $(,)? ) => {
+        &[
+            OpParameter::Flag { key: "inv" },
+            OpParameter::Text { key: "ellps", default: Some("GRS80") },
+            OpParameter::Real { key: "lat_0", default: Some(0.0) },
+            OpParameter::Real { key: "lon_0", default: Some(0.0) },
+            OpParameter::Real { key: "x_0", default: Some(0.0) },
+            OpParameter::Real { key: "y_0", default: Some(0.0) },
+            $( $extra ),*
+        ]
+    };
+}
+
+pub(crate) use projection_gamut;
+
 /// Shared cached frame values for geographic -> projected operators.
 ///
 /// This is intentionally small and mechanical: the common origin, false-origin,

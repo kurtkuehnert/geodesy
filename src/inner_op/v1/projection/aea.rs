@@ -1,22 +1,38 @@
-//! Albers Equal Area
+//! Albers Equal Area.
+//!
+//! Attribution:
+//! - PROJ 9.8.0 `aea.cpp`:
+//!   <https://github.com/OSGeo/PROJ/blob/9.8.0/src/projections/aea.cpp>
+//! - PROJ 9.8.0 `aea` documentation:
+//!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aea.rst>
 use crate::authoring::*;
-use crate::projection::{AuthalicLatitude, ProjectionFrame};
+use crate::math::ancillary;
+use crate::math::sqrt_checked;
+use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
+
 use std::f64::consts::FRAC_PI_2;
 
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
 const AUTHALIC_LIMIT_TOLERANCE: f64 = 1e-7;
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 8] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lat_1", default: None },
-    OpParameter::Real { key: "lat_2", default: None },
-    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-];
+pub const GAMUT: &[OpParameter] = projection_gamut!(
+    OpParameter::Real {
+        key: "lat_1",
+        default: None
+    },
+    OpParameter::Real {
+        key: "lat_2",
+        default: None
+    },
+);
+
+const LEAC_GAMUT: &[OpParameter] = projection_gamut!(
+    OpParameter::Flag { key: "south" },
+    OpParameter::Real {
+        key: "lat_1",
+        default: None
+    },
+);
 
 #[derive(Clone, Copy, Debug)]
 struct AeaState {
@@ -26,13 +42,12 @@ struct AeaState {
     c: f64,
     dd: f64,
     rho0: f64,
-    qp: f64,
     ec: f64,
     spherical: bool,
 }
 
 impl AeaState {
-    fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<AeaState, Error> {
+    fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<Self, Error> {
         if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
             return Err(Error::BadParam(
                 "lat_1/lat_2".to_string(),
@@ -69,7 +84,6 @@ impl AeaState {
                 c,
                 dd,
                 rho0,
-                qp: 2.0,
                 ec: 2.0,
                 spherical,
             });
@@ -84,12 +98,13 @@ impl AeaState {
             let q2 = authalic.q_from_phi(phi2);
             n = (m1 * m1 - m2 * m2) / (q2 - q1);
         }
+
         let e = ellps.eccentricity();
         let ec = 1.0 - 0.5 * (1.0 - es) * ((1.0 - e) / (1.0 + e)).ln() / e;
         let c = m1 * m1 + n * q1;
         let dd = 1.0 / n;
-        let qp = authalic.qp();
         let rho0 = dd * (c - n * authalic.q_from_phi(phi0)).sqrt();
+
         Ok(Self {
             frame,
             authalic,
@@ -97,171 +112,166 @@ impl AeaState {
             c,
             dd,
             rho0,
-            qp,
             ec,
             spherical,
         })
     }
-}
 
-fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let state = op.state::<AeaState>();
+    fn forward(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (lon, lat) = coord.xy();
+        let lam = self.frame.lon_delta(lon);
+        let q = self.authalic.q_from_phi(lat);
 
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (lon, lat) = operands.xy(i);
-        let rho_term = if state.spherical {
-            state.c - 2.0 * state.n * lat.sin()
-        } else {
-            state.c - state.n * state.authalic.q_from_phi(lat)
-        };
-        if rho_term < 0.0 {
-            operands.set_coord(i, &Coor4D::nan());
-            continue;
-        }
-        let rho = state.dd * rho_term.sqrt();
-        let theta = state.frame.lon_delta(lon) * state.n;
-        let x = state.frame.a * rho * theta.sin();
-        let y = state.frame.a * (state.rho0 - rho * theta.cos());
-        let (x, y) = state.frame.apply_false_origin(x, y);
-        operands.set_xy(i, x, y);
-        successes += 1;
+        let rho = self.dd * sqrt_checked(self.c - self.n * q)?;
+        let theta = lam * self.n;
+        let (sin_theta, cos_theta) = theta.sin_cos();
+        let x_local = self.frame.a * rho * sin_theta;
+        let y_local = self.frame.a * (self.rho0 - rho * cos_theta);
+
+        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
+        Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
-    successes
-}
 
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let state = op.state::<AeaState>();
-
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (x_raw, y_raw) = operands.xy(i);
-        let (mut x, y_local) = state.frame.remove_false_origin(x_raw, y_raw);
-        x /= state.frame.a;
-        let mut y = state.rho0 - y_local / state.frame.a;
+    fn inverse(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
+        let mut x = x_local / self.frame.a;
+        let mut y = self.rho0 - y_local / self.frame.a;
         let mut rho = x.hypot(y);
-        if rho != 0.0 {
-            if state.n < 0.0 {
-                rho = -rho;
-                x = -x;
-                y = -y;
-            }
 
-            let lat = if state.spherical {
-                let arg = (state.c - (rho / state.dd).powi(2)) / (2.0 * state.n);
-                arg.clamp(-1.0, 1.0).asin()
-            } else {
-                let qs = (state.c - (rho / state.dd).powi(2)) / state.n;
-                if (state.ec - qs.abs()).abs() > AUTHALIC_LIMIT_TOLERANCE {
-                    if qs.abs() > 2.0 {
-                        operands.set_coord(i, &Coor4D::nan());
-                        continue;
-                    }
-                    let xi = (qs / state.qp).clamp(-1.0, 1.0).asin();
-                    state.authalic.phi_from_beta(xi)
-                } else if qs < 0.0 {
-                    -FRAC_PI_2
-                } else {
-                    FRAC_PI_2
-                }
-            };
-
-            if lat.is_nan() {
-                operands.set_coord(i, &Coor4D::nan());
-                continue;
-            }
-            let lon = x.atan2(y) / state.n + state.frame.lon_0;
-            operands.set_xy(i, lon, lat);
-            successes += 1;
-        } else {
-            let lat = if state.n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 };
-            operands.set_xy(i, state.frame.lon_0, lat);
-            successes += 1;
+        if rho == 0.0 {
+            let lat = if self.n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 };
+            return Some(Coor4D::raw(self.frame.lon_0, lat, coord[2], coord[3]));
         }
+
+        if self.n < 0.0 {
+            rho = -rho;
+            x = -x;
+            y = -y;
+        }
+
+        let lat = if self.spherical {
+            let arg = (self.c - (rho / self.dd).powi(2)) / (2.0 * self.n);
+            if arg.abs() <= 1.0 {
+                arg.asin()
+            } else if arg < 0.0 {
+                -FRAC_PI_2
+            } else {
+                FRAC_PI_2
+            }
+        } else {
+            let q = (self.c - (rho / self.dd).powi(2)) / self.n;
+            if (self.ec - q.abs()).abs() > AUTHALIC_LIMIT_TOLERANCE {
+                if q.abs() > 2.0 {
+                    return None;
+                }
+                let beta = (q / self.authalic.qp()).clamp(-1.0, 1.0).asin();
+                self.authalic.phi_from_beta(beta)
+            } else if q < 0.0 {
+                -FRAC_PI_2
+            } else {
+                FRAC_PI_2
+            }
+        };
+
+        let lon = self.frame.apply_lon_delta(x.atan2(y) / self.n);
+        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
-    successes
 }
 
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let def = &parameters.instantiated_as;
-    let params = ParsedParameters::new(parameters, &GAMUT)?;
-    let phi0 = params.lat(0);
-    let phi1 = params.lat(1);
-    let phi2 = params.lat(2);
+struct Aea;
 
-    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    let state = AeaState::new(&params, phi0, phi1, phi2)?;
-    Ok(Op::with_state(descriptor, params, state))
+impl PointOp for Aea {
+    type State = AeaState;
+    const GAMUT: &'static [OpParameter] = GAMUT;
+
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+        AeaState::new(params, params.lat(0), params.lat(1), params.lat(2))
+    }
+
+    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        state.forward(coord)
+    }
+
+    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        state.inverse(coord)
+    }
 }
 
-pub fn leac(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let def = &parameters.instantiated_as;
-    let params = ParsedParameters::new(parameters, &GAMUT)?;
+struct Leac;
 
-    let phi0 = params.lat(0);
-    let phi1 = if params.boolean("south") {
-        -FRAC_PI_2
-    } else {
-        FRAC_PI_2
-    };
-    let phi2 = params.lat(1);
+impl PointOp for Leac {
+    type State = AeaState;
+    const GAMUT: &'static [OpParameter] = LEAC_GAMUT;
 
-    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    let state = AeaState::new(&params, phi0, phi1, phi2)?;
-    Ok(Op::with_state(descriptor, params, state))
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+        let phi0 = params.lat(0);
+        let phi1 = if params.boolean("south") {
+            -FRAC_PI_2
+        } else {
+            FRAC_PI_2
+        };
+        let phi2 = params.lat(1);
+        AeaState::new(params, phi0, phi1, phi2)
+    }
+
+    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        state.forward(coord)
+    }
+
+    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        state.inverse(coord)
+    }
+}
+
+pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
+    Op::point::<Aea>(parameters, ctx)
+}
+
+pub fn leac(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
+    Op::point::<Leac>(parameters, ctx)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::projection::{assert_forward_and_roundtrip, assert_inverse};
 
     #[test]
     fn aea_origin_roundtrip() -> Result<(), Error> {
-        let mut ctx = Minimal::default();
-        let op = ctx.op("aea lat_0=23 lon_0=-96 lat_1=29.5 lat_2=45.5 ellps=GRS80")?;
-
-        let geo = [Coor4D::geo(23., -96., 0., 0.)];
-        let projected = [Coor4D::raw(0.0, 0.0, 0., 0.)];
-
-        let mut operands = geo;
-        ctx.apply(op, Fwd, &mut operands)?;
-        assert!(operands[0].hypot2(&projected[0]) < 1e-8);
-
-        ctx.apply(op, Inv, &mut operands)?;
-        assert!(operands[0].hypot2(&geo[0]) < 1e-10);
-        Ok(())
+        assert_forward_and_roundtrip(
+            "aea lat_0=23 lon_0=-96 lat_1=29.5 lat_2=45.5 ellps=GRS80",
+            Coor4D::geo(23., -96., 0., 0.),
+            Coor4D::raw(0.0, 0.0, 0., 0.),
+            1e-8,
+            1e-10,
+        )
     }
 
     #[test]
     fn aea_inverse_matches_proj_metric_coordinates() -> Result<(), Error> {
-        let mut ctx = Minimal::default();
-        let op =
-            ctx.op("aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80")?;
-
-        let mut projected = [Coor4D::raw(0.0, -112_982.409_1, 0.0, 0.0)];
-        ctx.apply(op, Inv, &mut projected)?;
-
-        assert!((projected[0][0].to_degrees() + 120.0).abs() < 1e-8);
-        assert!((projected[0][1].to_degrees() - 37.0).abs() < 1e-8);
-        Ok(())
+        assert_inverse(
+            "aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80",
+            Coor4D::raw(0.0, -112_982.409_1, 0.0, 0.0),
+            Coor4D::geo(37.0, -120.0, 0.0, 0.0),
+            1e-8,
+        )
     }
 
     #[test]
     fn aea_spherical_inverse_matches_proj() -> Result<(), Error> {
-        let mut ctx = Minimal::default();
-        let op = ctx.op("aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0")?;
-
-        let mut projected = [
+        assert_inverse(
+            "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
             Coor4D::raw(0.0, 0.0, 0.0, 0.0),
-            Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0),
-        ];
-        ctx.apply(op, Inv, &mut projected)?;
+            Coor4D::geo(40.0, 0.0, 0.0, 0.0),
+            1e-10,
+        )?;
 
-        assert!(projected[0][0].abs() < 1e-12);
-        assert!((projected[0][1].to_degrees() - 40.0).abs() < 1e-10);
-        assert!((projected[1][0].to_degrees() - 0.124940293483244).abs() < 1e-10);
-        assert!((projected[1][1].to_degrees() - 40.169004441322194).abs() < 1e-10);
-        Ok(())
+        assert_inverse(
+            "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
+            Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0),
+            Coor4D::geo(40.169_004_441_322_194, 0.124_940_293_483_244, 0.0, 0.0),
+            1e-10,
+        )
     }
 
     #[test]
