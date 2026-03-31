@@ -65,9 +65,19 @@ impl ProjectionFrame {
         lon - self.lon_0
     }
 
+    /// Remove the latitude of origin.
+    pub fn remove_lat_origin(&self, lat: f64) -> f64 {
+        lat - self.lat_0
+    }
+
     /// Latitude delta from the latitude of origin.
     pub fn lat_delta(&self, lat: f64) -> f64 {
-        lat - self.lat_0
+        self.remove_lat_origin(lat)
+    }
+
+    /// Apply the latitude of origin to a local latitude.
+    pub fn apply_lat_origin(&self, phi: f64) -> f64 {
+        self.lat_0 + phi
     }
 
     /// Apply the cached false origin to local projected coordinates.
@@ -146,13 +156,15 @@ mod tests {
         let params = normalized_params("lat_0=10 lon_0=179");
         let frame = ProjectionFrame::from_params(&params);
         let lon_delta = frame.remove_central_meridian((-179_f64).to_radians());
-        let lat_delta = frame.lat_delta(13_f64.to_radians());
+        let lat_delta = frame.remove_lat_origin(13_f64.to_radians());
         let raw_lon_delta = frame.remove_central_meridian_raw((-179_f64).to_radians());
         let restored_lon = frame.apply_central_meridian(lon_delta);
+        let restored_lat = frame.apply_lat_origin(lat_delta);
 
         assert!((lon_delta - 2_f64.to_radians()).abs() < 1e-15);
         assert!((raw_lon_delta + 358_f64.to_radians()).abs() < 1e-15);
         assert!((restored_lon - 181_f64.to_radians()).abs() < 1e-15);
         assert!((lat_delta - 3_f64.to_radians()).abs() < 1e-15);
+        assert!((restored_lat - 13_f64.to_radians()).abs() < 1e-15);
     }
 }

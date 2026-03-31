@@ -6,11 +6,11 @@
 //! - PROJ 9.8.0 `laea` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/laea.rst>
 use crate::authoring::*;
-use crate::projection::{AuthalicLatitude, ProjectionAspect, ProjectionFrame, projection_gamut};
+use crate::projection::{AuthalicLatitude, AzimuthalAspect, ProjectionFrame, projection_gamut};
 
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
+use std::f64::consts::FRAC_PI_2;
 
-const EPS10: f64 = 1e-10;
+const ANGULAR_TOLERANCE: f64 = 1e-10;
 const POLAR_DOMAIN_TOLERANCE: f64 = 1e-15;
 
 #[rustfmt::skip]
@@ -20,51 +20,41 @@ pub const GAMUT: &[OpParameter] = projection_gamut!();
 struct Laea {
     frame: ProjectionFrame,
     authalic: AuthalicLatitude,
-    aspect: ProjectionAspect,
-    dd: f64,
-    xmf: f64,
-    ymf: f64,
-    sinb1: f64,
-    cosb1: f64,
+    aspect: AzimuthalAspect,
+    d: f64,
+    x_factor: f64,
+    y_factor: f64,
+    sin_beta1: f64,
+    cos_beta1: f64,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum PolarInput {
-    Spherical { phi: f64 },
-    Ellipsoidal,
-}
+impl Laea {}
 
-impl Laea {
-    fn positive(value: f64) -> Option<f64> {
-        (value > EPS10).then_some(value)
-    }
+impl PointOp for Laea {
+    type State = Self;
+    const GAMUT: &'static [OpParameter] = GAMUT;
 
-    fn new(params: &ParsedParameters) -> Result<Self, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
         let frame = ProjectionFrame::from_params(params);
 
-        if frame.lat_0.is_nan() || frame.lat_0.abs() > FRAC_PI_2 + EPS10 {
+        if frame.lat_0.is_nan() || frame.lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
             return Err(Error::BadParam("lat_0".to_string(), params.name.clone()));
         }
 
-        let aspect = ProjectionAspect::classify(frame.lat_0, EPS10);
+        let aspect = AzimuthalAspect::classify(frame.lat_0, ANGULAR_TOLERANCE);
         let ellps = params.ellps(0);
         let authalic = AuthalicLatitude::new(ellps);
-        let e = ellps.eccentricity();
-        let es = ellps.eccentricity_squared();
-        let q_pole = authalic.q_pole();
-        let rq = (0.5 * q_pole).sqrt();
 
-        let (dd, xmf, ymf, sinb1, cosb1) = match aspect {
-            ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
-                (1.0, 1.0, 1.0, 0.0, 1.0)
-            }
-            ProjectionAspect::Equatorial => (rq.recip(), 1.0, 0.5 * q_pole, 0.0, 1.0),
-            ProjectionAspect::Oblique => {
+        let (d, x_factor, y_factor, sin_beta1, cos_beta1) = match aspect {
+            AzimuthalAspect::Polar { .. } => (1.0, 1.0, 1.0, 0.0, 1.0),
+            AzimuthalAspect::Oblique => {
+                let beta1 = authalic.beta_from_phi(frame.lat_0);
                 let (sinphi_0, cosphi_0) = frame.lat_0.sin_cos();
-                let b1 = (ancillary::qs(sinphi_0, e) / q_pole).asin();
-                let (sinb1, cosb1) = b1.sin_cos();
-                let dd = cosphi_0 / ((1.0 - es * sinphi_0 * sinphi_0).sqrt() * rq * cosb1);
-                (dd, rq * dd, rq / dd, sinb1, cosb1)
+                let (sin_beta1, cos_beta1) = beta1.sin_cos();
+                let es = ellps.eccentricity_squared();
+                let rq = (0.5 * authalic.q_pole()).sqrt();
+                let d = cosphi_0 / ((1.0 - es * sinphi_0 * sinphi_0).sqrt() * rq * cos_beta1);
+                (d, rq * d, rq / d, sin_beta1, cos_beta1)
             }
         };
 
@@ -72,225 +62,53 @@ impl Laea {
             frame,
             authalic,
             aspect,
-            dd,
-            xmf,
-            ymf,
-            sinb1,
-            cosb1,
+            d,
+            x_factor,
+            y_factor,
+            sin_beta1,
+            cos_beta1,
         })
-    }
-
-    fn fwd_spherical(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
-        let (sinlam, coslam) = lam.sin_cos();
-        let (sinphi, cosphi) = phi.sin_cos();
-
-        self.fwd_common(
-            sinlam,
-            coslam,
-            sinphi,
-            cosphi,
-            PolarInput::Spherical { phi },
-        )
-    }
-
-    fn fwd_ellipsoidal(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
-        let (sinlam, coslam) = lam.sin_cos();
-        let xi = self.authalic.beta_from_phi(phi);
-        let (sinb, cosb) = xi.sin_cos();
-
-        self.fwd_common(sinlam, coslam, sinb, cosb, PolarInput::Ellipsoidal)
-    }
-
-    fn fwd_common(
-        &self,
-        sinlam: f64,
-        coslam: f64,
-        sinv: f64,
-        cosv: f64,
-        polar_input: PolarInput,
-    ) -> Option<(f64, f64)> {
-        match self.aspect {
-            ProjectionAspect::Equatorial => {
-                let b = Self::positive(1.0 + cosv * coslam)?;
-                let b = (2.0 / b).sqrt();
-                Some((self.xmf * b * cosv * sinlam, self.ymf * b * sinv))
-            }
-            ProjectionAspect::Oblique => {
-                let b = Self::positive(1.0 + self.sinb1 * sinv + self.cosb1 * cosv * coslam)?;
-                let b = (2.0 / b).sqrt();
-                Some((
-                    self.xmf * b * cosv * sinlam,
-                    self.ymf * b * (self.cosb1 * sinv - self.sinb1 * cosv * coslam),
-                ))
-            }
-            ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
-                let b = match polar_input {
-                    PolarInput::Spherical { phi } => {
-                        if (phi + self.frame.lat_0).abs() < EPS10 {
-                            return None;
-                        }
-
-                        2.0 * if self.aspect.is_south_polar() {
-                            (FRAC_PI_4 - 0.5 * phi).cos()
-                        } else {
-                            (FRAC_PI_4 - 0.5 * phi).sin()
-                        }
-                    }
-                    PolarInput::Ellipsoidal => {
-                        if (self.frame.lat_0 + self.authalic.phi_from_beta(sinv.asin())).abs()
-                            < EPS10
-                        {
-                            return None;
-                        }
-
-                        if self.aspect.is_north_polar() {
-                            self.authalic.q_pole() - sinv * self.authalic.q_pole()
-                        } else {
-                            self.authalic.q_pole() + sinv * self.authalic.q_pole()
-                        }
-                        .sqrt()
-                    }
-                };
-
-                let b = if b < POLAR_DOMAIN_TOLERANCE { 0.0 } else { b };
-
-                let y = if self.aspect.is_north_polar() {
-                    -b * coslam
-                } else {
-                    b * coslam
-                };
-
-                Some((b * sinlam, y))
-            }
-        }
-    }
-
-    fn inv_spherical(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let rho = x.hypot(y);
-        let half_rho = 0.5 * rho;
-        if half_rho > 1.0 {
-            return None;
-        }
-
-        let c = 2.0 * half_rho.asin();
-        let (sin_c, cos_c) = c.sin_cos();
-
-        let (x, y, lat) = match self.aspect {
-            ProjectionAspect::Equatorial => {
-                let lat = if rho <= EPS10 {
-                    0.0
-                } else {
-                    (y * sin_c / rho).asin()
-                };
-                let x = x * sin_c;
-                let y = cos_c * rho;
-                (x, y, lat)
-            }
-            ProjectionAspect::Oblique => {
-                let lat = if rho <= EPS10 {
-                    self.frame.lat_0
-                } else {
-                    (cos_c * self.sinb1 + y * sin_c * self.cosb1 / rho).asin()
-                };
-                let x = x * sin_c * self.cosb1;
-                let y = (cos_c - lat.sin() * self.sinb1) * rho;
-                (x, y, lat)
-            }
-            ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
-                let (y, lat) = if self.aspect.is_north_polar() {
-                    (-y, FRAC_PI_2 - c)
-                } else {
-                    (y, c - FRAC_PI_2)
-                };
-
-                (x, y, lat)
-            }
-        };
-
-        let lam = if y == 0.0 && x == 0.0 {
-            0.0
-        } else {
-            x.atan2(y)
-        };
-
-        Some((lam, lat))
-    }
-
-    fn inv_ellipsoidal(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let (x, y, rho, sin_c, cos_c) = if self.aspect.is_equatorial() || self.aspect.is_oblique() {
-            let x = x / self.dd;
-            let y = y * self.dd;
-            let rho = x.hypot(y);
-            if rho < EPS10 {
-                return Some((0.0, self.frame.lat_0));
-            }
-
-            let asin_argument = rho / (2.0 * (0.5 * self.authalic.q_pole()).sqrt());
-            if asin_argument > 1.0 {
-                return None;
-            }
-
-            let c = 2.0 * asin_argument.asin();
-            let (sin_c, cos_c) = c.sin_cos();
-            (x, y, rho, sin_c, cos_c)
-        } else {
-            (x, y, 0.0, 0.0, 0.0)
-        };
-
-        let (x, y, ab) = match self.aspect {
-            ProjectionAspect::Equatorial => {
-                let x = x * sin_c;
-                let ab = y * sin_c / rho;
-                let y = rho * cos_c;
-                (x, y, ab)
-            }
-            ProjectionAspect::Oblique => {
-                let x = x * sin_c;
-                let ab = cos_c * self.sinb1 + y * sin_c * self.cosb1 / rho;
-                let y = rho * self.cosb1 * cos_c - y * self.sinb1 * sin_c;
-                (x, y, ab)
-            }
-            ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
-                let y = if self.aspect.is_north_polar() { -y } else { y };
-                let q = x * x + y * y;
-                if q == 0.0 {
-                    return Some((0.0, self.frame.lat_0));
-                }
-
-                let mut ab = 1.0 - q / self.authalic.q_pole();
-                if self.aspect.is_south_polar() {
-                    ab = -ab;
-                }
-                (x, y, ab)
-            }
-        };
-
-        if ab.abs() > 1.0 + EPS10 {
-            return None;
-        }
-
-        let lam = x.atan2(y);
-        let lat = self.authalic.phi_from_beta(ab.clamp(-1.0, 1.0).asin());
-        Some((lam, lat))
-    }
-}
-
-impl PointOp for Laea {
-    type State = Self;
-    const GAMUT: &'static [OpParameter] = GAMUT;
-
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        Self::new(params)
     }
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
         let lam = state.frame.remove_central_meridian(lon);
 
-        let (x_unit, y_unit) = if state.authalic.spherical() {
-            state.fwd_spherical(lam, lat)?
-        } else {
-            state.fwd_ellipsoidal(lam, lat)?
+        let (sin_lam, cos_lam) = lam.sin_cos();
+        let beta = state.authalic.beta_from_phi(lat);
+        let (sin_beta, cos_beta) = beta.sin_cos();
+
+        let (x_unit, y_unit) = match state.aspect {
+            AzimuthalAspect::Oblique => {
+                let scale = 1.0 + state.sin_beta1 * sin_beta + state.cos_beta1 * cos_beta * cos_lam;
+
+                if scale <= ANGULAR_TOLERANCE {
+                    return None;
+                }
+
+                let scale = (2.0 / scale).sqrt();
+                (
+                    state.x_factor * scale * cos_beta * sin_lam,
+                    state.y_factor
+                        * scale
+                        * (state.cos_beta1 * sin_beta - state.sin_beta1 * cos_beta * cos_lam),
+                )
+            }
+            AzimuthalAspect::Polar { pole_sign } => {
+                if state.frame.apply_lat_origin(lat).abs() < ANGULAR_TOLERANCE {
+                    return None;
+                }
+
+                let scale = (state.authalic.q_pole()
+                    - pole_sign * sin_beta * state.authalic.q_pole())
+                .sqrt();
+
+                if scale < POLAR_DOMAIN_TOLERANCE {
+                    (0.0, 0.0)
+                } else {
+                    (scale * sin_lam, -pole_sign * scale * cos_lam)
+                }
+            }
         };
 
         let x_local = state.frame.a * x_unit;
@@ -301,16 +119,47 @@ impl PointOp for Laea {
 
     fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
-        let x_unit = x_local / state.frame.a;
-        let y_unit = y_local / state.frame.a;
+        let x_unit = x_local / state.frame.a / state.d;
+        let y_unit = y_local / state.frame.a * state.d;
 
-        let (lam, lat) = if state.authalic.spherical() {
-            state.inv_spherical(x_unit, y_unit)?
-        } else {
-            state.inv_ellipsoidal(x_unit, y_unit)?
+        let q_pole = state.authalic.q_pole();
+        let q = x_unit * x_unit + y_unit * y_unit;
+        let rho = x_unit.hypot(y_unit);
+
+        if rho < ANGULAR_TOLERANCE {
+            return Some(Coor4D::raw(
+                state.frame.lon_0,
+                state.frame.lat_0,
+                coord[2],
+                coord[3],
+            ));
+        }
+
+        let (lam, sin_beta) = match state.aspect {
+            AzimuthalAspect::Oblique => {
+                if q > 2.0 * q_pole {
+                    return None;
+                }
+
+                let cos_c = 1.0 - q / q_pole;
+                let sin_c = rho * (2.0 * q_pole - q).sqrt() / q_pole;
+                let sin_beta = cos_c * state.sin_beta1 + sin_c * state.cos_beta1 * y_unit / rho;
+                let sin_lam = x_unit * sin_c;
+                let cos_lam = rho * state.cos_beta1 * cos_c - y_unit * state.sin_beta1 * sin_c;
+                let lam = sin_lam.atan2(cos_lam);
+
+                (lam, sin_beta)
+            }
+            AzimuthalAspect::Polar { pole_sign } => {
+                let sin_beta = pole_sign * (1.0 - q / q_pole);
+                let lam = x_unit.atan2(-pole_sign * y_unit);
+
+                (lam, sin_beta)
+            }
         };
 
         let lon = state.frame.apply_central_meridian(lam);
+        let lat = state.authalic.phi_from_sin_beta(sin_beta)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }
@@ -361,6 +210,17 @@ mod tests {
             1e-11,
         )?;
         Ok(())
+    }
+
+    #[test]
+    fn laea_spherical_polar_matches_proj() -> Result<(), Error> {
+        assert_forward_and_roundtrip(
+            "laea ellps=6378136.6,0 lat_0=90 lon_0=0 x_0=0 y_0=0",
+            Coor4D::geo(20.0, 80.0, 0.0, 0.0),
+            Coor4D::raw(7_205_540.644_230_844, -1_270_531.226_169_353, 0.0, 0.0),
+            1e-8,
+            1e-11,
+        )
     }
 
     #[test]

@@ -8,7 +8,7 @@ mod spherical_geodesic;
 #[cfg(test)]
 mod test_support;
 
-pub(crate) use aspect::ProjectionAspect;
+pub(crate) use aspect::{AzimuthalAspect, ProjectionAspect};
 pub(crate) use authalic::AuthalicLatitude;
 pub(crate) use azimuthal::{spherical_inverse_equatorial, spherical_inverse_oblique};
 pub(crate) use conformal::ConformalLatitude;

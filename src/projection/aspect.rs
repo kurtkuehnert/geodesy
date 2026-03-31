@@ -44,3 +44,22 @@ impl ProjectionAspect {
         matches!(self, Self::NorthPolar | Self::SouthPolar)
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum AzimuthalAspect {
+    Oblique,
+    Polar { pole_sign: f64 },
+}
+
+impl AzimuthalAspect {
+    pub fn classify(lat_0: f64, tolerance: f64) -> Self {
+        let abs_lat_0 = lat_0.abs();
+        if (abs_lat_0 - FRAC_PI_2).abs() < tolerance {
+            Self::Polar {
+                pole_sign: if lat_0 < 0.0 { -1.0 } else { 1.0 },
+            }
+        } else {
+            Self::Oblique
+        }
+    }
+}

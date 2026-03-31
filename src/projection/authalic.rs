@@ -30,10 +30,6 @@ impl AuthalicLatitude {
         }
     }
 
-    pub fn spherical(self) -> bool {
-        matches!(self, Self::Spherical)
-    }
-
     pub fn q_pole(self) -> f64 {
         match self {
             Self::Spherical => 2.0,
@@ -65,6 +61,13 @@ impl AuthalicLatitude {
                 ..
             } => ellps.latitude_authalic_to_geographic(beta, &coefficients),
         }
+    }
+
+    pub fn phi_from_sin_beta(self, sin_beta: f64) -> Option<f64> {
+        if sin_beta.abs() > 1.0 + Self::DOMAIN_TOLERANCE {
+            return None;
+        }
+        Some(self.phi_from_beta(sin_beta.clamp(-1.0, 1.0).asin()))
     }
 
     pub fn phi_from_q(self, q: f64) -> Option<f64> {
