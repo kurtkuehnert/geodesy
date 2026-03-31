@@ -4,7 +4,7 @@ use super::stere::Stere;
 use crate::authoring::*;
 
 #[derive(Clone, Copy, Debug)]
-struct Sterec(Stere);
+pub(crate) struct Sterec(Stere);
 
 impl PointOp for Sterec {
     type State = Self;
@@ -21,10 +21,6 @@ impl PointOp for Sterec {
     fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         Stere::inv(&state.0, coord)
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Sterec>(parameters, ctx)
 }
 
 #[cfg(test)]

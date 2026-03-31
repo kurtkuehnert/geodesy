@@ -120,10 +120,6 @@ impl PointOp for Aea {
     }
 }
 
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Aea>(parameters, ctx)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

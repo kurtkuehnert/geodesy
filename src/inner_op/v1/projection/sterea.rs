@@ -22,7 +22,7 @@ pub const GAMUT: [OpParameter; 7] = [
 ];
 
 #[derive(Clone, Copy, Debug)]
-struct StereaState {
+pub struct StereaState {
     frame: ProjectionFrame,
     gauss: Gauss,
 }
@@ -39,7 +39,7 @@ impl StereaState {
     }
 }
 
-struct Sterea;
+pub(crate) struct Sterea;
 
 impl PointOp for Sterea {
     type State = StereaState;
@@ -94,10 +94,6 @@ impl PointOp for Sterea {
             coord[3],
         ))
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Sterea>(parameters, ctx)
 }
 
 #[cfg(test)]

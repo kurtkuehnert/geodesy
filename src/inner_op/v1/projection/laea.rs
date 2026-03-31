@@ -17,7 +17,7 @@ const POLAR_DOMAIN_TOLERANCE: f64 = 1e-15;
 pub const GAMUT: &[OpParameter] = projection_gamut!();
 
 #[derive(Clone, Copy, Debug)]
-struct Laea {
+pub(crate) struct Laea {
     frame: ProjectionFrame,
     authalic: AuthalicLatitude,
     aspect: AzimuthalAspect,
@@ -162,10 +162,6 @@ impl PointOp for Laea {
         let lat = state.authalic.phi_from_sin_beta(sin_beta)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Laea>(parameters, ctx)
 }
 
 #[cfg(test)]

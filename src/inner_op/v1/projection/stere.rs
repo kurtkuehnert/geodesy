@@ -1,4 +1,9 @@
-//! Stereographic projection, following PROJ's mode-specific implementation.
+//! Stereographic projection, following PROJ 9.8.0:
+//! - https://github.com/OSGeo/PROJ/blob/9.8.0/src/projections/stere.cpp
+//! - https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/stere.rst
+//!
+//! The stere, sterec, and ups entry points all share the same core setup and
+//! pointwise math, with only the wrapper-specific parameters layered on top.
 use crate::authoring::*;
 use crate::projection::{
     ConformalLatitude, ProjectionAspect, ProjectionFrame, projection_gamut,
@@ -352,10 +357,6 @@ impl PointOp for Stere {
         let lon = state.frame.apply_central_meridian(lam);
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Stere>(parameters, ctx)
 }
 
 #[cfg(test)]

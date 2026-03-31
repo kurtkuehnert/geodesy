@@ -12,7 +12,7 @@ pub const GAMUT: &[OpParameter] = projection_gamut!(
 );
 
 #[derive(Clone, Copy, Debug)]
-struct Leac(Aea);
+pub(crate) struct Leac(Aea);
 
 impl PointOp for Leac {
     type State = Self;
@@ -38,8 +38,4 @@ impl PointOp for Leac {
     fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         Aea::inv(&state.0, coord)
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Leac>(parameters, ctx)
 }

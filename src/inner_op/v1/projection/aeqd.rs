@@ -164,7 +164,7 @@ impl AeqdState {
     }
 }
 
-struct Aeqd;
+pub(crate) struct Aeqd;
 
 impl PointOp for Aeqd {
     type State = AeqdState;
@@ -200,10 +200,6 @@ impl PointOp for Aeqd {
 
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Aeqd>(parameters, ctx)
 }
 
 #[cfg(test)]

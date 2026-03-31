@@ -18,7 +18,7 @@ pub const GAMUT: [OpParameter; 8] = [
 ];
 
 #[derive(Clone, Copy, Debug)]
-struct Ups(Stere);
+pub(crate) struct Ups(Stere);
 
 impl PointOp for Ups {
     type State = Self;
@@ -39,10 +39,6 @@ impl PointOp for Ups {
     fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         Stere::inv(&state.0, coord)
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Ups>(parameters, ctx)
 }
 
 #[cfg(test)]

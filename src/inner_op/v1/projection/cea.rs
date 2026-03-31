@@ -17,7 +17,7 @@ pub const GAMUT: &[OpParameter] = projection_gamut!(
 );
 
 #[derive(Clone, Copy, Debug)]
-struct Cea {
+pub(crate) struct Cea {
     frame: ProjectionFrame,
     authalic: AuthalicLatitude,
 }
@@ -72,10 +72,6 @@ impl PointOp for Cea {
         let lat = state.authalic.phi_from_q(q)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<Cea>(parameters, ctx)
 }
 
 #[cfg(test)]
