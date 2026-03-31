@@ -182,6 +182,7 @@ mod math;
 mod op;
 mod projection;
 mod token;
+mod units;
 
 /// Some generic coordinates for test composition
 #[cfg(test)]

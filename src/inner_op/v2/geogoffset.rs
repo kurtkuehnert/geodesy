@@ -3,47 +3,47 @@ use crate::authoring::*;
 
 const ARCSEC_TO_RAD: f64 = std::f64::consts::PI / 648_000.0;
 
-fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let dlon = op.params.real("dlon").unwrap_or(0.0);
-    let dlat = op.params.real("dlat").unwrap_or(0.0);
-    let dh = op.params.real("dh").unwrap_or(0.0);
-
-    for i in 0..operands.len() {
-        let coord = operands.get_coord(i);
-        operands.set_xyz(i, coord[0] + dlon, coord[1] + dlat, coord[2] + dh);
-    }
-    operands.len()
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GeogOffset {
+    dlon: f64,
+    dlat: f64,
+    dh: f64,
 }
 
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let dlon = op.params.real("dlon").unwrap_or(0.0);
-    let dlat = op.params.real("dlat").unwrap_or(0.0);
-    let dh = op.params.real("dh").unwrap_or(0.0);
+impl PointOp for GeogOffset {
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Real { key: "dlat", default: Some(0_f64) },
+        OpParameter::Real { key: "dlon", default: Some(0_f64) },
+        OpParameter::Real { key: "dh", default: Some(0_f64) },
+    ];
 
-    for i in 0..operands.len() {
-        let coord = operands.get_coord(i);
-        operands.set_xyz(i, coord[0] - dlon, coord[1] - dlat, coord[2] - dh);
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Ok(Self {
+            dlat: params.real("dlat")? * ARCSEC_TO_RAD,
+            dlon: params.real("dlon")? * ARCSEC_TO_RAD,
+            dh: params.real("dh")?,
+        })
     }
-    operands.len()
-}
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 4] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Real { key: "dlat", default: Some(0_f64) },
-    OpParameter::Real { key: "dlon", default: Some(0_f64) },
-    OpParameter::Real { key: "dh", default: Some(0_f64) },
-];
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        Some(Coor4D::raw(
+            coord[0] + self.dlon,
+            coord[1] + self.dlat,
+            coord[2] + self.dh,
+            coord[3],
+        ))
+    }
 
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let mut op = Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)?;
-    op.params
-        .real
-        .insert("dlat", op.params.real("dlat")? * ARCSEC_TO_RAD);
-    op.params
-        .real
-        .insert("dlon", op.params.real("dlon")? * ARCSEC_TO_RAD);
-    Ok(op)
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        Some(Coor4D::raw(
+            coord[0] - self.dlon,
+            coord[1] - self.dlat,
+            coord[2] - self.dh,
+            coord[3],
+        ))
+    }
 }
 
 #[cfg(test)]

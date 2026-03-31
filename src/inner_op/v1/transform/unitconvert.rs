@@ -8,8 +8,8 @@
 //! unit scaling through pivot units (meters for linear units, radians for
 //! angular units, and meters for vertical units).
 
-use super::units::UnitParam;
 use crate::authoring::*;
+use crate::units::UnitParam;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct UnitConvert {

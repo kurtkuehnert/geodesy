@@ -1,59 +1,38 @@
 //! Miller Cylindrical
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
+use crate::projection::{ProjectionFrame, projection_gamut};
 
-fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let frame = ProjectionFrame::from_params(&op.params);
-
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (lon, lat) = operands.xy(i);
-        let x = frame.a * frame.remove_central_meridian(lon);
-        let y = frame.a * 1.25 * (std::f64::consts::FRAC_PI_4 + 0.4 * lat).tan().ln();
-        let (x, y) = frame.apply_false_origin(x, y);
-        operands.set_xy(i, x, y);
-        successes += 1;
-    }
-    successes
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Mill {
+    frame: ProjectionFrame,
 }
 
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let frame = ProjectionFrame::from_params(&op.params);
+impl PointOp for Mill {
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = projection_gamut!();
 
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (x_raw, y_raw) = operands.xy(i);
-        let (x_local, y_local) = frame.remove_false_origin(x_raw, y_raw);
-        let x = x_local / frame.a;
-        let y = y_local / frame.a;
-        let lon = frame.lon_0 + x;
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Ok(Self {
+            frame: ProjectionFrame::from_params(params),
+        })
+    }
+
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (lon, lat) = coord.xy();
+        let x_local = self.frame.a * self.frame.remove_central_meridian(lon);
+        let y_local = self.frame.a * 1.25 * (std::f64::consts::FRAC_PI_4 + 0.4 * lat).tan().ln();
+        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
+        Some(Coor4D::raw(x, y, coord[2], coord[3]))
+    }
+
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
+        let lam = x_local / self.frame.a;
+        let y = y_local / self.frame.a;
+        let lon = self.frame.apply_central_meridian(lam);
         let lat = 2.5 * ((0.8 * y).exp().atan() - std::f64::consts::FRAC_PI_4);
-        operands.set_xy(i, lon, lat);
-        successes += 1;
+        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
-    successes
-}
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 6] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "x_0", default: Some(0_f64) },
-    OpParameter::Real { key: "y_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-];
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let def = &parameters.instantiated_as;
-    let params = ParsedParameters::new(parameters, &GAMUT)?;
-    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    Ok(Op {
-        descriptor,
-        params,
-        state: None,
-        steps: None,
-    })
 }
 
 #[cfg(test)]

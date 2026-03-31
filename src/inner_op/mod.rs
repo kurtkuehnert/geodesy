@@ -67,7 +67,6 @@ mod molodensky;
 mod noop;
 mod permtide;
 mod stack;
-mod units;
 
 // v1-scoped operators
 #[path = "v1/projection/aea.rs"]
@@ -216,7 +215,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("lcca",        lcca::new,        Geographic, Projected),
     BuiltinOp::with_domains("leac",        Op::point::<leac::Leac>,       Geographic, Projected),
     BuiltinOp::with_domains("merc",        Op::point::<merc::Merc>,       Geographic, Projected),
-    BuiltinOp::with_domains("mill",        mill::new,        Geographic, Projected),
+    BuiltinOp::with_domains("mill",        Op::point::<mill::Mill>,       Geographic, Projected),
     BuiltinOp::with_domains("moll",        moll::new,        Geographic, Projected), 
     BuiltinOp::with_domains("nzmg",        nzmg::new,        Geographic, Projected),
     BuiltinOp::with_domains("ocea",        ocea::new,        Geographic, Projected),
@@ -261,7 +260,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::new("dm",          iso6709::dm),
     BuiltinOp::new("dms",         iso6709::dms),
     BuiltinOp::new("geodesic",    geodesic::new),
-    BuiltinOp::with_domains("geogoffset",  geogoffset::new, Geographic, Geographic),
+    BuiltinOp::with_domains("geogoffset",  Op::point::<geogoffset::GeogOffset>, Geographic, Geographic),
     BuiltinOp::new("gravity",     gravity::new),
     BuiltinOp::new("gridshift",   gridshift::new),
     BuiltinOp::new("helmert",     helmert::new),
