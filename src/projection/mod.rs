@@ -16,4 +16,6 @@ pub(crate) use frame::ProjectionFrame;
 pub(crate) use gauss::Gauss;
 pub(crate) use spherical_geodesic::SphericalGeodesic;
 #[cfg(test)]
-pub(crate) use test_support::{assert_forward, assert_forward_and_roundtrip};
+pub(crate) use test_support::{
+    assert_forward, assert_forward_and_roundtrip, assert_inverse_rejects, assert_roundtrip,
+};

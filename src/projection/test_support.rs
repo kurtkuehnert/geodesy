@@ -33,3 +33,31 @@ pub(crate) fn assert_forward_and_roundtrip(
     assert!(operands[0].hypot2(&input) < roundtrip_tolerance);
     Ok(())
 }
+
+pub(crate) fn assert_roundtrip(
+    definition: &str,
+    input: Coor4D,
+    tolerance: f64,
+) -> Result<(), Error> {
+    let mut ctx = Minimal::default();
+    let op = ctx.op(definition)?;
+    let mut operands = [input];
+
+    ctx.apply(op, Fwd, &mut operands)?;
+    ctx.apply(op, Inv, &mut operands)?;
+    assert!(operands[0].hypot2(&input) < tolerance);
+    Ok(())
+}
+
+pub(crate) fn assert_inverse_rejects(
+    definition: &str,
+    input: Coor4D,
+) -> Result<(), Error> {
+    let mut ctx = Minimal::default();
+    let op = ctx.op(definition)?;
+    let mut operands = [input];
+
+    ctx.apply(op, Inv, &mut operands)?;
+    assert!(operands[0][0].is_nan());
+    Ok(())
+}
