@@ -252,7 +252,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("lonlat",      Op::point::<longlat::LongLat>, Geographic, Geographic),
 
     // Geographic to Cartesian: lon/lat degrees in, XYZ meters out
-    BuiltinOp::with_domains("cart",        cart::new,        Geographic, Cartesian),
+    BuiltinOp::with_domains("cart",        Op::point::<cart::Cart>, Geographic, Cartesian),
 
     // Domain-agnostic operators
     BuiltinOp::new("adapt",       adapt::new),
