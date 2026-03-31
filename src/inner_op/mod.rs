@@ -243,7 +243,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("tunmg",       tunmg::new,       Geographic, Projected),
     BuiltinOp::with_domains("utm",         tmerc::utm,       Geographic, Projected),
     BuiltinOp::with_domains("ups",         Op::point::<ups::Ups>,         Geographic, Projected),
-    BuiltinOp::with_domains("webmerc",     webmerc::new,     Geographic, Projected),
+    BuiltinOp::with_domains("webmerc",     Op::point::<webmerc::WebMerc>, Geographic, Projected),
 
     // Geographic identity: lon/lat degrees in and out
     BuiltinOp::with_domains("longlat",     longlat::new,     Geographic, Geographic),

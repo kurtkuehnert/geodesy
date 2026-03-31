@@ -1,116 +1,86 @@
-//! Web Mercator
+//! Web Mercator / Pseudo Mercator.
+//!
+//! Attribution:
+//! - PROJ 9.8.0 `merc.cpp` (`webmerc` entry point):
+//!   <https://github.com/OSGeo/PROJ/blob/9.8.0/src/projections/merc.cpp>
+//! - PROJ 9.8.0 `webmerc` documentation:
+//!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/webmerc.rst>
+
 use crate::authoring::*;
 use crate::projection::ProjectionFrame;
-use std::f64::consts::FRAC_PI_2;
-use std::f64::consts::FRAC_PI_4;
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 #[rustfmt::skip]
-pub const GAMUT: [OpParameter; 2] = [
+pub const GAMUT: [OpParameter; 4] = [
     OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps",  default: Some("WGS84") },
+    OpParameter::Real { key: "lon_0", default: Some(0.0) },
+    OpParameter::Real { key: "x_0", default: Some(0.0) },
+    OpParameter::Real { key: "y_0", default: Some(0.0) },
 ];
 
 #[derive(Clone, Copy, Debug)]
-struct WebMercState {
+pub(crate) struct WebMerc {
     frame: ProjectionFrame,
 }
 
-impl WebMercState {
-    fn new(params: &ParsedParameters) -> Self {
-        Self {
-            frame: ProjectionFrame::from_params(params),
-        }
-    }
-}
+impl PointOp for WebMerc {
+    type State = Self;
+    const GAMUT: &'static [OpParameter] = &GAMUT;
 
-// ----- F O R W A R D -----------------------------------------------------------------
-
-fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let state = op.state::<WebMercState>();
-
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (lon, lat) = operands.xy(i);
-
-        let easting = lon * state.frame.a;
-        let northing = state.frame.a * (FRAC_PI_4 + lat / 2.0).tan().ln();
-
-        operands.set_xy(i, easting, northing);
-        successes += 1;
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+        let frame = ProjectionFrame {
+            lon_0: params.lon(0),
+            lat_0: 0.0,
+            x_0: params.x(0),
+            y_0: params.y(0),
+            k_0: 1.0,
+            a: Ellipsoid::named("WGS84")?.semimajor_axis(),
+        };
+        Ok(Self { frame })
     }
 
-    successes
-}
-
-// ----- I N V E R S E -----------------------------------------------------------------
-
-fn inv(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let state = op.state::<WebMercState>();
-
-    let mut successes = 0_usize;
-    for i in 0..operands.len() {
-        let (easting, northing) = operands.xy(i);
-
-        // Easting -> Longitude
-        let longitude = easting / state.frame.a;
-
-        // Northing -> Latitude
-        let latitude = FRAC_PI_2 - 2.0 * (-northing / state.frame.a).exp().atan();
-
-        operands.set_xy(i, longitude, latitude);
-        successes += 1;
+    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        let (lon, lat) = coord.xy();
+        let lam = state.frame.remove_central_meridian(lon);
+        let x_local = state.frame.a * lam;
+        let y_local = state.frame.a * (FRAC_PI_4 + lat / 2.0).tan().ln();
+        let (x, y) = state.frame.apply_false_origin(x_local, y_local);
+        Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    successes
+    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
+        let lam = x_local / state.frame.a;
+        let lon = state.frame.apply_central_meridian(lam);
+        let lat = FRAC_PI_2 - 2.0 * (-y_local / state.frame.a).exp().atan();
+        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+    }
 }
-
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    let def = &parameters.instantiated_as;
-    let params = ParsedParameters::new(parameters, &GAMUT)?;
-    let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
-    let state = WebMercState::new(&params);
-    Ok(Op::with_state(descriptor, params, state))
-}
-
-// ----- T E S T S ---------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use float_eq::assert_float_eq;
+    use crate::projection::assert_forward_and_roundtrip;
 
     #[test]
-    fn webmerc() -> Result<(), Error> {
-        let mut ctx = Minimal::default();
-        let definition = "webmerc";
-        let op = ctx.op(definition)?;
+    fn webmerc_matches_proj_reference() -> Result<(), Error> {
+        assert_forward_and_roundtrip(
+            "webmerc",
+            Coor4D::geo(55.0, 12.0, 0.0, 0.0),
+            Coor4D::raw(1_335_833.889_519_282_8, 7_361_866.113_051_188, 0.0, 0.0),
+            1e-8,
+            2e-9,
+        )
+    }
 
-        // Validation value from PROJ: echo 12 55 0 0 | cct -d18 +proj=webmerc
-        // followed by quadrant tests from PROJ builtins.gie
-        let geo = [Coor4D::geo(55., 12., 0., 0.)];
-
-        let projected = [Coor4D::raw(
-            1_335_833.889_519_282_8,
-            7_361_866.113_051_188,
-            0.,
-            0.,
-        )];
-
-        // Forward
-        let mut operands = geo;
-        ctx.apply(op, Fwd, &mut operands)?;
-        for i in 0..operands.len() {
-            assert_float_eq!(operands[i].0, projected[i].0, abs_all <= 1e-8);
-        }
-
-        // Roundtrip
-        ctx.apply(op, Inv, &mut operands)?;
-        for i in 0..operands.len() {
-            assert_float_eq!(operands[i].0, geo[i].0, abs_all <= 2e-9);
-        }
-
-        Ok(())
+    #[test]
+    fn webmerc_supports_central_meridian_and_false_origin() -> Result<(), Error> {
+        assert_forward_and_roundtrip(
+            "webmerc lon_0=10 x_0=100 y_0=200",
+            Coor4D::geo(49.0, 12.0, 0.0, 0.0),
+            Coor4D::raw(222_738.981_586_547_13, 6_275_061.394_006_576, 0.0, 0.0),
+            1e-8,
+            2e-9,
+        )
     }
 }
