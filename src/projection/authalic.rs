@@ -16,6 +16,7 @@ pub(crate) enum AuthalicLatitude {
 
 impl AuthalicLatitude {
     const DOMAIN_TOLERANCE: f64 = 1e-10;
+    const SATURATION_TOLERANCE: f64 = 1e-7;
 
     pub fn new(ellps: Ellipsoid) -> Self {
         if ellps.flattening() == 0.0 {
@@ -37,14 +38,6 @@ impl AuthalicLatitude {
         match self {
             Self::Spherical => 2.0,
             Self::Ellipsoidal { qp, .. } => qp,
-        }
-    }
-
-    pub fn q_from_phi(self, phi: f64) -> f64 {
-        let sinphi = phi.sin();
-        match self {
-            Self::Spherical => 2.0 * sinphi,
-            Self::Ellipsoidal { ellps, .. } => ancillary::qs(sinphi, ellps.eccentricity()),
         }
     }
 
@@ -74,8 +67,16 @@ impl AuthalicLatitude {
         Some(self.phi_from_beta(normalized_q.clamp(-1.0, 1.0).asin()))
     }
 
-    pub fn phi_from_q_saturating(self, q: f64, tolerance: f64) -> Option<f64> {
-        if (self.qp() - q.abs()).abs() <= tolerance {
+    pub fn q_from_phi(self, phi: f64) -> f64 {
+        let sinphi = phi.sin();
+        match self {
+            Self::Spherical => 2.0 * sinphi,
+            Self::Ellipsoidal { ellps, .. } => ancillary::qs(sinphi, ellps.eccentricity()),
+        }
+    }
+
+    pub fn phi_from_q_saturating(self, q: f64) -> Option<f64> {
+        if (self.qp() - q.abs()).abs() <= Self::SATURATION_TOLERANCE {
             return Some(if q < 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 });
         }
         self.phi_from_q(q)

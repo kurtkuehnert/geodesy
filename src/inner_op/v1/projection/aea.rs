@@ -5,13 +5,13 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/src/projections/aea.cpp>
 //! - PROJ 9.8.0 `aea` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aea.rst>
+
 use crate::authoring::*;
 use crate::math::sqrt_checked;
 use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
 use std::f64::consts::FRAC_PI_2;
 
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
-const AUTHALIC_LIMIT_TOLERANCE: f64 = 1e-7;
 
 #[rustfmt::skip]
 pub const GAMUT: &[OpParameter] = projection_gamut!(
@@ -26,7 +26,7 @@ const LEAC_GAMUT: &[OpParameter] = projection_gamut!(
 );
 
 #[derive(Clone, Copy, Debug)]
-struct AeaState {
+struct Aea {
     frame: ProjectionFrame,
     authalic: AuthalicLatitude,
     n: f64,
@@ -34,7 +34,7 @@ struct AeaState {
     rho0: f64,
 }
 
-impl AeaState {
+impl Aea {
     fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<Self, Error> {
         if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
             return Err(Error::BadParam(
@@ -75,68 +75,57 @@ impl AeaState {
             rho0,
         })
     }
+}
 
-    fn forward(&self, coord: Coor4D) -> Option<Coor4D> {
+impl PointOp for Aea {
+    type State = Self;
+    const GAMUT: &'static [OpParameter] = GAMUT;
+
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+        Self::new(params, params.lat(0), params.lat(1), params.lat(2))
+    }
+
+    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = self.frame.lon_delta(lon);
-        let q = self.authalic.q_from_phi(lat);
-        let rho = sqrt_checked(self.c - self.n * q)? / self.n;
-        let theta = lam * self.n;
+        let lam = state.frame.lon_delta(lon);
+        let q = state.authalic.q_from_phi(lat);
+        let rho = sqrt_checked(state.c - state.n * q)? / state.n;
+        let theta = lam * state.n;
         let (sin_theta, cos_theta) = theta.sin_cos();
-        let x_local = self.frame.a * rho * sin_theta;
-        let y_local = self.frame.a * (self.rho0 - rho * cos_theta);
-        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
+        let x_local = state.frame.a * rho * sin_theta;
+        let y_local = state.frame.a * (state.rho0 - rho * cos_theta);
+        let (x, y) = state.frame.apply_false_origin(x_local, y_local);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inverse(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
-        let sign = self.n.signum();
-        let rho_sin = sign * x_local / self.frame.a;
-        let rho_cos = sign * (self.rho0 - y_local / self.frame.a);
+    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
+        let sign = state.n.signum();
+        let rho_sin = sign * x_local / state.frame.a;
+        let rho_cos = sign * (state.rho0 - y_local / state.frame.a);
         let rho = rho_sin.hypot(rho_cos);
         if rho == 0.0 {
             return Some(Coor4D::raw(
-                self.frame.lon_0,
+                state.frame.lon_0,
                 sign * FRAC_PI_2,
                 coord[2],
                 coord[3],
             ));
         }
         let theta = rho_sin.atan2(rho_cos);
-        let lam = theta / self.n;
-        let q = (self.c - (rho * self.n).powi(2)) / self.n;
-        let lon = self.frame.apply_lon_delta(lam);
-        let lat = self
-            .authalic
-            .phi_from_q_saturating(q, AUTHALIC_LIMIT_TOLERANCE)?;
+        let lam = theta / state.n;
+        let q = (state.c - (rho * state.n).powi(2)) / state.n;
+        let lon = state.frame.apply_lon_delta(lam);
+        let lat = state.authalic.phi_from_q_saturating(q)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }
 
-struct Aea;
-
-impl PointOp for Aea {
-    type State = AeaState;
-    const GAMUT: &'static [OpParameter] = GAMUT;
-
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        AeaState::new(params, params.lat(0), params.lat(1), params.lat(2))
-    }
-
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        state.forward(coord)
-    }
-
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        state.inverse(coord)
-    }
-}
-
-struct Leac;
+#[derive(Clone, Copy, Debug)]
+struct Leac(Aea);
 
 impl PointOp for Leac {
-    type State = AeaState;
+    type State = Self;
     const GAMUT: &'static [OpParameter] = LEAC_GAMUT;
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
@@ -147,15 +136,15 @@ impl PointOp for Leac {
             FRAC_PI_2
         };
         let phi2 = params.lat(1);
-        AeaState::new(params, phi0, phi1, phi2)
+        Ok(Self(Aea::new(params, phi0, phi1, phi2)?))
     }
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        state.forward(coord)
+        Aea::fwd(&state.0, coord)
     }
 
     fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        state.inverse(coord)
+        Aea::inv(&state.0, coord)
     }
 }
 

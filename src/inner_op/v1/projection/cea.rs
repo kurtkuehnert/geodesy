@@ -5,9 +5,9 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/src/projections/cea.cpp>
 //! - PROJ 9.8.0 `cea` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/cea.rst>
+
 use crate::authoring::*;
 use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
-
 use std::f64::consts::FRAC_PI_2;
 
 #[rustfmt::skip]
@@ -17,13 +17,16 @@ pub const GAMUT: &[OpParameter] = projection_gamut!(
 );
 
 #[derive(Clone, Copy, Debug)]
-struct CeaState {
+struct Cea {
     frame: ProjectionFrame,
     authalic: AuthalicLatitude,
 }
 
-impl CeaState {
-    fn new(params: &ParsedParameters) -> Result<Self, Error> {
+impl PointOp for Cea {
+    type State = Self;
+    const GAMUT: &'static [OpParameter] = GAMUT;
+
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
         let ellps = params.ellps(0);
         let mut frame = ProjectionFrame::from_params(params);
         let authalic = AuthalicLatitude::new(ellps);
@@ -45,17 +48,6 @@ impl CeaState {
         }
 
         Ok(Self { frame, authalic })
-    }
-}
-
-struct Cea;
-
-impl PointOp for Cea {
-    type State = CeaState;
-    const GAMUT: &'static [OpParameter] = GAMUT;
-
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        CeaState::new(params)
     }
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
