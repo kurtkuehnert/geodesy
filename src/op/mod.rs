@@ -13,16 +13,14 @@ pub use parameter::OpParameter;
 pub use parsed_parameters::ParsedParameters;
 pub use raw_parameters::RawParameters;
 
-pub trait PointOp {
-    type State: Send + Sync + 'static;
+pub trait PointOp: Send + Sync + 'static {
     const GAMUT: &'static [OpParameter];
 
-    // TODO: Once the point-op path is the default, prefer op types that are
-    // their own runtime state (`type State = Self`) and drop the extra
-    // `FooState` split where it does not buy us anything.
-    fn build(params: &ParsedParameters, ctx: &dyn Context) -> Result<Self::State, Error>;
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D>;
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D>;
+    fn build(params: &ParsedParameters, ctx: &dyn Context) -> Result<Self, Error>
+    where
+        Self: Sized;
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D>;
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D>;
 }
 
 trait DynPointOp: Send + Sync {
@@ -30,17 +28,15 @@ trait DynPointOp: Send + Sync {
     fn inv(&self, coord: Coor4D) -> Option<Coor4D>;
 }
 
-struct PointOpInstance<T: PointOp> {
-    state: T::State,
-}
+struct PointOpInstance<T: PointOp>(T);
 
 impl<T: PointOp> DynPointOp for PointOpInstance<T> {
     fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        T::fwd(&self.state, coord)
+        self.0.fwd(coord)
     }
 
     fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        T::inv(&self.state, coord)
+        self.0.inv(coord)
     }
 }
 
@@ -184,9 +180,7 @@ impl Op {
         Ok(Op {
             descriptor,
             params,
-            state: Some(Box::new(PointRuntime(Box::new(PointOpInstance::<T> {
-                state,
-            })))),
+            state: Some(Box::new(PointRuntime(Box::new(PointOpInstance::<T>(state))))),
             steps: None,
         })
     }
@@ -329,18 +323,17 @@ mod tests {
     struct AddOnePointOp;
 
     impl PointOp for AddOnePointOp {
-        type State = ();
         const GAMUT: &'static [OpParameter] = &[];
 
-        fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-            Ok(())
+        fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+            Ok(Self)
         }
 
-        fn fwd(_state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
             Some(Coor4D([coord[0] + 1.0, coord[1], coord[2], coord[3]]))
         }
 
-        fn inv(_state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+        fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
             Some(Coor4D([coord[0] - 1.0, coord[1], coord[2], coord[3]]))
         }
     }

@@ -10,12 +10,6 @@ use crate::authoring::*;
 use crate::projection::{ProjectionFrame, projection_gamut};
 use std::f64::consts::FRAC_PI_2;
 
-#[rustfmt::skip]
-pub const GAMUT: &[OpParameter] = projection_gamut!(
-    OpParameter::Real { key: "k_0",    default: Some(1_f64) },
-    OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
-);
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Merc {
     frame: ProjectionFrame,
@@ -23,10 +17,13 @@ pub(crate) struct Merc {
 }
 
 impl PointOp for Merc {
-    type State = Self;
-    const GAMUT: &'static [OpParameter] = GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = projection_gamut!(
+        OpParameter::Real { key: "k_0",    default: Some(1_f64) },
+        OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
+    );
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let ellps = params.ellps(0);
         let mut frame = ProjectionFrame::from_params(params);
 
@@ -43,26 +40,26 @@ impl PointOp for Merc {
         Ok(Self { frame, ellps })
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.frame.remove_central_meridian(lon);
-        let psi = state.ellps.latitude_geographic_to_isometric(lat);
+        let lam = self.frame.remove_central_meridian(lon);
+        let psi = self.ellps.latitude_geographic_to_isometric(lat);
 
-        let x_local = state.frame.a * state.frame.k_0 * lam;
-        let y_local = state.frame.a * state.frame.k_0 * psi;
+        let x_local = self.frame.a * self.frame.k_0 * lam;
+        let y_local = self.frame.a * self.frame.k_0 * psi;
 
-        let (x, y) = state.frame.apply_false_origin(x_local, y_local);
+        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
 
-        let lam = x_local / (state.frame.a * state.frame.k_0);
-        let psi = y_local / (state.frame.a * state.frame.k_0);
+        let lam = x_local / (self.frame.a * self.frame.k_0);
+        let psi = y_local / (self.frame.a * self.frame.k_0);
 
-        let lon = state.frame.apply_central_meridian(lam);
-        let lat = state.ellps.latitude_isometric_to_geographic(psi);
+        let lon = self.frame.apply_central_meridian(lam);
+        let lat = self.ellps.latitude_isometric_to_geographic(psi);
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }

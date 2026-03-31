@@ -324,37 +324,36 @@ impl Stere {
 }
 
 impl PointOp for Stere {
-    type State = Self;
     const GAMUT: &'static [OpParameter] = GAMUT;
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         Self::build_with_variant_c(params, false)
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.frame.remove_central_meridian_raw(lon);
+        let lam = self.frame.remove_central_meridian_raw(lon);
 
-        let (x_local, y_local) = if state.conformal.spherical() {
-            state.fwd_spherical(lam, lat)?
+        let (x_local, y_local) = if self.conformal.spherical() {
+            self.fwd_spherical(lam, lat)?
         } else {
-            state.fwd_ellipsoidal(lam, lat)?
+            self.fwd_ellipsoidal(lam, lat)?
         };
 
-        let (x, y) = state.frame.apply_false_origin(x_local, y_local);
+        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
 
-        let (lam, lat) = if state.conformal.spherical() {
-            state.inv_spherical(x_local, y_local)?
+        let (lam, lat) = if self.conformal.spherical() {
+            self.inv_spherical(x_local, y_local)?
         } else {
-            state.inv_ellipsoidal(x_local, y_local)?
+            self.inv_ellipsoidal(x_local, y_local)?
         };
 
-        let lon = state.frame.apply_central_meridian(lam);
+        let lon = self.frame.apply_central_meridian(lam);
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }

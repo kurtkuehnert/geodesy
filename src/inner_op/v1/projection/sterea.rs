@@ -10,24 +10,13 @@
 use crate::authoring::*;
 use crate::projection::{Gauss, ProjectionFrame};
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 7] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "k_0",   default: Some(1_f64) },
-    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-];
-
 #[derive(Clone, Copy, Debug)]
-pub struct StereaState {
+pub(crate) struct Sterea {
     frame: ProjectionFrame,
     gauss: Gauss,
 }
 
-impl StereaState {
+impl Sterea {
     fn new(params: &ParsedParameters) -> Result<Self, Error> {
         let frame = ProjectionFrame::from_params(params);
         let ellps = params.ellps(0);
@@ -39,56 +28,62 @@ impl StereaState {
     }
 }
 
-pub(crate) struct Sterea;
-
 impl PointOp for Sterea {
-    type State = StereaState;
-    const GAMUT: &'static [OpParameter] = &GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
+        OpParameter::Real { key: "lon_0", default: Some(0_f64) },
+        OpParameter::Real { key: "k_0",   default: Some(1_f64) },
+        OpParameter::Real { key: "x_0",   default: Some(0_f64) },
+        OpParameter::Real { key: "y_0",   default: Some(0_f64) },
+    ];
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        StereaState::new(params)
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Self::new(params)
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let (lam, phi) = state.gauss.forward(state.frame.remove_central_meridian_raw(lon), lat);
+        let (lam, phi) = self.gauss.forward(self.frame.remove_central_meridian_raw(lon), lat);
         let sinc = phi.sin();
         let cosc = phi.cos();
         let cosl = lam.cos();
-        let denom = 1.0 + state.gauss.sinc0 * sinc + state.gauss.cosc0 * cosc * cosl;
+        let denom = 1.0 + self.gauss.sinc0 * sinc + self.gauss.cosc0 * cosc * cosl;
         if denom == 0.0 {
             return None;
         }
 
-        let k = state.frame.a * state.frame.k_0 * state.gauss.r2 / denom;
+        let k = self.frame.a * self.frame.k_0 * self.gauss.r2 / denom;
         let x = k * cosc * lam.sin();
-        let y = k * (state.gauss.cosc0 * sinc - state.gauss.sinc0 * cosc * cosl);
-        let (x, y) = state.frame.apply_false_origin(x, y);
+        let y = k * (self.gauss.cosc0 * sinc - self.gauss.sinc0 * cosc * cosl);
+        let (x, y) = self.frame.apply_false_origin(x, y);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
         let (x, y) = coord.xy();
-        let (x_local, y_local) = state.frame.remove_false_origin(x, y);
-        let x = x_local / (state.frame.a * state.frame.k_0);
-        let y = y_local / (state.frame.a * state.frame.k_0);
+        let (x_local, y_local) = self.frame.remove_false_origin(x, y);
+        let x = x_local / (self.frame.a * self.frame.k_0);
+        let y = y_local / (self.frame.a * self.frame.k_0);
 
         let rho = x.hypot(y);
         let (lon, lat) = if rho != 0.0 {
-            let c = 2.0 * rho.atan2(state.gauss.r2);
+            let c = 2.0 * rho.atan2(self.gauss.r2);
             let sinc = c.sin();
             let cosc = c.cos();
-            let lat = (cosc * state.gauss.sinc0 + y * sinc * state.gauss.cosc0 / rho).asin();
+            let lat = (cosc * self.gauss.sinc0 + y * sinc * self.gauss.cosc0 / rho).asin();
             let lon =
-                (x * sinc).atan2(rho * state.gauss.cosc0 * cosc - y * state.gauss.sinc0 * sinc);
+                (x * sinc).atan2(rho * self.gauss.cosc0 * cosc - y * self.gauss.sinc0 * sinc);
             (lon, lat)
         } else {
-            (0.0, state.gauss.phic0)
+            (0.0, self.gauss.phic0)
         };
 
-        let (lon, lat) = state.gauss.inverse(lon, lat)?;
+        let (lon, lat) = self.gauss.inverse(lon, lat)?;
         Some(Coor4D::raw(
-            state.frame.lon_0 + lon,
+            self.frame.lon_0 + lon,
             lat,
             coord[2],
             coord[3],

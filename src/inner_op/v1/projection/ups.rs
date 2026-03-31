@@ -5,26 +5,23 @@ use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 use std::f64::consts::FRAC_PI_2;
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 8] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Flag { key: "south" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0.0) },
-    OpParameter::Real { key: "lon_0", default: Some(0.0) },
-    OpParameter::Real { key: "x_0", default: Some(2_000_000.0) },
-    OpParameter::Real { key: "y_0", default: Some(2_000_000.0) },
-    OpParameter::Real { key: "k_0", default: Some(0.994) },
-];
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Ups(Stere);
 
 impl PointOp for Ups {
-    type State = Self;
-    const GAMUT: &'static [OpParameter] = &GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Flag { key: "south" },
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Real { key: "lat_0", default: Some(0.0) },
+        OpParameter::Real { key: "lon_0", default: Some(0.0) },
+        OpParameter::Real { key: "x_0", default: Some(2_000_000.0) },
+        OpParameter::Real { key: "y_0", default: Some(2_000_000.0) },
+        OpParameter::Real { key: "k_0", default: Some(0.994) },
+    ];
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let south = params.boolean("south");
         let mut frame = ProjectionFrame::from_params(params);
         frame.lat_0 = if south { -FRAC_PI_2 } else { FRAC_PI_2 };
@@ -32,12 +29,12 @@ impl PointOp for Ups {
         Ok(Self(Stere::build_core(params, frame, frame.lat_0, frame.lat_0, false)?))
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Stere::fwd(&state.0, coord)
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.fwd(coord)
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Stere::inv(&state.0, coord)
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.inv(coord)
     }
 }
 

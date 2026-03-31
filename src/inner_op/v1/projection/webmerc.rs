@@ -10,24 +10,21 @@ use crate::authoring::*;
 use crate::projection::ProjectionFrame;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 4] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Real { key: "lon_0", default: Some(0.0) },
-    OpParameter::Real { key: "x_0", default: Some(0.0) },
-    OpParameter::Real { key: "y_0", default: Some(0.0) },
-];
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WebMerc {
     frame: ProjectionFrame,
 }
 
 impl PointOp for WebMerc {
-    type State = Self;
-    const GAMUT: &'static [OpParameter] = &GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Real { key: "lon_0", default: Some(0.0) },
+        OpParameter::Real { key: "x_0", default: Some(0.0) },
+        OpParameter::Real { key: "y_0", default: Some(0.0) },
+    ];
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let frame = ProjectionFrame {
             lon_0: params.lon(0),
             lat_0: 0.0,
@@ -39,20 +36,20 @@ impl PointOp for WebMerc {
         Ok(Self { frame })
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.frame.remove_central_meridian(lon);
-        let x_local = state.frame.a * lam;
-        let y_local = state.frame.a * (FRAC_PI_4 + lat / 2.0).tan().ln();
-        let (x, y) = state.frame.apply_false_origin(x_local, y_local);
+        let lam = self.frame.remove_central_meridian(lon);
+        let x_local = self.frame.a * lam;
+        let y_local = self.frame.a * (FRAC_PI_4 + lat / 2.0).tan().ln();
+        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = state.frame.remove_false_origin(coord[0], coord[1]);
-        let lam = x_local / state.frame.a;
-        let lon = state.frame.apply_central_meridian(lam);
-        let lat = FRAC_PI_2 - 2.0 * (-y_local / state.frame.a).exp().atan();
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
+        let lam = x_local / self.frame.a;
+        let lon = self.frame.apply_central_meridian(lam);
+        let lat = FRAC_PI_2 - 2.0 * (-y_local / self.frame.a).exp().atan();
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }

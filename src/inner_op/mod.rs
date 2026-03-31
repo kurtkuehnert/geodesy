@@ -246,10 +246,10 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("webmerc",     Op::point::<webmerc::WebMerc>, Geographic, Projected),
 
     // Geographic identity: lon/lat degrees in and out
-    BuiltinOp::with_domains("longlat",     longlat::new,     Geographic, Geographic),
-    BuiltinOp::with_domains("latlon",      longlat::new,     Geographic, Geographic),
-    BuiltinOp::with_domains("latlong",     longlat::new,     Geographic, Geographic),
-    BuiltinOp::with_domains("lonlat",      longlat::new,     Geographic, Geographic),
+    BuiltinOp::with_domains("longlat",     Op::point::<longlat::LongLat>, Geographic, Geographic),
+    BuiltinOp::with_domains("latlon",      Op::point::<longlat::LongLat>, Geographic, Geographic),
+    BuiltinOp::with_domains("latlong",     Op::point::<longlat::LongLat>, Geographic, Geographic),
+    BuiltinOp::with_domains("lonlat",      Op::point::<longlat::LongLat>, Geographic, Geographic),
 
     // Geographic to Cartesian: lon/lat degrees in, XYZ meters out
     BuiltinOp::with_domains("cart",        cart::new,        Geographic, Cartesian),

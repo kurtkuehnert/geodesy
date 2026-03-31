@@ -5,20 +5,17 @@ use crate::authoring::*;
 use crate::projection::projection_gamut;
 use std::f64::consts::FRAC_PI_2;
 
-#[rustfmt::skip]
-pub const GAMUT: &[OpParameter] = projection_gamut!(
-    OpParameter::Flag { key: "south" },
-    OpParameter::Real { key: "lat_1", default: None },
-);
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Leac(Aea);
 
 impl PointOp for Leac {
-    type State = Self;
-    const GAMUT: &'static [OpParameter] = GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = projection_gamut!(
+        OpParameter::Flag { key: "south" },
+        OpParameter::Real { key: "lat_1", default: None },
+    );
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let phi0 = params.lat(0);
         let phi1 = if params.boolean("south") {
             -FRAC_PI_2
@@ -31,11 +28,11 @@ impl PointOp for Leac {
         )?))
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Aea::fwd(&state.0, coord)
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.fwd(coord)
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Aea::inv(&state.0, coord)
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.inv(coord)
     }
 }

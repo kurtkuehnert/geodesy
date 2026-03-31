@@ -12,18 +12,8 @@ use std::f64::consts::{FRAC_PI_2, PI};
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 const LONGITUDE_CANONICALIZATION_TOLERANCE: f64 = 1e-12;
 
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 6] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-];
-
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct AeqdState {
+pub(crate) struct Aeqd {
     pub(crate) frame: ProjectionFrame,
     pub(crate) ellps: Ellipsoid,
     pub(crate) origin: Coor4D,
@@ -33,7 +23,7 @@ pub(crate) struct AeqdState {
     pub(crate) mp: Option<f64>,
 }
 
-impl AeqdState {
+impl Aeqd {
     pub(crate) fn new(params: &ParsedParameters) -> Result<Self, Error> {
         let frame = ProjectionFrame::from_params(params);
         if frame.lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
@@ -164,38 +154,43 @@ impl AeqdState {
     }
 }
 
-pub(crate) struct Aeqd;
-
 impl PointOp for Aeqd {
-    type State = AeqdState;
-    const GAMUT: &'static [OpParameter] = &GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = &[
+        OpParameter::Flag { key: "inv" },
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
+        OpParameter::Real { key: "lon_0", default: Some(0_f64) },
+        OpParameter::Real { key: "x_0",   default: Some(0_f64) },
+        OpParameter::Real { key: "y_0",   default: Some(0_f64) },
+    ];
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        AeqdState::new(params)
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Self::new(params)
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.frame.remove_central_meridian(lon);
+        let lam = self.frame.remove_central_meridian(lon);
 
-        let (x, y) = if state.spherical {
-            state.spherical_fwd(lam, lat)?
+        let (x, y) = if self.spherical {
+            self.spherical_fwd(lam, lat)?
         } else {
-            state.ellipsoidal_fwd(lam, lat)?
+            self.ellipsoidal_fwd(lam, lat)?
         };
 
-        let (x, y) = state.frame.apply_false_origin(x, y);
+        let (x, y) = self.frame.apply_false_origin(x, y);
 
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        let (x, y) = state.frame.remove_false_origin(coord[0], coord[1]);
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x, y) = self.frame.remove_false_origin(coord[0], coord[1]);
 
-        let (lon, lat) = if state.spherical {
-            state.spherical_inv(x, y)?
+        let (lon, lat) = if self.spherical {
+            self.spherical_inv(x, y)?
         } else {
-            state.ellipsoidal_inv(x, y)?
+            self.ellipsoidal_inv(x, y)?
         };
 
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))

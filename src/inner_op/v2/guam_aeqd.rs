@@ -1,5 +1,5 @@
 use crate::authoring::*;
-use crate::inner_op::aeqd::AeqdState;
+use crate::inner_op::aeqd::Aeqd;
 
 #[rustfmt::skip]
 const GAMUT: [OpParameter; 6] = [
@@ -12,14 +12,14 @@ const GAMUT: [OpParameter; 6] = [
 ];
 
 #[derive(Clone, Copy, Debug)]
-struct GuamAeqdState {
-    base: AeqdState,
+struct GuamAeqd {
+    base: Aeqd,
     m1: Option<f64>,
 }
 
-impl GuamAeqdState {
+impl GuamAeqd {
     fn new(params: &ParsedParameters) -> Result<Self, Error> {
-        let base = AeqdState::new(params)?;
+        let base = Aeqd::new(params)?;
         let m1 = if base.spherical {
             None
         } else {
@@ -57,34 +57,31 @@ impl GuamAeqdState {
     }
 }
 
-struct GuamAeqd;
-
 impl PointOp for GuamAeqd {
-    type State = GuamAeqdState;
     const GAMUT: &'static [OpParameter] = &GAMUT;
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
-        GuamAeqdState::new(params)
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Self::new(params)
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.base.frame.remove_central_meridian(lon);
-        let (x, y) = if state.base.spherical {
-            state.base.spherical_fwd(lam, lat)?
+        let lam = self.base.frame.remove_central_meridian(lon);
+        let (x, y) = if self.base.spherical {
+            self.base.spherical_fwd(lam, lat)?
         } else {
-            state.guam_fwd(lam, lat)
+            self.guam_fwd(lam, lat)
         };
-        let (x, y) = state.base.frame.apply_false_origin(x, y);
+        let (x, y) = self.base.frame.apply_false_origin(x, y);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        let (x, y) = state.base.frame.remove_false_origin(coord[0], coord[1]);
-        let (lon, lat) = if state.base.spherical {
-            state.base.spherical_inv(x, y)?
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        let (x, y) = self.base.frame.remove_false_origin(coord[0], coord[1]);
+        let (lon, lat) = if self.base.spherical {
+            self.base.spherical_inv(x, y)?
         } else {
-            state.guam_inv(x, y)
+            self.guam_inv(x, y)
         };
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }

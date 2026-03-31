@@ -7,19 +7,18 @@ use crate::authoring::*;
 pub(crate) struct Sterec(Stere);
 
 impl PointOp for Sterec {
-    type State = Self;
     const GAMUT: &'static [OpParameter] = super::stere::GAMUT;
 
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self::State, Error> {
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         Ok(Self(Stere::build_with_variant_c(params, true)?))
     }
 
-    fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Stere::fwd(&state.0, coord)
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.fwd(coord)
     }
 
-    fn inv(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
-        Stere::inv(&state.0, coord)
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        self.0.inv(coord)
     }
 }
 
