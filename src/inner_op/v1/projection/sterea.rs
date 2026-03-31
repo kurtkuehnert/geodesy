@@ -51,7 +51,7 @@ impl PointOp for Sterea {
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let (lam, phi) = state.gauss.forward(state.frame.lon_delta_raw(lon), lat);
+        let (lam, phi) = state.gauss.forward(state.frame.remove_central_meridian_raw(lon), lat);
         let sinc = phi.sin();
         let cosc = phi.cos();
         let cosl = lam.cos();

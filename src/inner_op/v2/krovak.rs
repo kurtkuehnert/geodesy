@@ -39,7 +39,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, lat) = operands.xy(i);
         let gfi = ((1.0 + e * lat.sin()) / (1.0 - e * lat.sin())).powf(alpha * e * 0.5);
         let u = 2.0 * (k * (lat * 0.5 + FRAC_PI_4).tan().powf(alpha) / gfi).atan() - FRAC_PI_2;
-        let deltav = -frame.lon_delta_raw(lon) * alpha;
+        let deltav = -frame.remove_central_meridian_raw(lon) * alpha;
 
         let s = (ad.cos() * u.sin() + ad.sin() * u.cos() * deltav.cos()).asin();
         let cos_s = s.cos();

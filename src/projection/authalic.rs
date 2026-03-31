@@ -10,7 +10,7 @@ pub(crate) enum AuthalicLatitude {
     Ellipsoidal {
         ellps: Ellipsoid,
         coefficients: FourierCoefficients,
-        qp: f64,
+        q_pole: f64,
     },
 }
 
@@ -24,7 +24,7 @@ impl AuthalicLatitude {
         }
 
         Self::Ellipsoidal {
-            qp: ancillary::qs(1.0, ellps.eccentricity()),
+            q_pole: ancillary::qs(1.0, ellps.eccentricity()),
             coefficients: ellps.coefficients_for_authalic_latitude_computations(),
             ellps,
         }
@@ -34,17 +34,25 @@ impl AuthalicLatitude {
         matches!(self, Self::Spherical)
     }
 
-    pub fn qp(self) -> f64 {
+    pub fn q_pole(self) -> f64 {
         match self {
             Self::Spherical => 2.0,
-            Self::Ellipsoidal { qp, .. } => qp,
+            Self::Ellipsoidal { q_pole, .. } => q_pole,
         }
+    }
+
+    pub fn beta_from_q(self, q: f64) -> Option<f64> {
+        let normalized_q = q / self.q_pole();
+        if normalized_q.abs() > 1.0 + Self::DOMAIN_TOLERANCE {
+            return None;
+        }
+        Some(normalized_q.clamp(-1.0, 1.0).asin())
     }
 
     pub fn beta_from_phi(self, phi: f64) -> f64 {
         match self {
             Self::Spherical => phi,
-            Self::Ellipsoidal { .. } => (self.q_from_phi(phi) / self.qp()).clamp(-1.0, 1.0).asin(),
+            Self::Ellipsoidal { .. } => self.beta_from_q(self.q_from_phi(phi)).unwrap_or(phi),
         }
     }
 
@@ -60,11 +68,7 @@ impl AuthalicLatitude {
     }
 
     pub fn phi_from_q(self, q: f64) -> Option<f64> {
-        let normalized_q = q / self.qp();
-        if normalized_q.abs() > 1.0 + Self::DOMAIN_TOLERANCE {
-            return None;
-        }
-        Some(self.phi_from_beta(normalized_q.clamp(-1.0, 1.0).asin()))
+        Some(self.phi_from_beta(self.beta_from_q(q)?))
     }
 
     pub fn q_from_phi(self, phi: f64) -> f64 {
@@ -76,7 +80,7 @@ impl AuthalicLatitude {
     }
 
     pub fn phi_from_q_saturating(self, q: f64) -> Option<f64> {
-        if (self.qp() - q.abs()).abs() <= Self::SATURATION_TOLERANCE {
+        if (self.q_pole() - q.abs()).abs() <= Self::SATURATION_TOLERANCE {
             return Some(if q < 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 });
         }
         self.phi_from_q(q)

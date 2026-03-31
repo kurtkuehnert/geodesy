@@ -14,7 +14,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0usize;
     for i in 0..operands.len() {
         let (lam, phi) = operands.xy(i);
-        let lam = frame.lon_delta_raw(lam);
+        let lam = frame.remove_central_meridian_raw(lam);
         let cosphi = phi.cos();
         let sinphi = phi.sin();
         let nu = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();

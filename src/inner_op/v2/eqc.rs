@@ -11,7 +11,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let x = rc * frame.lon_delta_raw(lon);
+        let x = rc * frame.remove_central_meridian_raw(lon);
         let y = ellps.meridian_latitude_to_distance(lat) - m0;
         let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);

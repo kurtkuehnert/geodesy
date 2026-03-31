@@ -44,7 +44,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             .atan()
             - FRAC_PI_2;
 
-        let lam_p = c * frame.lon_delta_raw(lam);
+        let lam_p = c * frame.remove_central_meridian_raw(lam);
         let (sin_lam_p, cos_lam_p) = lam_p.sin_cos();
         let (sin_phi_p, cos_phi_p) = phi_p.sin_cos();
 

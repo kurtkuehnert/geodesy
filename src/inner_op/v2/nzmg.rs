@@ -123,7 +123,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         }
         let p = Complex {
             r: dphi * pr,
-            i: frame.lon_delta_raw(lon),
+            i: frame.remove_central_meridian_raw(lon),
         };
         let z = zpoly1(p, &BF);
         operands.set_xy(i, frame.x_0 + a * z.i, frame.y_0 + a * z.r);

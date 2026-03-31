@@ -15,7 +15,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let l = n1 * frame.lon_delta_raw(lon);
+        let l = n1 * frame.remove_central_meridian_raw(lon);
         let ls = c + n1 * ancillary::ts((-lat).sin_cos(), e).ln();
         let sin_ls1 = l.sin() / ls.cosh();
         let ls1 = ancillary::ts((-sin_ls1.asin()).sin_cos(), 0.0).ln();

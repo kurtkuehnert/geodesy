@@ -52,7 +52,7 @@ impl PointOp for Cea {
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.frame.lon_delta(lon);
+        let lam = state.frame.remove_central_meridian(lon);
         let q = state.authalic.q_from_phi(lat);
 
         let x_local = state.frame.a * state.frame.k_0 * lam;
@@ -68,7 +68,7 @@ impl PointOp for Cea {
         let lam = x_local / (state.frame.a * state.frame.k_0);
         let q = 2.0 * y_local * state.frame.k_0 / state.frame.a;
 
-        let lon = state.frame.apply_lon_delta(lam);
+        let lon = state.frame.apply_central_meridian(lam);
         let lat = state.authalic.phi_from_q(q)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }

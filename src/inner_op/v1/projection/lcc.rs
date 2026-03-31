@@ -102,7 +102,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
 
     for i in 0..length {
         let (mut lam, phi) = operands.xy(i);
-        lam = state.frame.lon_delta(lam);
+        lam = state.frame.remove_central_meridian(lam);
         let mut rho = 0.;
 
         if (phi.abs() - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {

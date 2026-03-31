@@ -87,7 +87,7 @@ impl PointOp for Aea {
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.frame.lon_delta(lon);
+        let lam = state.frame.remove_central_meridian(lon);
         let q = state.authalic.q_from_phi(lat);
         let rho = sqrt_checked(state.c - state.n * q)? / state.n;
         let theta = lam * state.n;
@@ -115,7 +115,7 @@ impl PointOp for Aea {
         let theta = rho_sin.atan2(rho_cos);
         let lam = theta / state.n;
         let q = (state.c - (rho * state.n).powi(2)) / state.n;
-        let lon = state.frame.apply_lon_delta(lam);
+        let lon = state.frame.apply_central_meridian(lam);
         let lat = state.authalic.phi_from_q_saturating(q)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }

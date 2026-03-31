@@ -21,7 +21,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         } else {
             c - ellps.meridian_latitude_to_distance(lat) / frame.a
         };
-        let theta = n * frame.lon_delta(lon);
+        let theta = n * frame.remove_central_meridian(lon);
         let x = frame.a * rho * theta.sin();
         let y = frame.a * (rho0 - rho * theta.cos());
         let (x, y) = frame.apply_false_origin(x, y);

@@ -24,7 +24,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = frame.lon_delta(lon);
+        let lam = frame.remove_central_meridian(lon);
         let mut theta = lat;
         let k = c_p * lat.sin();
         let mut converged = false;

@@ -69,7 +69,7 @@ impl PointOp for GuamAeqd {
 
     fn fwd(state: &Self::State, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let lam = state.base.frame.lon_delta(lon);
+        let lam = state.base.frame.remove_central_meridian(lon);
         let (x, y) = if state.base.spherical {
             state.base.spherical_fwd(lam, lat)?
         } else {

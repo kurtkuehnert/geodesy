@@ -8,7 +8,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let x = frame.a * frame.lon_delta(lon);
+        let x = frame.a * frame.remove_central_meridian(lon);
         let y = frame.a * 1.25 * (std::f64::consts::FRAC_PI_4 + 0.4 * lat).tan().ln();
         let (x, y) = frame.apply_false_origin(x, y);
         operands.set_xy(i, x, y);

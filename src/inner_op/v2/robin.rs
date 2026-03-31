@@ -274,7 +274,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = frame.lon_delta(lon);
+        let lam = frame.remove_central_meridian(lon);
         let mut dphi = lat.abs();
         if dphi.is_nan() {
             operands.set_coord(i, &Coor4D::nan());

@@ -36,7 +36,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
             * a_coeff
             * (5.0 * cosps2 * cosps2 + sinps2 * (sinps2 - 18.0 * cosps2))
             / 120.0;
-        let lam = frame.lon_delta_raw(lon);
+        let lam = frame.remove_central_meridian_raw(lon);
         let t2 = lam * lam;
         let mut x = k_rg * lam * (i4 + t2 * (i5 + t2 * i6));
         let mut y = k_rg * (i1 + t2 * (i2 + t2 * i3));

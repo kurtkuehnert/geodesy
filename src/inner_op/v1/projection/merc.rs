@@ -25,7 +25,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let easting = state.frame.lon_delta(lon) * state.frame.k_0 * state.frame.a;
+        let easting = state.frame.remove_central_meridian(lon) * state.frame.k_0 * state.frame.a;
         let isometric = state.ellps.latitude_geographic_to_isometric(lat);
         let northing = state.frame.a * state.frame.k_0 * isometric;
 

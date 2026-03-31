@@ -74,7 +74,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let (lon, lat) = operands.xy(i);
 
         let (x, y) = if state.spherical {
-            let lam = state.frame.lon_delta(lon);
+            let lam = state.frame.remove_central_meridian(lon);
             (
                 state.frame.a * (lat.cos() * lam.sin()).asin(),
                 state.frame.a * (lat.tan().atan2(lam.cos()) - state.frame.lat_0),

@@ -46,7 +46,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         // The conformal latitude
         let lat = state.conformal.series_reduced(lat);
         // The longitude as reckoned from the central meridian
-        let lon = state.frame.lon_delta_raw(lon);
+        let lon = state.frame.remove_central_meridian_raw(lon);
 
         // --- 2. Conformal LAT, LNG -> complex spherical LAT
 

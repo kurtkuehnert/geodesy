@@ -82,7 +82,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
     let mut successes = 0_usize;
     for i in 0..operands.len() {
         let (lon, lat) = operands.xy(i);
-        let lam = frame.lon_delta_raw(lon);
+        let lam = frame.remove_central_meridian_raw(lon);
 
         let (x, y) = if spherical && lat.abs() > TOL {
             let cot = lat.tan().recip();

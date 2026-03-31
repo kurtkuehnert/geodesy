@@ -50,18 +50,18 @@ impl ProjectionFrame {
         }
     }
 
-    /// Central-meridian delta normalized into [-pi, pi].
-    pub fn lon_delta(&self, lon: f64) -> f64 {
+    /// Remove the central meridian, normalized into [-pi, pi].
+    pub fn remove_central_meridian(&self, lon: f64) -> f64 {
         angular::normalize_symmetric(lon - self.lon_0)
     }
 
-    /// Absolute longitude from a central-meridian delta.
-    pub fn apply_lon_delta(&self, lam: f64) -> f64 {
+    /// Apply the central meridian to a local longitude delta.
+    pub fn apply_central_meridian(&self, lam: f64) -> f64 {
         self.lon_0 + lam
     }
 
-    /// Central-meridian delta without wrapping.
-    pub fn lon_delta_raw(&self, lon: f64) -> f64 {
+    /// Remove the central meridian without wrapping.
+    pub fn remove_central_meridian_raw(&self, lon: f64) -> f64 {
         lon - self.lon_0
     }
 
@@ -145,10 +145,10 @@ mod tests {
     fn projection_frame_deltas_are_relative_to_cached_origin() {
         let params = normalized_params("lat_0=10 lon_0=179");
         let frame = ProjectionFrame::from_params(&params);
-        let lon_delta = frame.lon_delta((-179_f64).to_radians());
+        let lon_delta = frame.remove_central_meridian((-179_f64).to_radians());
         let lat_delta = frame.lat_delta(13_f64.to_radians());
-        let raw_lon_delta = frame.lon_delta_raw((-179_f64).to_radians());
-        let restored_lon = frame.apply_lon_delta(lon_delta);
+        let raw_lon_delta = frame.remove_central_meridian_raw((-179_f64).to_radians());
+        let restored_lon = frame.apply_central_meridian(lon_delta);
 
         assert!((lon_delta - 2_f64.to_radians()).abs() < 1e-15);
         assert!((raw_lon_delta + 358_f64.to_radians()).abs() < 1e-15);

@@ -22,7 +22,7 @@ fn fwd(op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
         let m = s - s_0;
         let m_cap = frame.k_0 * (m + a_coef * m * m * m);
         let r = r_0 - m_cap;
-        let theta = frame.lon_delta(lon) * sin_phi_0;
+        let theta = frame.remove_central_meridian(lon) * sin_phi_0;
         let x = r * theta.sin();
         let y = m_cap + r * theta.sin() * (theta / 2.0).tan();
         let (x, y) = frame.apply_false_origin(x, y);
