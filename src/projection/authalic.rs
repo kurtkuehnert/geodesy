@@ -2,6 +2,7 @@ use crate::authoring::Ellipsoid;
 use crate::ellipsoid::EllipsoidBase;
 use crate::ellipsoid::latitudes::Latitudes;
 use crate::math::{FourierCoefficients, ancillary};
+use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum AuthalicLatitude {
@@ -71,5 +72,12 @@ impl AuthalicLatitude {
             return None;
         }
         Some(self.phi_from_beta(normalized_q.clamp(-1.0, 1.0).asin()))
+    }
+
+    pub fn phi_from_q_saturating(self, q: f64, tolerance: f64) -> Option<f64> {
+        if (self.qp() - q.abs()).abs() <= tolerance {
+            return Some(if q < 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 });
+        }
+        self.phi_from_q(q)
     }
 }

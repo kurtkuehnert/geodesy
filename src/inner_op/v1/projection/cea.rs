@@ -10,6 +10,7 @@ use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
 
 use std::f64::consts::FRAC_PI_2;
 
+#[rustfmt::skip]
 pub const GAMUT: &[OpParameter] = projection_gamut!(
     OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
     OpParameter::Real { key: "k_0",    default: Some(1_f64) },

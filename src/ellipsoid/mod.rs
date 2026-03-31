@@ -8,6 +8,7 @@ pub mod meridians;
 pub mod triaxial;
 
 use crate::prelude::*;
+use crate::math::ancillary;
 
 // Blanket implementations for all the Ellipsoidal traits
 impl<T> Meridians for T where T: EllipsoidBase + ?Sized {}
@@ -147,6 +148,12 @@ pub trait EllipsoidBase {
     fn polar_radius_of_curvature(&self) -> f64 {
         let a = self.semimajor_axis();
         a * a / self.semiminor_axis()
+    }
+
+    /// The standard ellipsoidal m(phi) term used in conic and cylindrical setup formulas.
+    #[must_use]
+    fn meridional_scale(&self, phi: f64) -> f64 {
+        ancillary::pj_msfn(phi.sin_cos(), self.eccentricity_squared())
     }
 }
 

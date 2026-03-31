@@ -6,32 +6,23 @@
 //! - PROJ 9.8.0 `aea` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aea.rst>
 use crate::authoring::*;
-use crate::math::ancillary;
 use crate::math::sqrt_checked;
 use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
-
 use std::f64::consts::FRAC_PI_2;
 
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
 const AUTHALIC_LIMIT_TOLERANCE: f64 = 1e-7;
 
+#[rustfmt::skip]
 pub const GAMUT: &[OpParameter] = projection_gamut!(
-    OpParameter::Real {
-        key: "lat_1",
-        default: None
-    },
-    OpParameter::Real {
-        key: "lat_2",
-        default: None
-    },
+    OpParameter::Real { key: "lat_1", default: None },
+    OpParameter::Real { key: "lat_2", default: None },
 );
 
+#[rustfmt::skip]
 const LEAC_GAMUT: &[OpParameter] = projection_gamut!(
     OpParameter::Flag { key: "south" },
-    OpParameter::Real {
-        key: "lat_1",
-        default: None
-    },
+    OpParameter::Real { key: "lat_1", default: None },
 );
 
 #[derive(Clone, Copy, Debug)]
@@ -40,10 +31,7 @@ struct AeaState {
     authalic: AuthalicLatitude,
     n: f64,
     c: f64,
-    dd: f64,
     rho0: f64,
-    ec: f64,
-    spherical: bool,
 }
 
 impl AeaState {
@@ -63,57 +51,28 @@ impl AeaState {
         let ellps = params.ellps(0);
         let frame = ProjectionFrame::from_params(params);
         let authalic = AuthalicLatitude::new(ellps);
-        let spherical = authalic.spherical();
 
-        let (sinphi1, cosphi1) = phi1.sin_cos();
-        let secant = (phi1 - phi2).abs() >= STANDARD_PARALLEL_TOLERANCE;
-        let mut n = sinphi1;
-
-        if spherical {
-            if secant {
-                n = 0.5 * (n + phi2.sin());
-            }
-            let n2 = n + n;
-            let c = cosphi1 * cosphi1 + n2 * sinphi1;
-            let dd = 1.0 / n;
-            let rho0 = dd * (c - n2 * phi0.sin()).sqrt();
-            return Ok(Self {
-                frame,
-                authalic,
-                n,
-                c,
-                dd,
-                rho0,
-                ec: 2.0,
-                spherical,
-            });
-        }
-
-        let es = ellps.eccentricity_squared();
-        let m1 = ancillary::pj_msfn((sinphi1, cosphi1), es);
+        let m1 = ellps.meridional_scale(phi1);
+        let q0 = authalic.q_from_phi(phi0);
         let q1 = authalic.q_from_phi(phi1);
-        if secant {
-            let (sinphi2, cosphi2) = phi2.sin_cos();
-            let m2 = ancillary::pj_msfn((sinphi2, cosphi2), es);
-            let q2 = authalic.q_from_phi(phi2);
-            n = (m1 * m1 - m2 * m2) / (q2 - q1);
-        }
 
-        let e = ellps.eccentricity();
-        let ec = 1.0 - 0.5 * (1.0 - es) * ((1.0 - e) / (1.0 + e)).ln() / e;
+        let n = if (phi1 - phi2).abs() >= STANDARD_PARALLEL_TOLERANCE {
+            let m2 = ellps.meridional_scale(phi2);
+            let q2 = authalic.q_from_phi(phi2);
+
+            (m1 * m1 - m2 * m2) / (q2 - q1)
+        } else {
+            phi1.sin()
+        };
         let c = m1 * m1 + n * q1;
-        let dd = 1.0 / n;
-        let rho0 = dd * (c - n * authalic.q_from_phi(phi0)).sqrt();
+        let rho0 = (c - n * q0).sqrt() / n;
 
         Ok(Self {
             frame,
             authalic,
             n,
             c,
-            dd,
             rho0,
-            ec,
-            spherical,
         })
     }
 
@@ -121,59 +80,36 @@ impl AeaState {
         let (lon, lat) = coord.xy();
         let lam = self.frame.lon_delta(lon);
         let q = self.authalic.q_from_phi(lat);
-
-        let rho = self.dd * sqrt_checked(self.c - self.n * q)?;
+        let rho = sqrt_checked(self.c - self.n * q)? / self.n;
         let theta = lam * self.n;
         let (sin_theta, cos_theta) = theta.sin_cos();
         let x_local = self.frame.a * rho * sin_theta;
         let y_local = self.frame.a * (self.rho0 - rho * cos_theta);
-
         let (x, y) = self.frame.apply_false_origin(x_local, y_local);
         Some(Coor4D::raw(x, y, coord[2], coord[3]))
     }
 
     fn inverse(&self, coord: Coor4D) -> Option<Coor4D> {
         let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
-        let mut x = x_local / self.frame.a;
-        let mut y = self.rho0 - y_local / self.frame.a;
-        let mut rho = x.hypot(y);
-
+        let sign = self.n.signum();
+        let rho_sin = sign * x_local / self.frame.a;
+        let rho_cos = sign * (self.rho0 - y_local / self.frame.a);
+        let rho = rho_sin.hypot(rho_cos);
         if rho == 0.0 {
-            let lat = if self.n > 0.0 { FRAC_PI_2 } else { -FRAC_PI_2 };
-            return Some(Coor4D::raw(self.frame.lon_0, lat, coord[2], coord[3]));
+            return Some(Coor4D::raw(
+                self.frame.lon_0,
+                sign * FRAC_PI_2,
+                coord[2],
+                coord[3],
+            ));
         }
-
-        if self.n < 0.0 {
-            rho = -rho;
-            x = -x;
-            y = -y;
-        }
-
-        let lat = if self.spherical {
-            let arg = (self.c - (rho / self.dd).powi(2)) / (2.0 * self.n);
-            if arg.abs() <= 1.0 {
-                arg.asin()
-            } else if arg < 0.0 {
-                -FRAC_PI_2
-            } else {
-                FRAC_PI_2
-            }
-        } else {
-            let q = (self.c - (rho / self.dd).powi(2)) / self.n;
-            if (self.ec - q.abs()).abs() > AUTHALIC_LIMIT_TOLERANCE {
-                if q.abs() > 2.0 {
-                    return None;
-                }
-                let beta = (q / self.authalic.qp()).clamp(-1.0, 1.0).asin();
-                self.authalic.phi_from_beta(beta)
-            } else if q < 0.0 {
-                -FRAC_PI_2
-            } else {
-                FRAC_PI_2
-            }
-        };
-
-        let lon = self.frame.apply_lon_delta(x.atan2(y) / self.n);
+        let theta = rho_sin.atan2(rho_cos);
+        let lam = theta / self.n;
+        let q = (self.c - (rho * self.n).powi(2)) / self.n;
+        let lon = self.frame.apply_lon_delta(lam);
+        let lat = self
+            .authalic
+            .phi_from_q_saturating(q, AUTHALIC_LIMIT_TOLERANCE)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }
@@ -270,6 +206,17 @@ mod tests {
             "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
             Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0),
             Coor4D::geo(40.169_004_441_322_194, 0.124_940_293_483_244, 0.0, 0.0),
+            1e-10,
+        )
+    }
+
+    #[test]
+    fn aea_spherical_roundtrip() -> Result<(), Error> {
+        assert_forward_and_roundtrip(
+            "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
+            Coor4D::geo(35.0, 10.0, 0.0, 0.0),
+            Coor4D::raw(863_038.380_142_686_1, -543_990.840_159_122_7, 0.0, 0.0),
+            1e-8,
             1e-10,
         )
     }

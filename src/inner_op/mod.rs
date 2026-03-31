@@ -326,21 +326,6 @@ pub(crate) fn mark_spherical(params: &mut ParsedParameters) -> bool {
     spherical
 }
 
-pub(crate) fn insert_authalic_setup(params: &mut ParsedParameters) -> Option<f64> {
-    let ellps = params.ellps(0);
-    let authalic = ellps.coefficients_for_authalic_latitude_computations();
-    params.fourier_coefficients.insert("authalic", authalic);
-    if ellps.flattening() == 0.0 {
-        params.boolean.insert("spherical");
-        params.real.insert("qp", 2.0);
-        return Some(2.0);
-    }
-
-    let qp = ancillary::qs(1.0, ellps.eccentricity());
-    params.real.insert("qp", qp);
-    Some(qp)
-}
-
 pub(crate) fn insert_rectifying_setup(params: &mut ParsedParameters) -> bool {
     let spherical = params.ellps(0).flattening() == 0.0;
     if spherical {
