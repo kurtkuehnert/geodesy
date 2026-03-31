@@ -181,10 +181,7 @@ mod tpeqd;
 #[path = "v2/tunmg.rs"]
 mod tunmg;
 
-// v3-scoped operators
-#[path = "v3/latitude.rs"]
 mod latitude;
-
 #[allow(unused_imports)]
 pub(crate) use crate::projection::ProjectionFrame;
 use CoordDomain::{Cartesian, Geographic, Projected};
@@ -256,7 +253,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
 
     // Domain-agnostic operators
     BuiltinOp::new("adapt",       Op::point::<adapt::Adapt>),
-    BuiltinOp::new("addone",      addone::new),
+    BuiltinOp::new("addone",      Op::point::<addone::AddOne>),
     BuiltinOp::new("axisswap",    Op::point::<axisswap::AxisSwap>),
     BuiltinOp::new("curvature",   curvature::new),
     BuiltinOp::new("deflection",  deflection::new),
@@ -268,7 +265,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::new("gravity",     gravity::new),
     BuiltinOp::new("gridshift",   gridshift::new),
     BuiltinOp::new("helmert",     helmert::new),
-    BuiltinOp::with_domains("latitude",    latitude::new,    Geographic, Geographic),
+    BuiltinOp::with_domains("latitude",    Op::point::<latitude::Latitude>, Geographic, Geographic),
     BuiltinOp::with_domains("lsat",        som::lsat,        Geographic, Projected),
     BuiltinOp::with_domains("misrsom",     som::misr,        Geographic, Projected),
     BuiltinOp::new("molobadekas", molobadekas::new),

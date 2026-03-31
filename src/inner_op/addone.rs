@@ -1,42 +1,22 @@
 use crate::authoring::*;
 
-// ----- F O R W A R D -----------------------------------------------------------------
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AddOne;
 
-fn fwd(_op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let n = operands.len();
-    let mut successes = 0;
-    for i in 0..n {
-        let mut o = operands.get_coord(i);
-        o[0] += 1.;
-        successes += 1;
-        operands.set_coord(i, &o);
+impl PointOp for AddOne {
+    const GAMUT: &'static [OpParameter] = &[];
+
+    fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Ok(Self)
     }
-    successes
-}
 
-// ----- I N V E R S E -----------------------------------------------------------------
-
-fn inv(_op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    let n = operands.len();
-    let mut successes = 0;
-    for i in 0..n {
-        let mut o = operands.get_coord(i);
-        o[0] -= 1.;
-        successes += 1;
-        operands.set_coord(i, &o);
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        Some(Coor4D([coord[0] + 1., coord[1], coord[2], coord[3]]))
     }
-    successes
-}
 
-// ----- C O N S T R U C T O R ---------------------------------------------------------
-
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 1] = [
-    OpParameter::Flag { key: "inv" },
-];
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        Some(Coor4D([coord[0] - 1., coord[1], coord[2], coord[3]]))
+    }
 }
 
 // ----- T E S T S ---------------------------------------------------------------------
@@ -44,6 +24,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn addone() -> Result<(), Error> {
         let mut ctx = Minimal::default();
