@@ -86,18 +86,17 @@ impl AuthalicLatitude {
         let sinphi = phi.sin();
         match self {
             Self::Spherical => 2.0 * sinphi,
-            Self::Ellipsoidal { e, .. } => {
-                let es = e * e;
-                (1.0 - es) * (sinphi / (1.0 - es * sinphi * sinphi) + (e * sinphi).atanh() / e)
-            }
+            Self::Ellipsoidal { e, .. } => ancillary::qs(sinphi, e),
         }
     }
 
     pub fn geographic_from_q(self, q: f64) -> Option<f64> {
-        if q.abs() > self.q_pole() + Self::DOMAIN_TOLERANCE {
+        let q_pole = self.q_pole();
+        if q.abs() > q_pole + Self::DOMAIN_TOLERANCE {
             return None;
         }
 
+        let q = q.clamp(-q_pole, q_pole);
         let beta = self.beta_from_q(q);
 
         Some(self.authalic_to_geographic(beta))

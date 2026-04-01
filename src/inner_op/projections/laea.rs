@@ -16,9 +16,9 @@ pub(crate) struct LaeaInner {
     authalic: AuthalicLatitude,
     lat_0: f64,
     a: f64,
+    q_pole: f64,
+    authalic_radius: f64,
     d: f64,
-    x_factor: f64,
-    y_factor: f64,
     sin_beta1: f64,
     cos_beta1: f64,
 }
@@ -45,17 +45,21 @@ impl FramedProjection for LaeaInner {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let authalic = AuthalicLatitude::new(ellps);
+        let q_pole = authalic.q_pole();
+        let rq = (0.5 * q_pole).sqrt();
+        let authalic_radius = a * rq;
 
-        let (d, x_factor, y_factor, sin_beta1, cos_beta1) = match aspect {
-            AzimuthalAspect::Polar { .. } => (1.0, 1.0, 1.0, 0.0, 1.0),
+        let (d, sin_beta1, cos_beta1) = match aspect {
+            AzimuthalAspect::Polar { .. } => (1.0, 0.0, 1.0),
             AzimuthalAspect::Oblique => {
                 let beta1 = authalic.geographic_to_authalic(lat_0);
-                let (sinphi_0, cosphi_0) = lat_0.sin_cos();
                 let (sin_beta1, cos_beta1) = beta1.sin_cos();
-                let es = ellps.eccentricity_squared();
-                let rq = (0.5 * authalic.q_pole()).sqrt();
-                let d = cosphi_0 / ((1.0 - es * sinphi_0 * sinphi_0).sqrt() * rq * cos_beta1);
-                (d, rq * d, rq / d, sin_beta1, cos_beta1)
+                let (sin_phi0, cos_phi0) = lat_0.sin_cos();
+                let d = cos_phi0
+                    / ((1.0 - ellps.eccentricity_squared() * sin_phi0 * sin_phi0).sqrt()
+                        * rq
+                        * cos_beta1);
+                (d, sin_beta1, cos_beta1)
             }
         };
 
@@ -64,9 +68,9 @@ impl FramedProjection for LaeaInner {
             lat_0,
             authalic,
             aspect,
+            q_pole,
+            authalic_radius,
             d,
-            x_factor,
-            y_factor,
             sin_beta1,
             cos_beta1,
         })
@@ -74,82 +78,70 @@ impl FramedProjection for LaeaInner {
 
     fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
         let (sin_lam, cos_lam) = lam.sin_cos();
-        let beta = self.authalic.geographic_to_authalic(lat);
-        let (sin_beta, cos_beta) = beta.sin_cos();
+        let q_authalic = self.authalic.q_from_geographic(lat);
 
-        let (x_unit, y_unit) = match self.aspect {
-            AzimuthalAspect::Oblique => {
-                let scale = 1.0 + self.sin_beta1 * sin_beta + self.cos_beta1 * cos_beta * cos_lam;
-
-                if scale <= ANGULAR_TOLERANCE {
-                    return None;
-                }
-
-                let scale = (2.0 / scale).sqrt();
-                (
-                    self.x_factor * scale * cos_beta * sin_lam,
-                    self.y_factor
-                        * scale
-                        * (self.cos_beta1 * sin_beta - self.sin_beta1 * cos_beta * cos_lam),
-                )
-            }
+        match self.aspect {
             AzimuthalAspect::Polar { pole_sign } => {
-                if (lat + self.lat_0).abs() < ANGULAR_TOLERANCE {
+                let projected_radius = self.a * (self.q_pole - pole_sign * q_authalic).sqrt();
+                Some(self.aspect.polar_xy(lam, projected_radius))
+            }
+            AzimuthalAspect::Oblique => {
+                let beta = (q_authalic / self.q_pole).asin();
+                let (sin_beta, cos_beta) = beta.sin_cos();
+
+                let cos_c = self.sin_beta1 * sin_beta + (self.cos_beta1 * cos_beta * cos_lam);
+                if 1.0 + cos_c <= ANGULAR_TOLERANCE {
                     return None;
                 }
-
-                let scale =
-                    (self.authalic.q_pole() - pole_sign * sin_beta * self.authalic.q_pole()).sqrt();
-
-                if scale < POLAR_DOMAIN_TOLERANCE {
-                    (0.0, 0.0)
-                } else {
-                    self.aspect.polar_xy(lam, scale)
-                }
+                let projected_radius = self.authalic_radius * (2.0 / (1.0 + cos_c)).sqrt();
+                let x = (projected_radius * self.d) * (cos_beta * sin_lam);
+                let y = (projected_radius / self.d)
+                    * (self.cos_beta1 * sin_beta - self.sin_beta1 * cos_beta * cos_lam);
+                Some((x, y))
             }
-        };
-
-        Some((self.a * x_unit, self.a * y_unit))
+        }
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let x_unit = x / self.a / self.d;
-        let y_unit = y / self.a * self.d;
-
-        let q_pole = self.authalic.q_pole();
-        let q = x_unit * x_unit + y_unit * y_unit;
-
-        let rho = x_unit.hypot(y_unit);
-        if rho < ANGULAR_TOLERANCE {
+        let projected_radius = x.hypot(y);
+        if projected_radius < ANGULAR_TOLERANCE {
             return Some((0.0, self.lat_0));
         }
 
-        if q > 2.0 * q_pole + ANGULAR_TOLERANCE {
-            return None;
-        }
-
-        let (lam, sin_beta) = match self.aspect {
-            AzimuthalAspect::Oblique => {
-                let cos_c = 1.0 - q / q_pole;
-                let sin_c = rho * (2.0 * q_pole - q).sqrt() / q_pole;
-                let sin_beta = cos_c * self.sin_beta1 + sin_c * self.cos_beta1 * y_unit / rho;
-                let sin_lam = x_unit * sin_c;
-                let cos_lam = rho * self.cos_beta1 * cos_c - y_unit * self.sin_beta1 * sin_c;
-                let lam = sin_lam.atan2(cos_lam);
-
-                (lam, sin_beta)
-            }
+        match self.aspect {
             AzimuthalAspect::Polar { pole_sign } => {
-                let lam = self.aspect.polar_lam(x_unit, y_unit);
-                let sin_beta = pole_sign * (1.0 - q / q_pole);
+                let q_radius = (x * x + y * y) / (self.a * self.a);
 
-                (lam, sin_beta)
+                if q_radius > self.q_pole * (2.0 + POLAR_DOMAIN_TOLERANCE) {
+                    return None;
+                }
+
+                let q_authalic = pole_sign * (self.q_pole - q_radius);
+                let lam = x.atan2(pole_sign * -y);
+                let lat = self.authalic.geographic_from_q(q_authalic)?;
+                Some((lam, lat))
             }
-        };
+            AzimuthalAspect::Oblique => {
+                let normalized_radius = (x / self.d).hypot(self.d * y);
+                let radius_ratio = normalized_radius / (2.0 * self.authalic_radius);
+                if radius_ratio > 1.0 + POLAR_DOMAIN_TOLERANCE {
+                    return None;
+                }
 
-        let q = sin_beta.clamp(-1.0, 1.0) * q_pole;
-        let lat = self.authalic.geographic_from_q(q)?;
-        Some((lam, lat))
+                let c = 2.0 * radius_ratio.clamp(0.0, 1.0).asin();
+                let (sin_c, cos_c) = c.sin_cos();
+                let sin_beta = cos_c * self.sin_beta1
+                    + self.d * y * sin_c * self.cos_beta1 / normalized_radius;
+                let q_authalic = sin_beta * self.q_pole;
+
+                let lam = (x * sin_c).atan2(
+                    self.d * normalized_radius * self.cos_beta1 * cos_c
+                        - self.d * self.d * y * self.sin_beta1 * sin_c,
+                );
+                let lat = self.authalic.geographic_from_q(q_authalic)?;
+                Some((lam, lat))
+            }
+        }
     }
 }
 
@@ -208,5 +200,37 @@ mod tests {
         ctx.apply(op, Inv, &mut operands)?;
         assert!(operands[0][0].is_nan());
         Ok(())
+    }
+
+    #[test]
+    fn laea_matches_proj_ellipsoidal_equatorial_case() -> Result<(), Error> {
+        assert_proj_match(
+            "laea ellps=GRS80",
+            Coor4D::geo(1.0, 2.0, 0.0, 0.0),
+            Coor4D::raw(222_602.471_450_095_18, 110_589.827_224_410_46, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn laea_matches_proj_spherical_oblique_case() -> Result<(), Error> {
+        assert_proj_match(
+            "laea R=1 lat_0=45",
+            Coor4D::geo(45.0, 45.0, 0.0, 0.0),
+            Coor4D::raw(0.519_376_687_376_145_1, 0.152_121_909_742_267_33, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn laea_matches_proj_ellipsoidal_polar_case() -> Result<(), Error> {
+        assert_proj_match(
+            "laea ellps=GRS80 lat_0=90",
+            Coor4D::geo(45.0, 0.0, 0.0, 0.0),
+            Coor4D::raw(0.0, -4_889_334.802_992_742_5, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn laea_rejects_invalid_lat_0() {
+        assert_op_err("laea lat_0=91");
     }
 }
