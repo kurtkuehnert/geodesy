@@ -16,6 +16,7 @@ impl GuamAeqdInner {}
 
 impl FramedProjection for GuamAeqdInner {
     const NAME: &'static str = "guam_aeqd";
+    const TITLE: &'static str = "Guam Azimuthal Equidistant";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
         OpParameter::Text { key: "ellps", default: Some("clrk66") },

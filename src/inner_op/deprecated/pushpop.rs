@@ -45,7 +45,7 @@ pub fn pop(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     })
 }
 
-pub(super) fn do_the_push(
+pub(crate) fn do_the_push(
     stack: &mut Vec<Vec<f64>>,
     operands: &mut dyn CoordinateSet,
     flags: &BTreeSet<&'static str>,
@@ -66,7 +66,7 @@ pub(super) fn do_the_push(
     operands.len()
 }
 
-pub(super) fn do_the_pop(
+pub(crate) fn do_the_pop(
     stack: &mut Vec<Vec<f64>>,
     operands: &mut dyn CoordinateSet,
     flags: &BTreeSet<&'static str>,

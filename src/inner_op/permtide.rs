@@ -9,6 +9,7 @@ pub(crate) struct PermTide {
 
 impl PointOp for PermTide {
     const NAME: &'static str = "permtide";
+    const TITLE: &'static str = "Permanent Tide";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

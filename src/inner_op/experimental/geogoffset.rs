@@ -12,6 +12,7 @@ pub(crate) struct GeogOffset {
 
 impl PointOp for GeogOffset {
     const NAME: &'static str = "geogoffset";
+    const TITLE: &'static str = "Geographic offsets";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

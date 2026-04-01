@@ -106,7 +106,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("lat_2", phi2);
 
     let ellps = params.ellps(0);
-    let spherical = super::mark_spherical(&mut params);
+    let spherical = crate::inner_op::mark_spherical(&mut params);
 
     let secant = (phi1 - phi2).abs() >= EPS10;
     let (sinphi1, cosphi1) = phi1.sin_cos();

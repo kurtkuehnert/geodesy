@@ -15,6 +15,7 @@ pub(crate) struct Cart {
 
 impl PointOp for Cart {
     const NAME: &'static str = "cart";
+    const TITLE: &'static str = "Geodetic to cartesian conversion";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

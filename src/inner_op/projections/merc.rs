@@ -18,6 +18,7 @@ pub(crate) struct Merc {
 
 impl PointOp for Merc {
     const NAME: &'static str = "merc";
+    const TITLE: &'static str = "Mercator";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!(
         OpParameter::Real { key: "k_0",    default: Some(1_f64) },

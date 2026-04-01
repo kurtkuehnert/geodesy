@@ -24,6 +24,7 @@ pub(crate) struct Framed<T> {
 
 pub(crate) trait FramedProjection: Sized + Send + Sync + 'static {
     const NAME: &'static str;
+    const TITLE: &'static str;
     const GAMUT: &'static [OpParameter];
 
     fn build(params: &ParsedParameters, ctx: &dyn Context) -> Result<Self, Error>;
@@ -34,6 +35,7 @@ pub(crate) trait FramedProjection: Sized + Send + Sync + 'static {
 
 impl<T: FramedProjection> PointOp for Framed<T> {
     const NAME: &'static str = T::NAME;
+    const TITLE: &'static str = T::TITLE;
     const GAMUT: &'static [OpParameter] = T::GAMUT;
 
     fn build(params: &ParsedParameters, ctx: &dyn Context) -> Result<Self, Error> {

@@ -20,6 +20,7 @@ pub(crate) type Cea = Framed<CeaInner>;
 
 impl FramedProjection for CeaInner {
     const NAME: &'static str = "cea";
+    const TITLE: &'static str = "Equal Area Cylindrical";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
         OpParameter::Text { key: "ellps",  default: Some("GRS80") },

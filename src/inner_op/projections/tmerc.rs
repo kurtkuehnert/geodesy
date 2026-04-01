@@ -163,7 +163,7 @@ pub fn utm(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         ));
     }
 
-    super::apply_utm_defaults(&mut params, zone);
+    crate::inner_op::apply_utm_defaults(&mut params, zone);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     let state = precompute(&params);

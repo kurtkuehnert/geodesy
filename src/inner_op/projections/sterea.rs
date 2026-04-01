@@ -30,6 +30,7 @@ impl Sterea {
 
 impl PointOp for Sterea {
     const NAME: &'static str = "sterea";
+    const TITLE: &'static str = "Oblique Stereographic Alternative";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

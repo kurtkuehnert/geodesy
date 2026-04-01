@@ -10,6 +10,7 @@ pub(crate) struct Ups(Stere);
 
 impl PointOp for Ups {
     const NAME: &'static str = "ups";
+    const TITLE: &'static str = "Universal Polar Stereographic";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

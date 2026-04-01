@@ -6,6 +6,7 @@ pub(crate) struct NoOp;
 
 impl PointOp for NoOp {
     const NAME: &'static str = "noop";
+    const TITLE: &'static str = "No operation";
     const GAMUT: &'static [OpParameter] = &[];
 
     fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {

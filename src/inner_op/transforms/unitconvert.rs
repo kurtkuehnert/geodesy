@@ -19,6 +19,7 @@ pub(crate) struct UnitConvert {
 
 impl PointOp for UnitConvert {
     const NAME: &'static str = "unitconvert";
+    const TITLE: &'static str = "Unit Conversion";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

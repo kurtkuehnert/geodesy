@@ -140,7 +140,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     params.real.insert("phi1", phi1);
 
     let ellps = params.ellps(0);
-    let spherical = params.boolean("spherical") || super::mark_spherical(&mut params);
+    let spherical = params.boolean("spherical") || crate::inner_op::mark_spherical(&mut params);
     if spherical {
         let cphi1 = if phi1.abs() + EPS10 >= FRAC_PI_2 {
             0.0

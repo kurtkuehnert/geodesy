@@ -138,7 +138,7 @@ pub fn utm(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
         ));
     }
 
-    super::apply_utm_defaults(&mut params, zone);
+    crate::inner_op::apply_utm_defaults(&mut params, zone);
 
     let ellps = params.ellps(0);
     let state = BtmercState {

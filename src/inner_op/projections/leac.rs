@@ -11,6 +11,7 @@ pub(crate) type Leac = Framed<LeacInner>;
 
 impl FramedProjection for LeacInner {
     const NAME: &'static str = "leac";
+    const TITLE: &'static str = "Lambert Equal Area Conic";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
         OpParameter::Text { key: "ellps", default: Some("GRS80") },

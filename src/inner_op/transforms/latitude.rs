@@ -18,6 +18,7 @@ pub(crate) struct Latitude {
 
 impl PointOp for Latitude {
     const NAME: &'static str = "latitude";
+    const TITLE: &'static str = "Latitude Conversion";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

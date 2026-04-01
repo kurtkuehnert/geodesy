@@ -15,6 +15,7 @@ pub use raw_parameters::RawParameters;
 
 pub trait PointOp: Send + Sync + 'static {
     const NAME: &'static str;
+    const TITLE: &'static str;
     const GAMUT: &'static [OpParameter];
 
     fn build(params: &ParsedParameters, ctx: &dyn Context) -> Result<Self, Error>
@@ -325,6 +326,7 @@ mod tests {
 
     impl PointOp for AddOnePointOp {
         const NAME: &'static str = "addone-point-op-test";
+        const TITLE: &'static str = "Add One Point Op Test";
         const GAMUT: &'static [OpParameter] = &[];
 
         fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {

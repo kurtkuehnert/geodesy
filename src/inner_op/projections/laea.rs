@@ -29,6 +29,7 @@ impl Laea {}
 
 impl PointOp for Laea {
     const NAME: &'static str = "laea";
+    const TITLE: &'static str = "Lambert Azimuthal Equal Area";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!();
 

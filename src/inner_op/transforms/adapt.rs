@@ -69,6 +69,7 @@ pub(crate) struct Adapt {
 
 impl PointOp for Adapt {
     const NAME: &'static str = "adapt";
+    const TITLE: &'static str = "Adapt Coordinates";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

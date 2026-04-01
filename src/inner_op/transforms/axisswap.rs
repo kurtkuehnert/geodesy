@@ -1,4 +1,4 @@
-use super::*;
+use crate::authoring::*;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AxisSwap {
@@ -9,6 +9,7 @@ pub(crate) struct AxisSwap {
 
 impl PointOp for AxisSwap {
     const NAME: &'static str = "axisswap";
+    const TITLE: &'static str = "Axis swap";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

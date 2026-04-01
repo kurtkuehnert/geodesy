@@ -97,7 +97,7 @@ pub const GAMUT: [OpParameter; 6] = [
 pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
-    super::insert_rectifying_setup(&mut params);
+    crate::inner_op::insert_rectifying_setup(&mut params);
 
     let descriptor = OpDescriptor::new(def, InnerOp(fwd), Some(InnerOp(inv)));
     Ok(Op {

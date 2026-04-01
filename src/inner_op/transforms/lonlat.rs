@@ -15,6 +15,7 @@ pub(crate) struct LonLat {
 
 impl PointOp for LonLat {
     const NAME: &'static str = "lonlat";
+    const TITLE: &'static str = "Lat/long (Geodetic alias)";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

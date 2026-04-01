@@ -326,7 +326,7 @@ pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> 
     let def = &parameters.instantiated_as;
     let mut params = ParsedParameters::new(parameters, &GAMUT)?;
     let ellps = params.ellps(0);
-    let spherical = super::insert_rectifying_setup(&mut params);
+    let spherical = crate::inner_op::insert_rectifying_setup(&mut params);
     params.real.insert("spherical", spherical as i32 as f64);
     let frame = ProjectionFrame::from_params(&params);
     if !spherical {

@@ -73,6 +73,7 @@ impl AeaInner {
 
 impl FramedProjection for AeaInner {
     const NAME: &'static str = "aea";
+    const TITLE: &'static str = "Albers Equal Area";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
         OpParameter::Text { key: "ellps", default: Some("GRS80") },

@@ -26,6 +26,7 @@ pub(crate) type Aeqd = Framed<AeqdInner>;
 
 impl FramedProjection for AeqdInner {
     const NAME: &'static str = "aeqd";
+    const TITLE: &'static str = "Azimuthal Equidistant";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
         OpParameter::Text { key: "ellps", default: Some("GRS80") },

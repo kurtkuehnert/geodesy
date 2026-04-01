@@ -9,6 +9,7 @@ pub(crate) struct Mill {
 
 impl PointOp for Mill {
     const NAME: &'static str = "mill";
+    const TITLE: &'static str = "Miller Cylindrical";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!();
 
