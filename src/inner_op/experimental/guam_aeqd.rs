@@ -1,101 +1,72 @@
 use crate::authoring::*;
-use crate::inner_op::aeqd::Aeqd;
-
-#[rustfmt::skip]
-const GAMUT: [OpParameter; 6] = [
-    OpParameter::Flag { key: "inv" },
-    OpParameter::Text { key: "ellps", default: Some("GRS80") },
-    OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-    OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-    OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-    OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-];
+use crate::projection::MeridianLatitude;
 
 #[derive(Clone, Copy, Debug)]
-struct GuamAeqd {
-    base: Aeqd,
-    m1: Option<f64>,
+pub(crate) struct GuamAeqdInner {
+    a: f64,
+    lat_0: f64,
+    ellps: Ellipsoid,
+    m1: f64,
+    meridian: MeridianLatitude,
 }
 
-impl GuamAeqd {
-    fn new(params: &ParsedParameters) -> Result<Self, Error> {
-        let base = Aeqd::new(params)?;
-        let m1 = if base.spherical {
-            None
-        } else {
-            Some(base.ellps.meridian_latitude_to_distance(base.frame.lat_0))
-        };
-        Ok(Self { base, m1 })
-    }
+pub(crate) type GuamAeqd = Framed<GuamAeqdInner>;
 
-    fn guam_fwd(&self, lam: f64, phi: f64) -> (f64, f64) {
-        let es = self.base.ellps.eccentricity_squared();
-        let cosphi = phi.cos();
-        let sinphi = phi.sin();
-        let t = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
-        (
-            self.base.frame.a * lam * cosphi * t,
-            self.base.ellps.meridian_latitude_to_distance(phi) - self.m1.unwrap_or(0.0)
-                + 0.5 * self.base.frame.a * lam * lam * cosphi * sinphi * t,
-        )
-    }
+impl GuamAeqdInner {}
 
-    fn guam_inv(&self, x: f64, y: f64) -> (f64, f64) {
-        let es = self.base.ellps.eccentricity_squared();
-        let x_norm = x / self.base.frame.a;
-        let y_norm = y / self.base.frame.a;
-        let x2 = 0.5 * x_norm * x_norm;
-        let mut lat = self.base.frame.lat_0;
-        for _ in 0..3 {
-            let t = (1.0 - es * lat.sin().powi(2)).sqrt();
-            lat = self.base.ellps.meridian_distance_to_latitude(
-                self.m1.unwrap_or(0.0) + self.base.frame.a * (y_norm - x2 * lat.tan() * t),
-            );
-        }
-        let t = (1.0 - es * lat.sin().powi(2)).sqrt();
-        (self.base.frame.lon_0 + x_norm * t / lat.cos(), lat)
-    }
-}
-
-impl PointOp for GuamAeqd {
+impl FramedProjection for GuamAeqdInner {
     const NAME: &'static str = "guam_aeqd";
-    const GAMUT: &'static [OpParameter] = &GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Text { key: "ellps", default: Some("clrk66") },
+        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
+    );
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
-        Self::new(params)
+        let ellps = params.ellps(0);
+        let a = ellps.semimajor_axis();
+        let lat_0 = params.lat(0);
+        let meridian = ellps.meridian();
+        let m1 = meridian.distance_from_geographic(lat_0);
+
+        Ok(Self {
+            a,
+            lat_0,
+            ellps,
+            m1,
+            meridian,
+        })
     }
 
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (lon, lat) = coord.xy();
-        let lam = self.base.frame.remove_central_meridian(lon);
-        let (x, y) = if self.base.spherical {
-            self.base.spherical_fwd(lam, lat)?
-        } else {
-            self.guam_fwd(lam, lat)
-        };
-        let (x, y) = self.base.frame.apply_false_origin(x, y);
-        Some(Coor4D::raw(x, y, coord[2], coord[3]))
+    fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
+        let es = self.ellps.eccentricity_squared();
+        let (sinphi, cosphi) = lat.sin_cos();
+        let t = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
+        let d = self.meridian.distance_from_geographic(lat);
+        Some((
+            self.a * lam * cosphi * t,
+            d - self.m1 + 0.5 * self.a * lam * lam * cosphi * sinphi * t,
+        ))
     }
 
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x, y) = self.base.frame.remove_false_origin(coord[0], coord[1]);
-        let (lon, lat) = if self.base.spherical {
-            self.base.spherical_inv(x, y)?
-        } else {
-            self.guam_inv(x, y)
-        };
-        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let es = self.ellps.eccentricity_squared();
+        let x_norm = x / self.a;
+        let y_norm = y / self.a;
+        let x2 = 0.5 * x_norm * x_norm;
+        let lat = (0..3).fold(self.lat_0, |lat, _| {
+            let t = (1.0 - es * lat.sin().powi(2)).sqrt();
+            let d = self.m1 + self.a * (y_norm - x2 * lat.tan() * t);
+            self.meridian.geographic_from_distance(d)
+        });
+        let t = (1.0 - es * lat.sin().powi(2)).sqrt();
+        Some((x_norm * t / lat.cos(), lat))
     }
-}
-
-pub fn new(parameters: &RawParameters, ctx: &dyn Context) -> Result<Op, Error> {
-    Op::point::<GuamAeqd>(parameters, ctx)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::assert_forward_and_roundtrip;
 
     #[test]
     fn guam_aeqd_matches_proj_gie_example() -> Result<(), Error> {

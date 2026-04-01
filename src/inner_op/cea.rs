@@ -34,6 +34,11 @@ impl FramedProjection for CeaInner {
 
         let k_0 = match params.given_real("lat_ts") {
             Some(lat_ts) => {
+                if params.given_real("k_0").is_some() {
+                    return Err(Error::General(
+                        "CEA: lat_ts and k_0 are mutually exclusive",
+                    ));
+                }
                 if lat_ts.abs() > FRAC_PI_2 {
                     return Err(Error::General(
                         "CEA: Invalid value for lat_ts: |lat_ts| should be <= 90°",
@@ -80,7 +85,7 @@ mod tests {
     #[test]
     fn cea_matches_proj_spherical_lat_ts_override_case() -> Result<(), Error> {
         assert_proj_match(
-            "cea R=6400000 k_0=3 lat_ts=0 lon_0=7 x_0=1234 y_0=5678",
+            "cea R=6400000 lat_ts=0 lon_0=7 x_0=1234 y_0=5678",
             Coor4D::geo(1.0, 2.0, 0.0, 0.0),
             Coor4D::raw(-557_271.360_638_185_5, 117_373.401_198_614_48, 0.0, 0.0),
         )
@@ -89,5 +94,6 @@ mod tests {
     #[test]
     fn cea_rejects_invalid_lat_ts() {
         assert_op_err("cea lat_ts=91");
+        assert_op_err("cea lat_ts=30 k_0=2");
     }
 }

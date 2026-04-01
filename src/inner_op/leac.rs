@@ -15,7 +15,7 @@ impl FramedProjection for LeacInner {
     const GAMUT: &'static [OpParameter] = framed_gamut!(
         OpParameter::Text { key: "ellps", default: Some("GRS80") },
         OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-        OpParameter::Real { key: "lat_1", default: None },
+        OpParameter::Real { key: "lat_1", default: Some(0_f64) },
         OpParameter::Flag { key: "south" },
     );
 

@@ -223,6 +223,7 @@ mod tests {
 
     #[test]
     fn laea_inverse_rejects_distant_points() -> Result<(), Error> {
+        // todo: remove this assert helper in favor of some other impl
         assert_inverse_rejects(
             "laea ellps=GRS80 lat_0=52 lon_0=10 x_0=4321000 y_0=3210000",
             Coor4D::raw(1e30, 1e30, 0.0, 0.0),

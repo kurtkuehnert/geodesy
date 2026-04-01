@@ -6,188 +6,109 @@
 //! - PROJ 9.8.0 `aeqd` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aeqd.rst>
 use crate::authoring::*;
-use crate::projection::{ProjectionAspect, ProjectionFrame, SphericalGeodesic, projection_gamut};
+use crate::projection::{AzimuthalAspect, GeodesicPath, MeridianLatitude};
 use std::f64::consts::{FRAC_PI_2, PI};
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 const LONGITUDE_CANONICALIZATION_TOLERANCE: f64 = 1e-12;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Aeqd {
-    pub(crate) frame: ProjectionFrame,
-    pub(crate) ellps: Ellipsoid,
-    pub(crate) origin: Coor4D,
-    pub(crate) aspect: ProjectionAspect,
-    pub(crate) spherical: bool,
-    pub(crate) sphere: SphericalGeodesic,
-    pub(crate) mp: Option<f64>,
+pub(crate) struct AeqdInner {
+    a: f64,
+    lat_0: f64,
+    aspect: AzimuthalAspect,
+    meridian: MeridianLatitude,
+    geodesic: GeodesicPath,
+    mp: f64,
 }
 
-impl Aeqd {
-    pub(crate) fn new(params: &ParsedParameters) -> Result<Self, Error> {
-        let frame = ProjectionFrame::from_params(params);
-        if frame.lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
+pub(crate) type Aeqd = Framed<AeqdInner>;
+
+impl FramedProjection for AeqdInner {
+    const NAME: &'static str = "aeqd";
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
+    );
+
+    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        let lat_0 = params.lat(0);
+        if lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
             return Err(Error::BadParam("lat_0".to_string(), params.name.clone()));
         }
 
-        let aspect = ProjectionAspect::classify(frame.lat_0, ANGULAR_TOLERANCE);
-
+        let aspect = AzimuthalAspect::classify(lat_0, ANGULAR_TOLERANCE);
         let ellps = params.ellps(0);
-        let spherical = ellps.flattening() == 0.0;
-        let sphere = SphericalGeodesic::new(frame.a, frame.lon_0, frame.lat_0);
-        let mp = if spherical {
-            None
-        } else {
-            Some(match aspect {
-                ProjectionAspect::NorthPolar => ellps.meridian_latitude_to_distance(FRAC_PI_2),
-                ProjectionAspect::SouthPolar => ellps.meridian_latitude_to_distance(-FRAC_PI_2),
-                ProjectionAspect::Equatorial | ProjectionAspect::Oblique => 0.0,
-            })
+        let a = ellps.semimajor_axis();
+        let origin = Coor4D::raw(0.0, lat_0, 0.0, 0.0);
+        let meridian = ellps.meridian();
+        let geodesic = GeodesicPath::new(ellps, lat_0, origin);
+        let mp = match aspect {
+            AzimuthalAspect::Polar { pole_sign } => {
+                meridian.distance_from_geographic(pole_sign * FRAC_PI_2)
+            }
+            AzimuthalAspect::Oblique => 0.0,
         };
 
         Ok(Self {
-            frame,
-            ellps,
-            origin: Coor4D::raw(frame.lon_0, frame.lat_0, 0.0, 0.0),
+            a,
+            lat_0,
             aspect,
-            spherical,
-            sphere,
+            meridian,
+            geodesic,
             mp,
         })
     }
 
-    pub(crate) fn spherical_fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
-        let lon = self.frame.lon_0 + lam;
-        let (azimuth, distance) = self.sphere.geodesic_inv(lon, phi)?;
-        Some((distance * azimuth.sin(), distance * azimuth.cos()))
-    }
-
-    pub(crate) fn ellipsoidal_fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
+    fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
         match self.aspect {
-            ProjectionAspect::NorthPolar | ProjectionAspect::SouthPolar => {
-                let coslam = if self.aspect.is_north_polar() {
-                    -lam.cos()
-                } else {
-                    lam.cos()
-                };
-                let rho =
-                    (self.mp.unwrap_or(0.0) - self.ellps.meridian_latitude_to_distance(phi)).abs();
-                Some((rho * lam.sin(), rho * coslam))
-            }
-            ProjectionAspect::Equatorial | ProjectionAspect::Oblique => {
-                if lam.abs() < ANGULAR_TOLERANCE
-                    && (phi - self.frame.lat_0).abs() < ANGULAR_TOLERANCE
-                {
+            AzimuthalAspect::Oblique => {
+                if lam.abs() < ANGULAR_TOLERANCE && (phi - self.lat_0).abs() < ANGULAR_TOLERANCE {
                     return Some((0.0, 0.0));
                 }
-                if self.aspect.is_equatorial()
-                    && phi.abs() < ANGULAR_TOLERANCE
-                    && self.frame.lat_0.abs() < ANGULAR_TOLERANCE
-                {
-                    return Some((self.frame.a * lam, 0.0));
+                if phi.abs() < ANGULAR_TOLERANCE && self.lat_0.abs() < ANGULAR_TOLERANCE {
+                    return Some((self.a * lam, 0.0));
                 }
 
-                let target = Coor4D::raw(self.frame.lon_0 + lam, phi, 0.0, 0.0);
-                let inv = self.ellps.geodesic_inv(&self.origin, &target);
-                let azimuth = inv[0];
-                let distance = inv[2];
-                (azimuth.is_finite() && distance.is_finite())
-                    .then_some((distance * azimuth.sin(), distance * azimuth.cos()))
+                let (distance, azimuth) = self.geodesic.distance_and_azimuth(lam, phi)?;
+                Some((distance * azimuth.sin(), distance * azimuth.cos()))
+            }
+            AzimuthalAspect::Polar { pole_sign } => {
+                let coslam = -pole_sign * lam.cos();
+                let rho = (self.mp - self.meridian.distance_from_geographic(phi)).abs();
+                Some((rho * lam.sin(), rho * coslam))
             }
         }
     }
 
-    pub(crate) fn spherical_inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         let distance = x.hypot(y);
         if distance < ANGULAR_TOLERANCE {
-            return Some((self.frame.lon_0, self.frame.lat_0));
+            return Some((0.0, self.lat_0));
         }
 
-        let sigma = self.sphere.central_angle(distance)?;
-
-        let (lon, lat) = match self.aspect {
-            ProjectionAspect::Equatorial | ProjectionAspect::Oblique => {
+        let (lam, lat) = match self.aspect {
+            AzimuthalAspect::Oblique => {
                 let azimuth = x.atan2(y);
-                self.sphere.geodesic_fwd(azimuth, distance)?
+                self.geodesic.destination(azimuth, distance)?
             }
-            ProjectionAspect::NorthPolar => (self.frame.lon_0 + x.atan2(-y), FRAC_PI_2 - sigma),
-            ProjectionAspect::SouthPolar => (self.frame.lon_0 + x.atan2(y), sigma - FRAC_PI_2),
+            AzimuthalAspect::Polar { pole_sign } => {
+                let lam = x.atan2(-pole_sign * y);
+                let lat = self
+                    .meridian
+                    .geographic_from_distance(self.mp - pole_sign * distance);
+                (lam, lat)
+            }
         };
 
-        Some((self.finalize_inverse_lon(lon), lat))
-    }
-
-    pub(crate) fn ellipsoidal_inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let distance = x.hypot(y);
-        if distance < ANGULAR_TOLERANCE {
-            return Some((self.frame.lon_0, self.frame.lat_0));
-        }
-
-        let (lon, lat) = match self.aspect {
-            ProjectionAspect::Equatorial | ProjectionAspect::Oblique => {
-                let azimuth = x.atan2(y);
-                let dest = self.ellps.geodesic_fwd(&self.origin, azimuth, distance);
-                (dest[0].is_finite() && dest[1].is_finite()).then_some((dest[0], dest[1]))?
-            }
-            ProjectionAspect::NorthPolar => (
-                self.frame.lon_0 + x.atan2(-y),
-                self.ellps
-                    .meridian_distance_to_latitude(self.mp.unwrap_or(0.0) - distance),
-            ),
-            ProjectionAspect::SouthPolar => (
-                self.frame.lon_0 + x.atan2(y),
-                self.ellps
-                    .meridian_distance_to_latitude(self.mp.unwrap_or(0.0) + distance),
-            ),
-        };
-
-        Some((self.finalize_inverse_lon(lon), lat))
-    }
-
-    fn finalize_inverse_lon(&self, lon: f64) -> f64 {
-        let lon = angular::normalize_symmetric(lon);
-        if (lon + PI).abs() < LONGITUDE_CANONICALIZATION_TOLERANCE {
+        let lam = angular::normalize_symmetric(lam);
+        let lam = if (lam + PI).abs() < LONGITUDE_CANONICALIZATION_TOLERANCE {
             PI
         } else {
-            lon
-        }
-    }
-}
-
-impl PointOp for Aeqd {
-    const NAME: &'static str = "aeqd";
-    #[rustfmt::skip]
-    const GAMUT: &'static [OpParameter] = projection_gamut!();
-
-    fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
-        Self::new(params)
-    }
-
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (lon, lat) = coord.xy();
-        let lam = self.frame.remove_central_meridian(lon);
-
-        let (x, y) = if self.spherical {
-            self.spherical_fwd(lam, lat)?
-        } else {
-            self.ellipsoidal_fwd(lam, lat)?
+            lam
         };
-
-        let (x, y) = self.frame.apply_false_origin(x, y);
-
-        Some(Coor4D::raw(x, y, coord[2], coord[3]))
-    }
-
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x, y) = self.frame.remove_false_origin(coord[0], coord[1]);
-
-        let (lon, lat) = if self.spherical {
-            self.spherical_inv(x, y)?
-        } else {
-            self.ellipsoidal_inv(x, y)?
-        };
-
-        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+        Some((lam, lat))
     }
 }
 
@@ -237,6 +158,15 @@ mod tests {
             "aeqd R=6400000 lat_0=0 lon_0=0",
             Coor4D::geo(0.0, 175.0, 0.0, 0.0),
             Coor4D::raw(19_547_687.622_336_593, 0.0, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn aeqd_matches_proj_equatorial_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aeqd ellps=WGS84 lat_0=0 lon_0=0 x_0=100 y_0=200",
+            Coor4D::geo(0.0, 10.0, 0.0, 0.0),
+            Coor4D::raw(1_113_294.907_932_735_7, 200.0, 0.0, 0.0),
         )
     }
 }

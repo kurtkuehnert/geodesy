@@ -3,6 +3,7 @@ use crate::authoring::*;
 const DEFAULT_PROJ_FORWARD_TOLERANCE: f64 = 1e-6;
 const DEFAULT_PROJ_ROUNDTRIP_TOLERANCE: f64 = 1e-10;
 
+// depricated use  assert_proj_match
 pub(crate) fn assert_forward_and_roundtrip(
     definition: &str,
     input: Coor4D,
@@ -52,6 +53,7 @@ pub(crate) fn assert_proj_match(
     )
 }
 
+// depricated use assert_proj_match
 pub(crate) fn assert_roundtrip(
     definition: &str,
     input: Coor4D,
@@ -67,6 +69,7 @@ pub(crate) fn assert_roundtrip(
     Ok(())
 }
 
+// depricated use  assert_proj_match
 pub(crate) fn assert_inverse(
     definition: &str,
     input: Coor4D,
@@ -82,10 +85,8 @@ pub(crate) fn assert_inverse(
     Ok(())
 }
 
-pub(crate) fn assert_inverse_rejects(
-    definition: &str,
-    input: Coor4D,
-) -> Result<(), Error> {
+// depricated
+pub(crate) fn assert_inverse_rejects(definition: &str, input: Coor4D) -> Result<(), Error> {
     let mut ctx = Minimal::default();
     let op = ctx.op(definition)?;
     let mut operands = [input];

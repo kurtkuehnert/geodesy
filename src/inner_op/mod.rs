@@ -203,7 +203,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 79] = [
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
     BuiltinOp::with_domains("etmerc",      tmerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("geos",        geos::new,        Geographic, Projected),
-    BuiltinOp::with_domains("guam_aeqd",   guam_aeqd::new,   Geographic, Projected),
+    BuiltinOp::point_with_domains::<guam_aeqd::GuamAeqd>(Geographic, Projected),
     BuiltinOp::with_domains("gs48",        mod_ster::gs48,   Geographic, Projected),
     BuiltinOp::with_domains("gs50",        mod_ster::gs50,   Geographic, Projected),
     BuiltinOp::with_domains("gstmerc",     gstmerc::new,     Geographic, Projected),
