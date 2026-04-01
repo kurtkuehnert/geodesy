@@ -879,6 +879,10 @@ mod tests {
             "unitconvert xy_in=deg xy_out=rad | lonlat ellps=bessel lon_0=12.337229166666667 | unitconvert xy_in=rad xy_out=deg"
         );
         assert_eq!(
+            parse_proj("proj=latlong datum=potsdam ellps=bessel", true)?,
+            "unitconvert xy_in=deg xy_out=rad | lonlat datum=potsdam ellps=bessel | unitconvert xy_in=rad xy_out=deg"
+        );
+        assert_eq!(
             parse_proj("+proj=geoc +ellps=GRS80", true)?,
             "unitconvert xy_in=deg xy_out=rad | latitude ellps=GRS80 geocentric | unitconvert xy_in=rad xy_out=deg"
         );
