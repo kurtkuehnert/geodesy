@@ -79,7 +79,6 @@ mod adapt;
 mod addone;
 mod aea;
 mod aeqd;
-mod btmerc;
 mod cart;
 mod cass;
 mod cea;
@@ -111,6 +110,8 @@ mod ups;
 mod webmerc;
 
 mod axisswap;
+#[path = "deprecated/btmerc.rs"]
+mod btmerc;
 pub(crate) mod pipeline; // Needed by Op for instantiation
 #[path = "deprecated/pushpop.rs"]
 mod pushpop;

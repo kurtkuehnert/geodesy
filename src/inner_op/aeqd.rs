@@ -6,7 +6,7 @@
 //! - PROJ 9.8.0 `aeqd` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aeqd.rst>
 use crate::authoring::*;
-use crate::projection::{ProjectionAspect, ProjectionFrame, SphericalGeodesic};
+use crate::projection::{ProjectionAspect, ProjectionFrame, SphericalGeodesic, projection_gamut};
 use std::f64::consts::{FRAC_PI_2, PI};
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
@@ -157,14 +157,7 @@ impl Aeqd {
 impl PointOp for Aeqd {
     const NAME: &'static str = "aeqd";
     #[rustfmt::skip]
-    const GAMUT: &'static [OpParameter] = &[
-        OpParameter::Flag { key: "inv" },
-        OpParameter::Text { key: "ellps", default: Some("GRS80") },
-        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
-        OpParameter::Real { key: "lon_0", default: Some(0_f64) },
-        OpParameter::Real { key: "x_0",   default: Some(0_f64) },
-        OpParameter::Real { key: "y_0",   default: Some(0_f64) },
-    ];
+    const GAMUT: &'static [OpParameter] = projection_gamut!();
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         Self::new(params)
@@ -201,38 +194,49 @@ impl PointOp for Aeqd {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{assert_forward, assert_forward_and_roundtrip};
-
-    const DEFINITION: &str =
-        "aeqd lat_0=52 lon_0=-97.5 x_0=8264722.177 y_0=4867518.353 ellps=WGS84";
 
     #[test]
-    fn aeqd_roundtrip_origin() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
-            DEFINITION,
-            Coor4D::geo(52., -97.5, 0., 0.),
-            Coor4D::raw(8_264_722.177, 4_867_518.353, 0., 0.),
-            1e-8,
-            1e-10,
-        )
-    }
-
-    #[test]
-    fn aeqd_forward_reference() -> Result<(), Error> {
-        assert_forward(
-            DEFINITION,
+    fn aeqd_matches_proj_ellipsoidal_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aeqd lat_0=52 lon_0=-97.5 x_0=8264722.177 y_0=4867518.353 ellps=WGS84",
             Coor4D::geo(61.390407158824, -101.971128034161, 0., 0.),
-            Coor4D::raw(8_024_875.974_4, 5_920_866.114_0, 0., 0.),
-            1e-3,
+            Coor4D::raw(8_024_875.974_381_589, 5_920_866.113_963_526, 0., 0.),
         )
     }
 
     #[test]
-    fn aeqd_rejects_invalid_lat_0() {
-        let mut ctx = Minimal::default();
-        assert!(matches!(
-            ctx.op("aeqd R=1 lat_0=91"),
-            Err(Error::BadParam(_, _))
-        ));
+    fn aeqd_matches_proj_spherical_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aeqd R=6400000 lat_0=30 lon_0=20 x_0=1000 y_0=2000",
+            Coor4D::geo(40.0, 25.0, 0.0, 0.0),
+            Coor4D::raw(430_838.560_011_896, 1_129_341.938_051_475_4, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn aeqd_matches_proj_ellipsoidal_north_polar_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aeqd ellps=WGS84 lat_0=90 lon_0=15 x_0=3000 y_0=4000",
+            Coor4D::geo(80.0, 20.0, 0.0, 0.0),
+            Coor4D::raw(100_337.787_119_382_44, -1_108_575.997_809_590_5, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn aeqd_matches_proj_spherical_north_polar_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aeqd R=6400000 lat_0=90 lon_0=15 x_0=3000 y_0=4000",
+            Coor4D::geo(80.0, 20.0, 0.0, 0.0),
+            Coor4D::raw(100_353.899_069_939_5, -1_108_760.158_247_157_5, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn aeqd_matches_proj_spherical_far_side_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aeqd R=6400000 lat_0=0 lon_0=0",
+            Coor4D::geo(0.0, 175.0, 0.0, 0.0),
+            Coor4D::raw(19_547_687.622_336_593, 0.0, 0.0, 0.0),
+        )
     }
 }

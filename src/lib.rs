@@ -15,6 +15,13 @@ pub mod authoring {
     pub use crate::ops::*;
     pub use crate::parse::*;
     pub use crate::prelude::*;
+    #[cfg(test)]
+    #[allow(unused_imports)]
+    #[cfg(test)]
+    pub(crate) use crate::projection::{
+        assert_forward_and_roundtrip, assert_inverse, assert_inverse_rejects, assert_proj_match,
+        assert_roundtrip,
+    };
 
     // All new contexts are supposed to support these
     pub use crate::context::BUILTIN_ADAPTORS;
