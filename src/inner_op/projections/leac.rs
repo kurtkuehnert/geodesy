@@ -21,11 +21,7 @@ impl FramedProjection for LeacInner {
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let phi0 = params.lat(0);
-        let phi1 = if params.boolean("south") {
-            -FRAC_PI_2
-        } else {
-            FRAC_PI_2
-        };
+        let phi1 = params.polar_lat();
         let phi2 = params.lat(1);
         Ok(Self(AeaInner::new(params, phi0, phi1, phi2)?))
     }

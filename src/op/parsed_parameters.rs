@@ -183,6 +183,14 @@ impl ParsedParameters {
     pub fn lon(&self, index: usize) -> f64 {
         *self.real.get(&format!("lon_{index}")[..]).unwrap_or(&0.)
     }
+
+    pub fn polar_lat(&self) -> f64 {
+        if self.boolean("south") {
+            -FRAC_PI_2
+        } else {
+            FRAC_PI_2
+        }
+    }
 }
 
 impl ParsedParameters {

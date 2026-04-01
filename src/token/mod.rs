@@ -818,7 +818,7 @@ mod tests {
                 "+proj=stere +variant_c +lat_0=-90 +lat_ts=-67 +lon_0=140 +x_0=300000 +y_0=200000 +ellps=intl",
                 true
             )?,
-            "unitconvert xy_in=deg xy_out=rad | sterec lat_0=-90 lat_ts=-67 lon_0=140 x_0=300000 y_0=200000 ellps=intl"
+            "unitconvert xy_in=deg xy_out=rad | stere lat_0=-90 lat_ts=-67 lon_0=140 x_0=300000 y_0=200000 ellps=intl"
         );
         assert_eq!(
             parse_proj("+proj=etmerc +ellps=GRS80", true)?,

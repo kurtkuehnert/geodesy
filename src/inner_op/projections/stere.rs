@@ -24,7 +24,12 @@ pub(crate) struct StereInner {
 pub(crate) type Stere = Framed<StereInner>;
 
 impl StereInner {
-    fn build_with(ellps: Ellipsoid, lat_0: f64, lat_ts: f64, k_0: f64) -> Result<Self, Error> {
+    pub(crate) fn build_with(
+        ellps: Ellipsoid,
+        lat_0: f64,
+        lat_ts: f64,
+        k_0: f64,
+    ) -> Result<Self, Error> {
         if lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
             return Err(Error::BadParam(
                 "lat_0".to_string(),
@@ -74,7 +79,6 @@ impl FramedProjection for StereInner {
     const TITLE: &'static str = "Stereographic";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
-        OpParameter::Flag { key: "south" },
         OpParameter::Text { key: "ellps",  default: Some("GRS80") },
         OpParameter::Real { key: "k_0",    default: Some(1_f64) },
         OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
@@ -184,6 +188,24 @@ mod tests {
     }
 
     #[test]
+    fn stere_matches_proj_variant_c_south_case() -> Result<(), Error> {
+        assert_proj_match(
+            "stere lat_0=-90 lat_ts=-67 lon_0=140 x_0=300000 y_0=200000 ellps=intl",
+            Coor4D::geo(-66.60522777777778, 140.0714, 0.0, 0.0),
+            Coor4D::raw(303_169.521_856_970_5, 2_743_419.208_331_268_3, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn stere_matches_proj_variant_c_north_case() -> Result<(), Error> {
+        assert_proj_match(
+            "stere lat_0=90 lat_ts=67 lon_0=140 x_0=300000 y_0=200000 ellps=intl",
+            Coor4D::geo(66.60522777777778, 140.0714, 0.0, 0.0),
+            Coor4D::raw(303_169.521_856_970_5, -2_343_419.208_331_268_3, 0.0, 0.0),
+        )
+    }
+
+    #[test]
     fn stere_matches_proj_spherical_oblique_case() -> Result<(), Error> {
         assert_proj_match(
             "stere R=6378136.6 lat_0=45 lon_0=10 k_0=0.9999",
@@ -214,6 +236,15 @@ mod tests {
 
         assert!(lhs[0].hypot2(&rhs[0]) < 1e-9);
         Ok(())
+    }
+
+    #[test]
+    fn stere_defaults_lat_ts_to_lat_0_for_variant_c_style_case() -> Result<(), Error> {
+        assert_proj_match(
+            "stere lat_0=90 lon_0=10 x_0=123 y_0=456 ellps=GRS80",
+            Coor4D::geo(80.0, 20.0, 0.0, 0.0),
+            Coor4D::raw(194_551.507_814_534_18, -1_102_202.861_583_967_7, 0.0, 0.0),
+        )
     }
 
     #[test]

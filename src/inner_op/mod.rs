@@ -102,7 +102,7 @@ pub(crate) use crate::projection::ProjectionFrame;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 75] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 74] = [
     // Geographic projections: main/canonical set, lon/lat degrees in, projected (linear) out
     BuiltinOp::point_with_domains::<aea::Aea>(Geographic, Projected),
     BuiltinOp::point_with_domains::<aeqd::Aeqd>(Geographic, Projected),
@@ -114,7 +114,6 @@ const BUILTIN_OPERATORS: [BuiltinOp; 75] = [
     BuiltinOp::point_with_domains::<merc::Merc>(Geographic, Projected),
     BuiltinOp::with_domains("omerc",       omerc::new,       Geographic, Projected),
     BuiltinOp::point_with_domains::<stere::Stere>(Geographic, Projected),
-    BuiltinOp::point_with_domains::<sterec::Sterec>(Geographic, Projected),
     BuiltinOp::point_with_domains::<sterea::Sterea>(Geographic, Projected),
     BuiltinOp::with_domains("tmerc",       tmerc::new,       Geographic, Projected),
     BuiltinOp::with_domains("utm",         tmerc::utm,       Geographic, Projected),

@@ -10,7 +10,6 @@ pub(crate) mod merc;
 pub(crate) mod omerc;
 pub(crate) mod stere;
 pub(crate) mod sterea;
-pub(crate) mod sterec;
 pub(crate) mod tmerc;
 pub(crate) mod ups;
 pub(crate) mod webmerc;

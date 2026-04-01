@@ -60,9 +60,7 @@ fn normalize_sterec(elements: &mut Vec<String>) {
         return;
     }
 
-    if remove_parameter_flag(elements, "variant_c") {
-        elements[0] = "sterec".to_string();
-    }
+    remove_parameter_flag(elements, "variant_c");
 }
 
 fn normalize_geoc_aliases(elements: &mut Vec<String>) -> Result<(), Error> {
