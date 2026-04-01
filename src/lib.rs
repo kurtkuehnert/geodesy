@@ -26,7 +26,7 @@ pub mod authoring {
     #[cfg(test)]
     pub(crate) use crate::projection::{
         assert_forward_and_roundtrip, assert_inverse, assert_inverse_rejects, assert_op_err,
-        assert_proj_match, assert_roundtrip,
+        assert_proj_match, assert_proj_match_with_tol, assert_roundtrip,
     };
 
     // All new contexts are supposed to support these

@@ -11,6 +11,10 @@ use crate::math::sqrt_checked;
 use std::f64::consts::FRAC_PI_2;
 
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
+const OPPOSITE_STANDARD_PARALLELS_ERROR: &str =
+    "Aea: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0";
+const INVALID_STANDARD_PARALLELS_PARAM: &str = "lat_1/lat_2";
+const INVALID_ECCENTRICITY_ERROR: &str = "Aea: Invalid value for eccentricity";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AeaInner {
@@ -32,13 +36,8 @@ impl AeaInner {
     ) -> Result<Self, Error> {
         if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
             return Err(Error::BadParam(
-                "lat_1/lat_2".to_string(),
+                INVALID_STANDARD_PARALLELS_PARAM.to_string(),
                 params.name.clone(),
-            ));
-        }
-        if (phi1 + phi2).abs() < STANDARD_PARALLEL_TOLERANCE {
-            return Err(Error::General(
-                "Aea: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0",
             ));
         }
 
@@ -51,13 +50,29 @@ impl AeaInner {
         let q1 = authalic.q_from_geographic(phi1);
 
         let n = if (phi1 - phi2).abs() >= STANDARD_PARALLEL_TOLERANCE {
+            if (phi1 + phi2).abs() < STANDARD_PARALLEL_TOLERANCE {
+                return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
+            }
+
             let m2 = ellps.meridional_scale(phi2);
             let q2 = authalic.q_from_geographic(phi2);
+            if q2 == q1 {
+                return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
+            }
 
-            (m1 * m1 - m2 * m2) / (q2 - q1)
+            let n = (m1 * m1 - m2 * m2) / (q2 - q1);
+            if n == 0.0 {
+                return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
+            }
+            n
         } else {
-            phi1.sin()
+            let n = phi1.sin();
+            if n == 0.0 {
+                return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
+            }
+            n
         };
+
         let c = m1 * m1 + n * q1;
         let rho0 = (c - n * q0).sqrt() / n;
 
@@ -160,5 +175,10 @@ mod tests {
     #[test]
     fn aea_rejects_opposite_standard_parallels() {
         assert_op_err("aea lat_1=30 lat_2=-30");
+    }
+
+    #[test]
+    fn aea_rejects_zero_n_tangent_case() {
+        assert_op_err("aea lat_1=0 lat_2=0");
     }
 }

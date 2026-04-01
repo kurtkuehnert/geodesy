@@ -51,7 +51,7 @@ impl Stere {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let conformal = ConformalLatitude::new(ellps);
-        let e = conformal.eccentricity();
+        let e = ellps.eccentricity();
         let k_0 = frame.k_0;
 
         if variant_c && !aspect.is_polar() {
@@ -62,7 +62,7 @@ impl Stere {
 
         let oblique = if aspect.is_oblique() {
             if e != 0.0 {
-                let xang = conformal.reduced(lat_0);
+                let xang = conformal.geographic_to_conformal(lat_0);
                 Some((xang.sin(), xang.cos()))
             } else {
                 Some((lat_0.sin(), lat_0.cos()))
@@ -76,12 +76,11 @@ impl Stere {
                 let lat_ts_abs = lat_ts.abs();
                 if (lat_ts_abs - FRAC_PI_2).abs() < POLAR_TOLERANCE {
                     let numerator = 2.0 * k_0;
-                    let denominator =
-                        ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
+                    let denominator = ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
                     a * numerator / denominator
                 } else {
                     let sin_ts = lat_ts_abs.sin();
-                    let factor = lat_ts_abs.cos() / conformal.ts(lat_ts_abs);
+                    let factor = lat_ts_abs.cos() / conformal.ts_from_latitude(lat_ts_abs);
                     a * k_0 * factor / (1.0 - (e * sin_ts).powi(2)).sqrt()
                 }
             } else {
@@ -101,7 +100,11 @@ impl Stere {
             let sin_ts = lat_ts_abs.sin();
             let cos_ts = lat_ts_abs.cos();
             let rho_f = a * cos_ts / (1.0 - (e * sin_ts).powi(2)).sqrt();
-            frame.y_0 += if aspect.is_south_polar() { -rho_f } else { rho_f };
+            frame.y_0 += if aspect.is_south_polar() {
+                -rho_f
+            } else {
+                rho_f
+            };
         }
 
         frame.lat_0 = lat_0;
@@ -174,7 +177,7 @@ impl Stere {
         let mut sin_x = 0.0;
         let mut cos_x = 0.0;
         if !self.aspect.is_polar() {
-            let xang = self.conformal.reduced(phi);
+            let xang = self.conformal.geographic_to_conformal(phi);
             sin_x = xang.sin();
             cos_x = xang.cos();
         }
@@ -207,7 +210,7 @@ impl Stere {
             let scale = if (phi - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
                 0.0
             } else {
-                self.akm1 * self.conformal.ts(phi)
+                self.akm1 * self.conformal.ts_from_latitude(phi)
             };
             (scale, -scale * cos_lam)
         };
@@ -299,18 +302,22 @@ impl Stere {
             if self.aspect.is_north_polar() {
                 y_local = -y_local;
             }
-            (FRAC_PI_2 - 2.0 * (-rho / self.akm1).atan(), x_local, y_local)
+            (
+                FRAC_PI_2 - 2.0 * (-rho / self.akm1).atan(),
+                x_local,
+                y_local,
+            )
         };
 
         let lat = if self.aspect.is_polar() {
-            let lat = self.conformal.geographic(PI - chi);
+            let lat = self.conformal.conformal_to_geographic(PI - chi);
             if self.aspect.is_south_polar() {
                 -lat
             } else {
                 lat
             }
         } else {
-            self.conformal.geographic(chi)
+            self.conformal.conformal_to_geographic(chi)
         };
 
         let lam = if sin_lam == 0.0 && cos_lam == 0.0 {

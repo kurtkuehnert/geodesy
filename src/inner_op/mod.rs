@@ -84,16 +84,10 @@ impl BuiltinOp {
 mod addone;
 mod curvature;
 mod deflection;
-mod deformation;
 mod geodesic;
 mod gravity;
-mod gridshift;
-mod helmert;
 mod iso6709;
-mod molobadekas;
-mod molodensky;
 mod noop;
-mod permtide;
 mod deprecated;
 mod experimental;
 mod projections;
@@ -112,11 +106,10 @@ const BUILTIN_OPERATORS: [BuiltinOp; 75] = [
     // Geographic projections: main/canonical set, lon/lat degrees in, projected (linear) out
     BuiltinOp::point_with_domains::<aea::Aea>(Geographic, Projected),
     BuiltinOp::point_with_domains::<aeqd::Aeqd>(Geographic, Projected),
-    BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::point_with_domains::<cea::Cea>(Geographic, Projected),
     BuiltinOp::with_domains("etmerc",      tmerc::new,       Geographic, Projected),
     BuiltinOp::point_with_domains::<laea::Laea>(Geographic, Projected),
-    BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),
+    BuiltinOp::point_with_domains::<lcc::Lcc>(Geographic, Projected),
     BuiltinOp::point_with_domains::<leac::Leac>(Geographic, Projected),
     BuiltinOp::point_with_domains::<merc::Merc>(Geographic, Projected),
     BuiltinOp::with_domains("omerc",       omerc::new,       Geographic, Projected),
@@ -132,6 +125,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 75] = [
     BuiltinOp::with_domains("alsk",        mod_ster::alsk,   Geographic, Projected),
     BuiltinOp::with_domains("bonne",       bonne::new,       Geographic, Projected),
     BuiltinOp::with_domains("calcofi",     calcofi::new,     Geographic, Projected),
+    BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::with_domains("col_urban",   col_urban::new,   Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
     BuiltinOp::with_domains("eqdc",        eqdc::new,        Geographic, Projected),
@@ -165,29 +159,29 @@ const BUILTIN_OPERATORS: [BuiltinOp; 75] = [
     BuiltinOp::with_domains("lsat",        som::lsat,        Geographic, Projected),
     BuiltinOp::with_domains("misrsom",     som::misr,        Geographic, Projected),
 
-    // Geographic transforms / conversions
+    // Coordinate transforms / conversions
     BuiltinOp::point::<adapt::Adapt>(),
     BuiltinOp::point::<axisswap::AxisSwap>(),
     BuiltinOp::point_with_domains::<lonlat::LonLat>(Geographic, Geographic),
     BuiltinOp::point_with_domains::<cart::Cart>(Geographic, Cartesian),
+    BuiltinOp::new("deformation", transforms::deformation::new),
+    BuiltinOp::new("gridshift",   transforms::gridshift::new),
+    BuiltinOp::new("helmert",     transforms::helmert::new),
     BuiltinOp::point_with_domains::<latitude::Latitude>(Geographic, Geographic),
+    BuiltinOp::new("molobadekas", transforms::molobadekas::new),
+    BuiltinOp::with_domains("molodensky",  transforms::molodensky::new, Geographic, Geographic),
+    BuiltinOp::point::<transforms::permtide::PermTide>(),
     BuiltinOp::point::<unitconvert::UnitConvert>(),
 
     // Domain-agnostic operators
     BuiltinOp::point::<addone::AddOne>(),
     BuiltinOp::new("curvature",   curvature::new),
     BuiltinOp::new("deflection",  deflection::new),
-    BuiltinOp::new("deformation", deformation::new),
     BuiltinOp::new("dm",          iso6709::dm),
     BuiltinOp::new("dms",         iso6709::dms),
     BuiltinOp::new("geodesic",    geodesic::new),
     BuiltinOp::point_with_domains::<geogoffset::GeogOffset>(Geographic, Geographic),
     BuiltinOp::new("gravity",     gravity::new),
-    BuiltinOp::new("gridshift",   gridshift::new),
-    BuiltinOp::new("helmert",     helmert::new),
-    BuiltinOp::new("molobadekas", molobadekas::new),
-    BuiltinOp::with_domains("molodensky",  molodensky::new, Geographic, Geographic),
-    BuiltinOp::point::<permtide::PermTide>(),
 
     // Pipeline / flow control
     BuiltinOp::new("pipeline",    pipeline::new),
