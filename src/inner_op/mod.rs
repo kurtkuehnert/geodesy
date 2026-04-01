@@ -196,7 +196,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 79] = [
     BuiltinOp::with_domains("bonne",       bonne::new,       Geographic, Projected),
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::with_domains("calcofi",     calcofi::new,     Geographic, Projected),
-    BuiltinOp::point_with_domains::<cea::Cea>(Geographic, Projected),
+    BuiltinOp::point_with_domains::<Framed<cea::Cea>>(Geographic, Projected),
     BuiltinOp::with_domains("col_urban",   col_urban::new,   Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
     BuiltinOp::with_domains("eqdc",        eqdc::new,        Geographic, Projected),

@@ -15,6 +15,11 @@ pub mod authoring {
     pub use crate::ops::*;
     pub use crate::parse::*;
     pub use crate::prelude::*;
+    #[allow(unused_imports)]
+    pub(crate) use crate::projection::{
+        AuthalicLatitude, AzimuthalAspect, ConformalLatitude, Gauss, ProjectionAspect,
+        ProjectionFrame, SphericalGeodesic, Framed, FramedProjection, projection_gamut,
+    };
     #[cfg(test)]
     #[allow(unused_imports)]
     #[cfg(test)]

@@ -3,6 +3,7 @@ mod authalic;
 mod azimuthal;
 mod conformal;
 mod frame;
+mod framed;
 mod gauss;
 mod spherical_geodesic;
 #[cfg(test)]
@@ -13,6 +14,7 @@ pub(crate) use authalic::AuthalicLatitude;
 pub(crate) use azimuthal::{spherical_inverse_equatorial, spherical_inverse_oblique};
 pub(crate) use conformal::ConformalLatitude;
 pub(crate) use frame::{ProjectionFrame, projection_gamut};
+pub(crate) use framed::{Framed, FramedProjection};
 pub(crate) use gauss::Gauss;
 pub(crate) use spherical_geodesic::SphericalGeodesic;
 #[cfg(test)]

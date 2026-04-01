@@ -7,16 +7,16 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/cea.rst>
 
 use crate::authoring::*;
-use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
 use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Cea {
-    frame: ProjectionFrame,
+    a: f64,
+    k_0: f64,
     authalic: AuthalicLatitude,
 }
 
-impl PointOp for Cea {
+impl FramedProjection for Cea {
     const NAME: &'static str = "cea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!(
@@ -26,76 +26,66 @@ impl PointOp for Cea {
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let ellps = params.ellps(0);
-        let mut frame = ProjectionFrame::from_params(params);
+        let a = ellps.semimajor_axis();
         let authalic = AuthalicLatitude::new(ellps);
 
-        if let Some(lat_ts) = params.given_real("lat_ts") {
-            if lat_ts.abs() > FRAC_PI_2 {
-                return Err(Error::General(
-                    "CEA: Invalid value for lat_ts: |lat_ts| should be <= 90°",
-                ));
+        let k_0 = match params.given_real("lat_ts") {
+            Some(lat_ts) => {
+                if lat_ts.abs() > FRAC_PI_2 {
+                    return Err(Error::General(
+                        "CEA: Invalid value for lat_ts: |lat_ts| should be <= 90°",
+                    ));
+                }
+
+                let (sin_ts, cos_ts) = lat_ts.sin_cos();
+                cos_ts / (1.0 - ellps.eccentricity_squared() * sin_ts * sin_ts).sqrt()
             }
+            None => params.k(0),
+        };
 
-            let (sin_ts, cos_ts) = lat_ts.sin_cos();
-
-            if ellps.is_spherical() {
-                frame.k_0 = cos_ts;
-            } else {
-                frame.k_0 = cos_ts / (1.0 - ellps.eccentricity_squared() * sin_ts * sin_ts).sqrt();
-            }
-        }
-
-        Ok(Self { frame, authalic })
+        Ok(Self { a, k_0, authalic })
     }
 
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (lon, lat) = coord.xy();
-        let lam = self.frame.remove_central_meridian(lon);
+    fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
         let q = self.authalic.q_from_phi(lat);
 
-        let x_local = self.frame.a * self.frame.k_0 * lam;
-        let y_local = self.frame.a / self.frame.k_0 * 0.5 * q;
-
-        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
-        Some(Coor4D::raw(x, y, coord[2], coord[3]))
+        Some((self.a * self.k_0 * lam, self.a / self.k_0 * 0.5 * q))
     }
 
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
+    fn inv(&self, x_local: f64, y_local: f64) -> Option<(f64, f64)> {
+        let lam = x_local / (self.a * self.k_0);
+        let q = 2.0 * y_local * self.k_0 / self.a;
 
-        let lam = x_local / (self.frame.a * self.frame.k_0);
-        let q = 2.0 * y_local * self.frame.k_0 / self.frame.a;
-
-        let lon = self.frame.apply_central_meridian(lam);
         let lat = self.authalic.phi_from_q(q)?;
-        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+        Some((lam, lat))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::assert_forward_and_roundtrip;
 
     #[test]
-    fn cea_matches_proj_gie_ellipsoidal_case() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
-            "cea ellps=GRS80",
+    fn cea_matches_proj_ellipsoidal_case() -> Result<(), Error> {
+        assert_proj_match(
+            "cea ellps=GRS80 lon_0=7 x_0=1234 y_0=5678",
             Coor4D::geo(1.0, 2.0, 0.0, 0.0),
-            Coor4D::raw(222_638.981_586_547, 110_568.812_396_267, 0.0, 0.0),
-            1e-6,
-            1e-10,
+            Coor4D::raw(-555_363.453_966_367_9, 116_246.812_396_267_53, 0.0, 0.0),
         )
     }
 
     #[test]
-    fn cea_lat_ts_overrides_k0_when_present() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
-            "cea a=6400000 k_0=3 lat_ts=0",
+    fn cea_matches_proj_spherical_lat_ts_override_case() -> Result<(), Error> {
+        assert_proj_match(
+            "cea R=6400000 k_0=3 lat_ts=0 lon_0=7 x_0=1234 y_0=5678",
             Coor4D::geo(1.0, 2.0, 0.0, 0.0),
-            Coor4D::raw(223_402.144_255_274, 111_695.401_198_614, 0.0, 0.0),
-            1e-6,
-            1e-10,
+            Coor4D::raw(-557_271.360_638_185_5, 117_373.401_198_614_48, 0.0, 0.0),
         )
+    }
+
+    #[test]
+    fn cea_rejects_invalid_lat_ts() {
+        let mut ctx = Minimal::default();
+        assert!(ctx.op("cea lat_ts=91").is_err());
     }
 }
