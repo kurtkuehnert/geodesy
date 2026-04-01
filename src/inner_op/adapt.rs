@@ -68,6 +68,7 @@ pub(crate) struct Adapt {
 }
 
 impl PointOp for Adapt {
+    const NAME: &'static str = "adapt";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

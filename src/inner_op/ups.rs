@@ -9,6 +9,7 @@ use std::f64::consts::FRAC_PI_2;
 pub(crate) struct Ups(Stere);
 
 impl PointOp for Ups {
+    const NAME: &'static str = "ups";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

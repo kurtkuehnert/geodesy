@@ -4,6 +4,7 @@ use crate::authoring::*;
 pub(crate) struct AddOne;
 
 impl PointOp for AddOne {
+    const NAME: &'static str = "addone";
     const GAMUT: &'static [OpParameter] = &[];
 
     fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {

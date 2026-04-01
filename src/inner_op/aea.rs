@@ -71,6 +71,7 @@ impl Aea {
 }
 
 impl PointOp for Aea {
+    const NAME: &'static str = "aea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!(
         OpParameter::Real { key: "lat_1", default: None },

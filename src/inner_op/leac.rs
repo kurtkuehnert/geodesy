@@ -9,6 +9,7 @@ use std::f64::consts::FRAC_PI_2;
 pub(crate) struct Leac(Aea);
 
 impl PointOp for Leac {
+    const NAME: &'static str = "leac";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!(
         OpParameter::Flag { key: "south" },

@@ -29,6 +29,7 @@ impl Sterea {
 }
 
 impl PointOp for Sterea {
+    const NAME: &'static str = "sterea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

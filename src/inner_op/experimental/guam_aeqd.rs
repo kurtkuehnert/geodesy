@@ -58,6 +58,7 @@ impl GuamAeqd {
 }
 
 impl PointOp for GuamAeqd {
+    const NAME: &'static str = "guam_aeqd";
     const GAMUT: &'static [OpParameter] = &GAMUT;
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {

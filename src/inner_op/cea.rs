@@ -17,6 +17,7 @@ pub(crate) struct Cea {
 }
 
 impl PointOp for Cea {
+    const NAME: &'static str = "cea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!(
         OpParameter::Real { key: "lat_ts", default: Some(0_f64) },

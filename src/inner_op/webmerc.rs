@@ -16,6 +16,7 @@ pub(crate) struct WebMerc {
 }
 
 impl PointOp for WebMerc {
+    const NAME: &'static str = "webmerc";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

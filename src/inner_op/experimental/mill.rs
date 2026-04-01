@@ -8,6 +8,7 @@ pub(crate) struct Mill {
 }
 
 impl PointOp for Mill {
+    const NAME: &'static str = "mill";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!();
 

@@ -28,6 +28,7 @@ pub(crate) struct Laea {
 impl Laea {}
 
 impl PointOp for Laea {
+    const NAME: &'static str = "laea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = projection_gamut!();
 

@@ -155,6 +155,7 @@ impl Aeqd {
 }
 
 impl PointOp for Aeqd {
+    const NAME: &'static str = "aeqd";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

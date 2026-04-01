@@ -8,6 +8,7 @@ pub(crate) struct AxisSwap {
 }
 
 impl PointOp for AxisSwap {
+    const NAME: &'static str = "axisswap";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

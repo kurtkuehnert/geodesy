@@ -7,6 +7,7 @@ use crate::authoring::*;
 pub(crate) struct Sterec(Stere);
 
 impl PointOp for Sterec {
+    const NAME: &'static str = "sterec";
     const GAMUT: &'static [OpParameter] = super::stere::GAMUT;
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {

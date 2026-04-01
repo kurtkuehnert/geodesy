@@ -1,27 +1,24 @@
 //! The no-operation. Does nothing, and is good at it
 use crate::authoring::*;
 
-// ----- F O R W A R D --------------------------------------------------------------
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NoOp;
 
-fn fwd(_op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    operands.len()
-}
+impl PointOp for NoOp {
+    const NAME: &'static str = "noop";
+    const GAMUT: &'static [OpParameter] = &[];
 
-// ----- I N V E R S E --------------------------------------------------------------
+    fn build(_params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
+        Ok(Self)
+    }
 
-fn inv(_op: &Op, _ctx: &dyn Context, operands: &mut dyn CoordinateSet) -> usize {
-    operands.len()
-}
+    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
+        Some(coord)
+    }
 
-// ----- C O N S T R U C T O R ------------------------------------------------------
-
-// Example...
-#[rustfmt::skip]
-pub const GAMUT: [OpParameter; 0] = [
-];
-
-pub fn new(parameters: &RawParameters, _ctx: &dyn Context) -> Result<Op, Error> {
-    Op::basic(parameters, InnerOp(fwd), Some(InnerOp(inv)), &GAMUT)
+    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
+        Some(coord)
+    }
 }
 
 // ----- T E S T S ------------------------------------------------------------------

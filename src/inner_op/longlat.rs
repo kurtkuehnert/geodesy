@@ -14,6 +14,7 @@ pub(crate) struct LongLat {
 }
 
 impl PointOp for LongLat {
+    const NAME: &'static str = "longlat";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },

@@ -324,6 +324,7 @@ impl Stere {
 }
 
 impl PointOp for Stere {
+    const NAME: &'static str = "stere";
     const GAMUT: &'static [OpParameter] = GAMUT;
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {

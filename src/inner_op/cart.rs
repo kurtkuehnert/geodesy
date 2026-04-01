@@ -14,6 +14,7 @@ pub(crate) struct Cart {
 }
 
 impl PointOp for Cart {
+    const NAME: &'static str = "cart";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },
