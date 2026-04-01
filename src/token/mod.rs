@@ -839,6 +839,10 @@ mod tests {
             parse_proj("+proj=ups +south +ellps=GRS80", true)?,
             "unitconvert xy_in=deg xy_out=rad | stere ellps=GRS80 lat_0=-90 lon_0=0 k_0=0.994 x_0=2000000 y_0=2000000"
         );
+        assert_eq!(
+            parse_proj("+proj=leac +ellps=GRS80 +lat_1=0 +lat_2=2", true)?,
+            "unitconvert xy_in=deg xy_out=rad | leac ellps=GRS80 lat_1=0"
+        );
 
         // Generic axis handling should become explicit axisswap steps
         // (explicit pipeline: no degree wrapping)

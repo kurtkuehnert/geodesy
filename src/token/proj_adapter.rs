@@ -12,6 +12,7 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     normalize_longlat_aliases(elements);
     normalize_geoc_aliases(elements)?;
     normalize_aeqd_variants(elements);
+    normalize_leac(elements);
     normalize_sterec(elements);
     normalize_ups(elements)?;
 
@@ -52,6 +53,16 @@ fn normalize_aeqd_variants(elements: &mut Vec<String>) {
 
     if remove_parameter_flag(elements, "guam") {
         elements[0] = "guam_aeqd".to_string();
+    }
+}
+
+fn normalize_leac(elements: &mut Vec<String>) {
+    if elements.first().map(String::as_str) != Some("leac") {
+        return;
+    }
+
+    if let Some(idx) = find_prefix(elements, "lat_2=") {
+        elements.remove(idx);
     }
 }
 

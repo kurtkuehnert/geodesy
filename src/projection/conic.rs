@@ -19,18 +19,24 @@ impl Conic {
         strict_polar_standard_parallels: bool,
         secant: impl FnOnce() -> f64,
     ) -> Result<f64, Error> {
-        let secant_case = (phi1 - phi2).abs() >= Self::STANDARD_PARALLEL_TOLERANCE;
-        let polar_parallel = phi1.abs() >= FRAC_PI_2
-            || phi2.abs() >= FRAC_PI_2
-            || (strict_polar_standard_parallels
-                && (phi1.cos().abs() < Self::STANDARD_PARALLEL_TOLERANCE
-                    || phi2.cos().abs() < Self::STANDARD_PARALLEL_TOLERANCE));
+        if phi1.abs() > FRAC_PI_2 || phi2.abs() > FRAC_PI_2 {
+            return Err(Error::BadParam(
+                "lat_1/lat_2".to_string(),
+                params.name.clone(),
+            ));
+        }
+
+        let polar_parallel = strict_polar_standard_parallels
+            && (phi1.cos().abs() < Self::STANDARD_PARALLEL_TOLERANCE
+                || phi2.cos().abs() < Self::STANDARD_PARALLEL_TOLERANCE);
         if polar_parallel {
             return Err(Error::BadParam(
                 "lat_1/lat_2".to_string(),
                 params.name.clone(),
             ));
         }
+
+        let secant_case = (phi1 - phi2).abs() >= Self::STANDARD_PARALLEL_TOLERANCE;
 
         if secant_case && (phi1 + phi2).abs() < Self::STANDARD_PARALLEL_TOLERANCE {
             return Err(Error::General(Box::leak(
