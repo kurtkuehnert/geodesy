@@ -17,12 +17,9 @@ const INVALID_ECCENTRICITY_ERROR: &str = "Lcc: Invalid value for eccentricity";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LccInner {
-    a: f64,
-    n: f64,
-    c: f64,
-    rho0: f64,
-    k_0: f64,
     conformal: ConformalLatitude,
+    conic: Conic,
+    c: f64,
 }
 
 pub(crate) type Lcc = Framed<LccInner>;
@@ -34,16 +31,17 @@ impl LccInner {
         phi1: f64,
         phi2: f64,
     ) -> Result<Self, Error> {
-        if phi1.abs() >= FRAC_PI_2
-            || phi2.abs() >= FRAC_PI_2
-            || phi1.cos().abs() < STANDARD_PARALLEL_TOLERANCE
-            || phi2.cos().abs() < STANDARD_PARALLEL_TOLERANCE
-        {
-            return Err(Error::BadParam(
-                INVALID_STANDARD_PARALLELS_PARAM.to_string(),
-                params.name.clone(),
-            ));
-        }
+        let parallels = StandardParallels::classify(phi1, phi2)
+            .validate_conic()
+            .map_err(|err| match err {
+                ConicSetupError::PolarStandardParallel => Error::BadParam(
+                    INVALID_STANDARD_PARALLELS_PARAM.to_string(),
+                    params.name.clone(),
+                ),
+                ConicSetupError::OppositeStandardParallels => {
+                    Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR)
+                }
+            })?;
 
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
@@ -54,25 +52,24 @@ impl LccInner {
         let ts0 = conformal.ts_from_latitude(phi0);
         let ts1 = conformal.ts_from_latitude(phi1);
 
-        let n = if (phi1 - phi2).abs() >= STANDARD_PARALLEL_TOLERANCE {
-            if (phi1 + phi2).abs() < STANDARD_PARALLEL_TOLERANCE {
-                return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
+        let n = match parallels {
+            StandardParallels::Secant { phi2, .. } => {
+                let m2 = ellps.meridional_scale(phi2);
+                let ts2 = conformal.ts_from_latitude(phi2);
+                let numerator = (m1 / m2).ln();
+                let denominator = (ts1 / ts2).ln();
+                if numerator == 0.0 || denominator == 0.0 {
+                    return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
+                }
+                numerator / denominator
             }
-
-            let m2 = ellps.meridional_scale(phi2);
-            let ts2 = conformal.ts_from_latitude(phi2);
-            let numerator = (m1 / m2).ln();
-            let denominator = (ts1 / ts2).ln();
-            if numerator == 0.0 || denominator == 0.0 {
-                return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
+            StandardParallels::Tangent { phi } => {
+                let n = phi.sin();
+                if n == 0.0 {
+                    return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
+                }
+                n
             }
-            numerator / denominator
-        } else {
-            let n = phi1.sin();
-            if n == 0.0 {
-                return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
-            }
-            n
         };
 
         let c = m1 * ts1.powf(-n) / n;
@@ -83,12 +80,9 @@ impl LccInner {
         };
 
         Ok(Self {
-            a,
-            n,
-            c,
-            rho0,
-            k_0,
             conformal,
+            conic: Conic::new(a * k_0, n, rho0),
+            c,
         })
     }
 }
@@ -117,33 +111,23 @@ impl FramedProjection for LccInner {
 
     fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
         if (phi.abs() - FRAC_PI_2).abs() < STANDARD_PARALLEL_TOLERANCE {
-            if phi * self.n <= 0.0 {
+            if phi * self.conic.n() <= 0.0 {
                 return None;
             }
-            return Some((0.0, self.a * self.k_0 * self.rho0));
+            return Some(self.conic.polar_point());
         }
 
-        let rho = self.c * self.conformal.ts_from_latitude(phi).powf(self.n);
-
-        let theta = self.n * lam;
-        let (sin_theta, cos_theta) = theta.sin_cos();
-        let x = self.a * self.k_0 * rho * sin_theta;
-        let y = self.a * self.k_0 * (self.rho0 - rho * cos_theta);
-        Some((x, y))
+        let rho = self.c * self.conformal.ts_from_latitude(phi).powf(self.conic.n());
+        Some(self.conic.project(lam, rho))
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let sign = self.n.signum();
-        let rho_sin = sign * x / (self.a * self.k_0);
-        let rho_cos = sign * (self.rho0 - y / (self.a * self.k_0));
-        let rho = sign * rho_sin.hypot(rho_cos);
+        let (lam, rho) = match self.conic.inverse(x, y) {
+            ConicInverse::Apex => return Some((0.0, self.conic.n().signum() * FRAC_PI_2)),
+            ConicInverse::Point { lam, rho } => (lam, rho),
+        };
 
-        if rho == 0.0 {
-            return Some((0.0, sign * FRAC_PI_2));
-        }
-
-        let lam = rho_sin.atan2(rho_cos) / self.n;
-        let ts = (rho / self.c).powf(1.0 / self.n);
+        let ts = (rho / self.c).powf(1.0 / self.conic.n());
         let lat = self.conformal.latitude_from_ts(ts);
 
         Some((lam, lat))

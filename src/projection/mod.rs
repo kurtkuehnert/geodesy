@@ -1,5 +1,6 @@
 mod aspect;
 mod azimuthal;
+mod conic;
 mod frame;
 mod framed;
 mod gauss;
@@ -10,6 +11,7 @@ mod test_support;
 
 pub(crate) use aspect::{AzimuthalAspect, ProjectionAspect};
 pub(crate) use azimuthal::{spherical_inverse_equatorial, spherical_inverse_oblique};
+pub(crate) use conic::{Conic, ConicInverse, ConicSetupError, StandardParallels};
 pub(crate) use frame::{projection_gamut, ProjectionFrame};
 pub(crate) use framed::{framed_gamut, Framed, FramedProjection};
 pub(crate) use gauss::Gauss;
