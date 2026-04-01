@@ -1,13 +1,15 @@
 //! Lambert Equal Area Conic as a thin wrapper over Albers Equal Area.
 
-use super::aea::Aea;
+use super::aea::AeaInner;
 use crate::authoring::*;
 use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Leac(Aea);
+pub(crate) struct LeacInner(AeaInner);
 
-impl FramedProjection for Leac {
+pub(crate) type Leac = Framed<LeacInner>;
+
+impl FramedProjection for LeacInner {
     const NAME: &'static str = "leac";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
@@ -25,7 +27,7 @@ impl FramedProjection for Leac {
             FRAC_PI_2
         };
         let phi2 = params.lat(1);
-        Ok(Self(Aea::with_standard_parallels(
+        Ok(Self(AeaInner::with_standard_parallels(
             params, phi0, phi1, phi2,
         )?))
     }

@@ -13,7 +13,7 @@ use std::f64::consts::FRAC_PI_2;
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Aea {
+pub(crate) struct AeaInner {
     authalic: AuthalicLatitude,
     a: f64,
     n: f64,
@@ -21,7 +21,9 @@ pub(crate) struct Aea {
     rho0: f64,
 }
 
-impl Aea {
+pub(crate) type Aea = Framed<AeaInner>;
+
+impl AeaInner {
     pub(crate) fn with_standard_parallels(
         params: &ParsedParameters,
         phi0: f64,
@@ -69,7 +71,7 @@ impl Aea {
     }
 }
 
-impl FramedProjection for Aea {
+impl FramedProjection for AeaInner {
     const NAME: &'static str = "aea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(

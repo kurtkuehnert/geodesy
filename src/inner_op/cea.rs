@@ -10,17 +10,19 @@ use crate::authoring::*;
 use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Cea {
+pub(crate) struct CeaInner {
     a: f64,
     k_0: f64,
     authalic: AuthalicLatitude,
 }
 
-impl FramedProjection for Cea {
+pub(crate) type Cea = Framed<CeaInner>;
+
+impl FramedProjection for CeaInner {
     const NAME: &'static str = "cea";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = framed_gamut!(
-        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Text { key: "ellps",  default: Some("GRS80") },
         OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
         OpParameter::Real { key: "k_0",    default: Some(1_f64) },
     );
