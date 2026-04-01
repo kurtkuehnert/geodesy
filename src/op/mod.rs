@@ -182,7 +182,9 @@ impl Op {
         Ok(Op {
             descriptor,
             params,
-            state: Some(Box::new(PointRuntime(Box::new(PointOpInstance::<T>(state))))),
+            state: Some(Box::new(PointRuntime(Box::new(PointOpInstance::<T>(
+                state,
+            ))))),
             steps: None,
         })
     }

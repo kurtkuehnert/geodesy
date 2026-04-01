@@ -3,7 +3,6 @@
 use super::stere::Stere;
 use crate::authoring::*;
 use crate::projection::ProjectionFrame;
-use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Ups(Stere);
@@ -28,7 +27,13 @@ impl PointOp for Ups {
         let mut frame = ProjectionFrame::from_params(params);
         frame.lat_0 = if south { -FRAC_PI_2 } else { FRAC_PI_2 };
 
-        Ok(Self(Stere::build_core(params, frame, frame.lat_0, frame.lat_0, false)?))
+        Ok(Self(Stere::build_core(
+            params,
+            frame,
+            frame.lat_0,
+            frame.lat_0,
+            false,
+        )?))
     }
 
     fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {

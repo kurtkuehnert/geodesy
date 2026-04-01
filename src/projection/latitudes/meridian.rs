@@ -1,9 +1,10 @@
 use crate::authoring::*;
-use crate::math::series::{FourierCoefficients, fourier};
 
 #[derive(Clone, Copy, Debug)]
 pub enum MeridianLatitude {
-    Spherical { a: f64 },
+    Spherical {
+        a: f64,
+    },
     Ellipsoidal {
         a: f64,
         coefficients: FourierCoefficients,
@@ -21,6 +22,12 @@ impl MeridianLatitude {
                 a: ellps.semimajor_axis(),
                 coefficients: ellps.coefficients_for_rectifying_latitude_computations(),
             }
+        }
+    }
+
+    pub fn semimajor_axis(self) -> f64 {
+        match self {
+            Self::Spherical { a } | Self::Ellipsoidal { a, .. } => a,
         }
     }
 

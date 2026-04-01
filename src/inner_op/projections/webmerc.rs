@@ -8,7 +8,6 @@
 
 use crate::authoring::*;
 use crate::projection::ProjectionFrame;
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WebMerc {

@@ -1,7 +1,4 @@
-use crate::authoring::Ellipsoid;
-use crate::ellipsoid::EllipsoidBase;
-use crate::ellipsoid::latitudes::Latitudes;
-use crate::math::FourierCoefficients;
+use crate::authoring::*;
 
 #[derive(Clone, Copy, Debug)]
 pub enum AuthalicLatitude {

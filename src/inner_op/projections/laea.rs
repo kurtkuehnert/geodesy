@@ -8,8 +8,6 @@
 use crate::authoring::*;
 use crate::projection::{AuthalicLatitude, AzimuthalAspect, ProjectionFrame, projection_gamut};
 
-use std::f64::consts::FRAC_PI_2;
-
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 const POLAR_DOMAIN_TOLERANCE: f64 = 1e-15;
 

@@ -2,6 +2,7 @@ pub(crate) mod aea;
 pub(crate) mod aeqd;
 pub(crate) mod cass;
 pub(crate) mod cea;
+pub(crate) mod eqdc;
 pub(crate) mod laea;
 pub(crate) mod lcc;
 pub(crate) mod leac;

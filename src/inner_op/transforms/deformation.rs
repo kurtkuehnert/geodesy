@@ -292,9 +292,9 @@ mod tests {
         // Context and data
         let mut ctx = Plain::new();
         let cph = Coor4D::geo(55., 12., 0., 0.);
-        let test_deformation = include_str!("../../geodesy/deformation/test.deformation");
+        let test_deformation = include_str!("../../../geodesy/deformation/test.deformation");
         let another_test_deformation =
-            include_str!("../../geodesy/deformation/another_test.deformation");
+            include_str!("../../../geodesy/deformation/another_test.deformation");
 
         // Check that grid registration works
         ctx.register_resource("test.deformation", test_deformation);

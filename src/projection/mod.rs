@@ -11,9 +11,9 @@ mod test_support;
 
 pub(crate) use aspect::{AzimuthalAspect, ProjectionAspect};
 pub(crate) use azimuthal::{spherical_inverse_equatorial, spherical_inverse_oblique};
-pub(crate) use conic::{Conic, ConicInverse, ConicSetupError, StandardParallels};
-pub(crate) use frame::{projection_gamut, ProjectionFrame};
-pub(crate) use framed::{framed_gamut, Framed, FramedProjection};
+pub(crate) use conic::Conic;
+pub(crate) use frame::{ProjectionFrame, projection_gamut};
+pub(crate) use framed::{Framed, FramedProjection, framed_gamut};
 pub(crate) use gauss::Gauss;
 pub(crate) use geodesic::GeodesicPath;
 pub(crate) use latitudes::{AuthalicLatitude, ConformalLatitude, MeridianLatitude};

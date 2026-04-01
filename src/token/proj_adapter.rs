@@ -624,10 +624,7 @@ fn normalize_prime_meridian(elements: &mut Vec<String>) -> Result<(), Error> {
         )));
     };
 
-    let is_longlat = matches!(
-        elements.first().map(String::as_str),
-        Some("lonlat")
-    );
+    let is_longlat = matches!(elements.first().map(String::as_str), Some("lonlat"));
     let is_inverse = elements.iter().any(|element| element == "inv");
     let is_inverse_bonne =
         is_inverse && matches!(elements.first().map(String::as_str), Some("bonne"));

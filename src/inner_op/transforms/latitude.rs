@@ -35,7 +35,9 @@ impl PointOp for Latitude {
         let ellps = params.ellps(0);
 
         let mut modes = [
-            params.boolean("geocentric").then_some(LatitudeMode::Geocentric),
+            params
+                .boolean("geocentric")
+                .then_some(LatitudeMode::Geocentric),
             (params.boolean("reduced") || params.boolean("parametric"))
                 .then_some(LatitudeMode::Reduced),
             params.boolean("conformal").then(|| {
@@ -66,15 +68,15 @@ impl PointOp for Latitude {
         coord[1] = match self.mode {
             LatitudeMode::Geocentric => self.ellps.latitude_geographic_to_geocentric(coord[1]),
             LatitudeMode::Reduced => self.ellps.latitude_geographic_to_reduced(coord[1]),
-            LatitudeMode::Conformal(coefficients) => {
-                self.ellps.latitude_geographic_to_conformal(coord[1], &coefficients)
-            }
-            LatitudeMode::Rectifying(coefficients) => {
-                self.ellps.latitude_geographic_to_rectifying(coord[1], &coefficients)
-            }
-            LatitudeMode::Authalic(coefficients) => {
-                self.ellps.latitude_geographic_to_authalic(coord[1], &coefficients)
-            }
+            LatitudeMode::Conformal(coefficients) => self
+                .ellps
+                .latitude_geographic_to_conformal(coord[1], &coefficients),
+            LatitudeMode::Rectifying(coefficients) => self
+                .ellps
+                .latitude_geographic_to_rectifying(coord[1], &coefficients),
+            LatitudeMode::Authalic(coefficients) => self
+                .ellps
+                .latitude_geographic_to_authalic(coord[1], &coefficients),
         };
         Some(coord)
     }
@@ -84,15 +86,15 @@ impl PointOp for Latitude {
         coord[1] = match self.mode {
             LatitudeMode::Geocentric => self.ellps.latitude_geocentric_to_geographic(coord[1]),
             LatitudeMode::Reduced => self.ellps.latitude_reduced_to_geographic(coord[1]),
-            LatitudeMode::Conformal(coefficients) => {
-                self.ellps.latitude_conformal_to_geographic(coord[1], &coefficients)
-            }
-            LatitudeMode::Rectifying(coefficients) => {
-                self.ellps.latitude_rectifying_to_geographic(coord[1], &coefficients)
-            }
-            LatitudeMode::Authalic(coefficients) => {
-                self.ellps.latitude_authalic_to_geographic(coord[1], &coefficients)
-            }
+            LatitudeMode::Conformal(coefficients) => self
+                .ellps
+                .latitude_conformal_to_geographic(coord[1], &coefficients),
+            LatitudeMode::Rectifying(coefficients) => self
+                .ellps
+                .latitude_rectifying_to_geographic(coord[1], &coefficients),
+            LatitudeMode::Authalic(coefficients) => self
+                .ellps
+                .latitude_authalic_to_geographic(coord[1], &coefficients),
         };
         Some(coord)
     }

@@ -7,8 +7,8 @@ pub mod latitudes;
 pub mod meridians;
 pub mod triaxial;
 
-use crate::prelude::*;
 use crate::math::ancillary;
+use crate::prelude::*;
 
 // Blanket implementations for all the Ellipsoidal traits
 impl<T> Meridians for T where T: EllipsoidBase + ?Sized {}

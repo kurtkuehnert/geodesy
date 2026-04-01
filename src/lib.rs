@@ -15,11 +15,11 @@ pub mod authoring {
     pub use crate::ops::*;
     pub use crate::parse::*;
     pub use crate::prelude::*;
+    pub use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
     #[allow(unused_imports)]
     pub(crate) use crate::projection::{
-        AuthalicLatitude, AzimuthalAspect, ConformalLatitude, Conic, ConicInverse,
-        ConicSetupError, Gauss, MeridianLatitude, ProjectionAspect, ProjectionFrame,
-        GeodesicPath, Framed, FramedProjection, StandardParallels, framed_gamut,
+        AuthalicLatitude, AzimuthalAspect, ConformalLatitude, Conic, Framed, FramedProjection,
+        Gauss, GeodesicPath, MeridianLatitude, ProjectionAspect, ProjectionFrame, framed_gamut,
         projection_gamut,
     };
     #[cfg(test)]

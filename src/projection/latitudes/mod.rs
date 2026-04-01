@@ -1,5 +1,5 @@
-mod conformal;
 mod authalic;
+mod conformal;
 mod meridian;
 
 pub(crate) use authalic::AuthalicLatitude;

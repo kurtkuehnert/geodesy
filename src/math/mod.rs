@@ -1,10 +1,5 @@
 //! Miscellaneous math functions for general use
 
-#[must_use]
-pub fn sqrt_checked(x: f64) -> Option<f64> {
-    (x >= 0.0).then(|| x.sqrt())
-}
-
 /// Free functions used in more than one module of the crate.
 pub mod ancillary;
 pub use ancillary::gudermannian;

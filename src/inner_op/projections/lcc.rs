@@ -7,13 +7,6 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/lcc.rst>
 
 use crate::authoring::*;
-use std::f64::consts::FRAC_PI_2;
-
-const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
-const OPPOSITE_STANDARD_PARALLELS_ERROR: &str =
-    "Lcc: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0";
-const INVALID_STANDARD_PARALLELS_PARAM: &str = "lat_1/lat_2";
-const INVALID_ECCENTRICITY_ERROR: &str = "Lcc: Invalid value for eccentricity";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LccInner {
@@ -25,24 +18,7 @@ pub(crate) struct LccInner {
 pub(crate) type Lcc = Framed<LccInner>;
 
 impl LccInner {
-    fn with_standard_parallels(
-        params: &ParsedParameters,
-        phi0: f64,
-        phi1: f64,
-        phi2: f64,
-    ) -> Result<Self, Error> {
-        let parallels = StandardParallels::classify(phi1, phi2)
-            .validate_conic()
-            .map_err(|err| match err {
-                ConicSetupError::PolarStandardParallel => Error::BadParam(
-                    INVALID_STANDARD_PARALLELS_PARAM.to_string(),
-                    params.name.clone(),
-                ),
-                ConicSetupError::OppositeStandardParallels => {
-                    Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR)
-                }
-            })?;
-
+    fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<Self, Error> {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let k_0 = params.k(0);
@@ -52,28 +28,14 @@ impl LccInner {
         let ts0 = conformal.ts_from_latitude(phi0);
         let ts1 = conformal.ts_from_latitude(phi1);
 
-        let n = match parallels {
-            StandardParallels::Secant { phi2, .. } => {
-                let m2 = ellps.meridional_scale(phi2);
-                let ts2 = conformal.ts_from_latitude(phi2);
-                let numerator = (m1 / m2).ln();
-                let denominator = (ts1 / ts2).ln();
-                if numerator == 0.0 || denominator == 0.0 {
-                    return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
-                }
-                numerator / denominator
-            }
-            StandardParallels::Tangent { phi } => {
-                let n = phi.sin();
-                if n == 0.0 {
-                    return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
-                }
-                n
-            }
-        };
+        let n = Conic::cone_constant(params, phi1, phi2, true, || {
+            let m2 = ellps.meridional_scale(phi2);
+            let ts2 = conformal.ts_from_latitude(phi2);
+            (m1 / m2).ln() / (ts1 / ts2).ln()
+        })?;
 
         let c = m1 * ts1.powf(-n) / n;
-        let rho0 = if (phi0.abs() - FRAC_PI_2).abs() < STANDARD_PARALLEL_TOLERANCE {
+        let rho0 = if (phi0.abs() - FRAC_PI_2).abs() < Conic::STANDARD_PARALLEL_TOLERANCE {
             0.0
         } else {
             c * ts0.powf(n)
@@ -100,17 +62,17 @@ impl FramedProjection for LccInner {
     );
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
-        let phi1 = params.lat(1);
+        let phi1 = params.real("lat_1")?;
         let phi2 = params.given_real("lat_2");
         let phi0 = params
             .given_real("lat_0")
-            .unwrap_or_else(|| phi2.map_or(phi1, |_| params.lat(0)));
+            .unwrap_or_else(|| phi2.map_or(phi1, |_| params.real("lat_0").unwrap()));
 
-        Self::with_standard_parallels(params, phi0, phi1, phi2.unwrap_or(phi1))
+        Self::new(params, phi0, phi1, phi2.unwrap_or(phi1))
     }
 
     fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
-        if (phi.abs() - FRAC_PI_2).abs() < STANDARD_PARALLEL_TOLERANCE {
+        if (phi.abs() - FRAC_PI_2).abs() < Conic::STANDARD_PARALLEL_TOLERANCE {
             if phi * self.conic.n() <= 0.0 {
                 return None;
             }
@@ -122,9 +84,8 @@ impl FramedProjection for LccInner {
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let (lam, rho) = match self.conic.inverse(x, y) {
-            ConicInverse::Apex => return Some((0.0, self.conic.n().signum() * FRAC_PI_2)),
-            ConicInverse::Point { lam, rho } => (lam, rho),
+        let Some((lam, rho)) = self.conic.inverse(x, y) else {
+            return Some(self.conic.pole());
         };
 
         let ts = (rho / self.c).powf(1.0 / self.conic.n());
@@ -207,6 +168,41 @@ mod tests {
     #[test]
     fn lcc_rejects_opposite_standard_parallels() {
         assert_op_err("lcc lat_1=30 lat_2=-30");
+    }
+
+    #[test]
+    fn lcc_requires_lat_1() {
+        assert_op_err("lcc");
+    }
+
+    #[test]
+    fn lcc_treats_missing_lat_2_as_tangent_case() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let tangent = ctx.op("lcc lat_1=30 ellps=GRS80")?;
+        let explicit = ctx.op("lcc lat_0=30 lat_1=30 lat_2=30 ellps=GRS80")?;
+        let mut lhs = [Coor4D::geo(35.0, 10.0, 0.0, 0.0)];
+        let mut rhs = lhs;
+
+        ctx.apply(tangent, Fwd, &mut lhs)?;
+        ctx.apply(explicit, Fwd, &mut rhs)?;
+
+        assert!(lhs[0].hypot2(&rhs[0]) < 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn lcc_defaults_lat_0_to_lat_1_in_tangent_case() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let implicit = ctx.op("lcc lat_1=30 ellps=GRS80")?;
+        let explicit = ctx.op("lcc lat_0=30 lat_1=30 ellps=GRS80")?;
+        let mut lhs = [Coor4D::geo(35.0, 10.0, 0.0, 0.0)];
+        let mut rhs = lhs;
+
+        ctx.apply(implicit, Fwd, &mut lhs)?;
+        ctx.apply(explicit, Fwd, &mut rhs)?;
+
+        assert!(lhs[0].hypot2(&rhs[0]) < 1e-9);
+        Ok(())
     }
 
     #[test]

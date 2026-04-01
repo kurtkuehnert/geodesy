@@ -7,7 +7,6 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aeqd.rst>
 use crate::authoring::*;
 use crate::projection::{AzimuthalAspect, GeodesicPath, MeridianLatitude};
-use std::f64::consts::{FRAC_PI_2, PI};
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 const LONGITUDE_CANONICALIZATION_TOLERANCE: f64 = 1e-12;

@@ -2,7 +2,6 @@
 
 use super::aea::AeaInner;
 use crate::authoring::*;
-use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LeacInner(AeaInner);
@@ -28,9 +27,7 @@ impl FramedProjection for LeacInner {
             FRAC_PI_2
         };
         let phi2 = params.lat(1);
-        Ok(Self(AeaInner::with_standard_parallels(
-            params, phi0, phi1, phi2,
-        )?))
+        Ok(Self(AeaInner::new(params, phi0, phi1, phi2)?))
     }
 
     fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {

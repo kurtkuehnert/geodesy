@@ -7,13 +7,6 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aea.rst>
 
 use crate::authoring::*;
-use crate::math::sqrt_checked;
-use std::f64::consts::FRAC_PI_2;
-
-const OPPOSITE_STANDARD_PARALLELS_ERROR: &str =
-    "Aea: Invalid value for lat_1 and lat_2: |lat_1 + lat_2| should be > 0";
-const INVALID_STANDARD_PARALLELS_PARAM: &str = "lat_1/lat_2";
-const INVALID_ECCENTRICITY_ERROR: &str = "Aea: Invalid value for eccentricity";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AeaInner {
@@ -25,24 +18,12 @@ pub(crate) struct AeaInner {
 pub(crate) type Aea = Framed<AeaInner>;
 
 impl AeaInner {
-    pub(crate) fn with_standard_parallels(
+    pub(crate) fn new(
         params: &ParsedParameters,
         phi0: f64,
         phi1: f64,
         phi2: f64,
     ) -> Result<Self, Error> {
-        let parallels = StandardParallels::classify(phi1, phi2)
-            .validate_conic()
-            .map_err(|err| match err {
-                ConicSetupError::PolarStandardParallel => Error::BadParam(
-                    INVALID_STANDARD_PARALLELS_PARAM.to_string(),
-                    params.name.clone(),
-                ),
-                ConicSetupError::OppositeStandardParallels => {
-                    Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR)
-                }
-            })?;
-
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let authalic = ellps.authalic();
@@ -51,28 +32,11 @@ impl AeaInner {
         let q0 = authalic.q_from_geographic(phi0);
         let q1 = authalic.q_from_geographic(phi1);
 
-        let n = match parallels {
-            StandardParallels::Secant { phi2, .. } => {
-                let m2 = ellps.meridional_scale(phi2);
-                let q2 = authalic.q_from_geographic(phi2);
-                if q2 == q1 {
-                    return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
-                }
-
-                let n = (m1 * m1 - m2 * m2) / (q2 - q1);
-                if n == 0.0 {
-                    return Err(Error::General(INVALID_ECCENTRICITY_ERROR));
-                }
-                n
-            }
-            StandardParallels::Tangent { phi } => {
-                let n = phi.sin();
-                if n == 0.0 {
-                    return Err(Error::General(OPPOSITE_STANDARD_PARALLELS_ERROR));
-                }
-                n
-            }
-        };
+        let n = Conic::cone_constant(params, phi1, phi2, false, || {
+            let m2 = ellps.meridional_scale(phi2);
+            let q2 = authalic.q_from_geographic(phi2);
+            (m1 * m1 - m2 * m2) / (q2 - q1)
+        })?;
 
         let c = m1 * m1 + n * q1;
         let rho0 = (c - n * q0).sqrt() / n;
@@ -93,25 +57,29 @@ impl FramedProjection for AeaInner {
         OpParameter::Text { key: "ellps", default: Some("GRS80") },
         OpParameter::Real { key: "lat_0", default: Some(0_f64) },
         OpParameter::Real { key: "lat_1", default: None },
-        OpParameter::Real { key: "lat_2", default: None },
+        OpParameter::Real { key: "lat_2", default: Some(f64::NAN) },
     );
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
-        Self::with_standard_parallels(params, params.lat(0), params.lat(1), params.lat(2))
+        let phi0 = params.real("lat_0")?;
+        let phi1 = params.real("lat_1")?;
+        let phi2 = params.given_real("lat_2").unwrap_or(phi1);
+        Self::new(params, phi0, phi1, phi2)
     }
 
     fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
         let q = self.authalic.q_from_geographic(lat);
-        let rho = sqrt_checked(self.c - self.conic.n() * q)? / self.conic.n();
+        let rho = (self.c - self.conic.n() * q).sqrt() / self.conic.n();
+        if rho.is_nan() {
+            return None;
+        }
         Some(self.conic.project(lam, rho))
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        let (lam, rho) = match self.conic.inverse(x, y) {
-            ConicInverse::Apex => return Some((0.0, self.conic.n().signum() * FRAC_PI_2)),
-            ConicInverse::Point { lam, rho } => (lam, rho),
+        let Some((lam, rho)) = self.conic.inverse(x, y) else {
+            return Some(self.conic.pole());
         };
-
         let q = (self.c - (rho * self.conic.n()).powi(2)) / self.conic.n();
         let lat = self.authalic.geographic_from_q(q)?;
         Some((lam, lat))
@@ -171,5 +139,34 @@ mod tests {
     #[test]
     fn aea_rejects_zero_n_tangent_case() {
         assert_op_err("aea lat_1=0 lat_2=0");
+    }
+
+    #[test]
+    fn aea_requires_lat_1() {
+        assert_op_err("aea");
+    }
+
+    #[test]
+    fn aea_treats_missing_lat_2_as_tangent_case() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let tangent = ctx.op("aea lat_1=30 ellps=GRS80")?;
+        let explicit = ctx.op("aea lat_1=30 lat_2=30 ellps=GRS80")?;
+        let mut lhs = [Coor4D::geo(35.0, 10.0, 0.0, 0.0)];
+        let mut rhs = lhs;
+
+        ctx.apply(tangent, Fwd, &mut lhs)?;
+        ctx.apply(explicit, Fwd, &mut rhs)?;
+
+        assert!(lhs[0].hypot2(&rhs[0]) < 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn aea_accepts_near_polar_standard_parallel_like_proj() -> Result<(), Error> {
+        assert_proj_match(
+            "aea ellps=GRS80 lat_1=89.9999999945 lat_2=60",
+            Coor4D::geo(10.0, 10.0, 0.0, 0.0),
+            Coor4D::raw(1_375_346.099_407_11, 956_821.853_662_975_2, 0.0, 0.0),
+        )
     }
 }

@@ -2,7 +2,6 @@ pub(crate) mod bonne;
 pub(crate) mod calcofi;
 pub(crate) mod col_urban;
 pub(crate) mod eqc;
-pub(crate) mod eqdc;
 pub(crate) mod eqearth;
 pub(crate) mod geogoffset;
 pub(crate) mod geos;

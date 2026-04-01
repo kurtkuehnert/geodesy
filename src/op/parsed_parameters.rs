@@ -85,7 +85,10 @@ impl ParsedParameters {
     }
 
     pub fn given_real(&self, key: &str) -> Option<f64> {
-        self.given.contains_key(key).then(|| self.get_real(key)).flatten()
+        self.given
+            .contains_key(key)
+            .then(|| self.get_real(key))
+            .flatten()
     }
 
     pub fn series(&self, key: &str) -> Result<&[f64], Error> {

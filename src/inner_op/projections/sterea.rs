@@ -48,7 +48,9 @@ impl PointOp for Sterea {
 
     fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
-        let (lam, phi) = self.gauss.forward(self.frame.remove_central_meridian_raw(lon), lat);
+        let (lam, phi) = self
+            .gauss
+            .forward(self.frame.remove_central_meridian_raw(lon), lat);
         let sinc = phi.sin();
         let cosc = phi.cos();
         let cosl = lam.cos();
@@ -76,20 +78,14 @@ impl PointOp for Sterea {
             let sinc = c.sin();
             let cosc = c.cos();
             let lat = (cosc * self.gauss.sinc0 + y * sinc * self.gauss.cosc0 / rho).asin();
-            let lon =
-                (x * sinc).atan2(rho * self.gauss.cosc0 * cosc - y * self.gauss.sinc0 * sinc);
+            let lon = (x * sinc).atan2(rho * self.gauss.cosc0 * cosc - y * self.gauss.sinc0 * sinc);
             (lon, lat)
         } else {
             (0.0, self.gauss.phic0)
         };
 
         let (lon, lat) = self.gauss.inverse(lon, lat)?;
-        Some(Coor4D::raw(
-            self.frame.lon_0 + lon,
-            lat,
-            coord[2],
-            coord[3],
-        ))
+        Some(Coor4D::raw(self.frame.lon_0 + lon, lat, coord[2], coord[3]))
     }
 }
 

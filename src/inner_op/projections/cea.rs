@@ -7,7 +7,6 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/cea.rst>
 
 use crate::authoring::*;
-use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CeaInner {
@@ -36,9 +35,7 @@ impl FramedProjection for CeaInner {
         let k_0 = match params.given_real("lat_ts") {
             Some(lat_ts) => {
                 if params.given_real("k_0").is_some() {
-                    return Err(Error::General(
-                        "CEA: lat_ts and k_0 are mutually exclusive",
-                    ));
+                    return Err(Error::General("CEA: lat_ts and k_0 are mutually exclusive"));
                 }
                 if lat_ts.abs() > FRAC_PI_2 {
                     return Err(Error::General(

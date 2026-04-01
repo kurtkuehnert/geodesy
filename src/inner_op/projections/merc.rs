@@ -8,7 +8,6 @@
 
 use crate::authoring::*;
 use crate::projection::{ProjectionFrame, projection_gamut};
-use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Merc {

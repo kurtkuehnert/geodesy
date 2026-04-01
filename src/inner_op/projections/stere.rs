@@ -9,7 +9,6 @@ use crate::projection::{
     ConformalLatitude, ProjectionAspect, ProjectionFrame, projection_gamut,
     spherical_inverse_equatorial, spherical_inverse_oblique,
 };
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
 const DENOMINATOR_TOLERANCE: f64 = 1e-10;
 const POLAR_TOLERANCE: f64 = 1e-8;

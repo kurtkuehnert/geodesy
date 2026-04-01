@@ -78,8 +78,7 @@ impl GeodesicPath {
                     return (cosc >= 0.0).then_some((0.0, 0.0));
                 }
 
-                let azimuth =
-                    (cosphi * sinlam).atan2(cosph0 * sinphi - sinph0 * cosphi * coslam);
+                let azimuth = (cosphi * sinlam).atan2(cosph0 * sinphi - sinph0 * cosphi * coslam);
                 Some((radius * cosc.acos(), azimuth))
             }
             Self::Ellipsoidal { ellps, origin } => {

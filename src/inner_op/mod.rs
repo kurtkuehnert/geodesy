@@ -84,12 +84,12 @@ impl BuiltinOp {
 mod addone;
 mod curvature;
 mod deflection;
+mod deprecated;
+mod experimental;
 mod geodesic;
 mod gravity;
 mod iso6709;
 mod noop;
-mod deprecated;
-mod experimental;
 mod projections;
 mod stack;
 mod transforms;
@@ -128,7 +128,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 75] = [
     BuiltinOp::with_domains("cass",        cass::new,        Geographic, Projected),
     BuiltinOp::with_domains("col_urban",   col_urban::new,   Geographic, Projected),
     BuiltinOp::with_domains("eqc",         eqc::new,         Geographic, Projected),
-    BuiltinOp::with_domains("eqdc",        eqdc::new,        Geographic, Projected),
+    BuiltinOp::point_with_domains::<eqdc::Eqdc>(Geographic, Projected),
     BuiltinOp::with_domains("eqearth",     eqearth::new,     Geographic, Projected),
     BuiltinOp::with_domains("geos",        geos::new,        Geographic, Projected),
     BuiltinOp::point_with_domains::<guam_aeqd::GuamAeqd>(Geographic, Projected),

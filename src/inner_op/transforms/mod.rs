@@ -1,6 +1,12 @@
 pub(crate) mod adapt;
 pub(crate) mod axisswap;
 pub(crate) mod cart;
+pub(crate) mod deformation;
+pub(crate) mod gridshift;
+pub(crate) mod helmert;
 pub(crate) mod latitude;
 pub(crate) mod lonlat;
+pub(crate) mod molobadekas;
+pub(crate) mod molodensky;
+pub(crate) mod permtide;
 pub(crate) mod unitconvert;
