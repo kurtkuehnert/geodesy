@@ -8,15 +8,14 @@
 
 use crate::authoring::*;
 use crate::math::sqrt_checked;
-use crate::projection::{AuthalicLatitude, ProjectionFrame, projection_gamut};
 use std::f64::consts::FRAC_PI_2;
 
 const STANDARD_PARALLEL_TOLERANCE: f64 = 1e-10;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Aea {
-    frame: ProjectionFrame,
     authalic: AuthalicLatitude,
+    a: f64,
     n: f64,
     c: f64,
     rho0: f64,
@@ -42,8 +41,8 @@ impl Aea {
         }
 
         let ellps = params.ellps(0);
-        let frame = ProjectionFrame::from_params(params);
-        let authalic = AuthalicLatitude::new(ellps);
+        let a = ellps.semimajor_axis();
+        let authalic = ellps.authalic();
 
         let m1 = ellps.meridional_scale(phi1);
         let q0 = authalic.q_from_geographic(phi0);
@@ -61,8 +60,8 @@ impl Aea {
         let rho0 = (c - n * q0).sqrt() / n;
 
         Ok(Self {
-            frame,
             authalic,
+            a,
             n,
             c,
             rho0,
@@ -70,10 +69,12 @@ impl Aea {
     }
 }
 
-impl PointOp for Aea {
+impl FramedProjection for Aea {
     const NAME: &'static str = "aea";
     #[rustfmt::skip]
-    const GAMUT: &'static [OpParameter] = projection_gamut!(
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
         OpParameter::Real { key: "lat_1", default: None },
         OpParameter::Real { key: "lat_2", default: None },
     );
@@ -82,93 +83,51 @@ impl PointOp for Aea {
         Self::with_standard_parallels(params, params.lat(0), params.lat(1), params.lat(2))
     }
 
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (lon, lat) = coord.xy();
-        let lam = self.frame.remove_central_meridian(lon);
+    fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
         let q = self.authalic.q_from_geographic(lat);
         let rho = sqrt_checked(self.c - self.n * q)? / self.n;
         let theta = lam * self.n;
         let (sin_theta, cos_theta) = theta.sin_cos();
-        let x_local = self.frame.a * rho * sin_theta;
-        let y_local = self.frame.a * (self.rho0 - rho * cos_theta);
-        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
-        Some(Coor4D::raw(x, y, coord[2], coord[3]))
+        let x = self.a * rho * sin_theta;
+        let y = self.a * (self.rho0 - rho * cos_theta);
+        Some((x, y))
     }
 
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         let sign = self.n.signum();
-        let rho_sin = sign * x_local / self.frame.a;
-        let rho_cos = sign * (self.rho0 - y_local / self.frame.a);
+        let rho_sin = sign * x / self.a;
+        let rho_cos = sign * (self.rho0 - y / self.a);
         let rho = rho_sin.hypot(rho_cos);
         if rho == 0.0 {
-            return Some(Coor4D::raw(
-                self.frame.lon_0,
-                sign * FRAC_PI_2,
-                coord[2],
-                coord[3],
-            ));
+            return Some((0.0, sign * FRAC_PI_2));
         }
         let theta = rho_sin.atan2(rho_cos);
         let lam = theta / self.n;
         let q = (self.c - (rho * self.n).powi(2)) / self.n;
-        let lon = self.frame.apply_central_meridian(lam);
         let lat = self.authalic.geographic_from_q(q)?;
-        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+        Some((lam, lat))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{assert_forward_and_roundtrip, assert_inverse};
 
     #[test]
-    fn aea_origin_roundtrip() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
-            "aea lat_0=23 lon_0=-96 lat_1=29.5 lat_2=45.5 ellps=GRS80",
-            Coor4D::geo(23., -96., 0., 0.),
-            Coor4D::raw(0.0, 0.0, 0., 0.),
-            1e-8,
-            1e-10,
+    fn aea_matches_proj_ellipsoidal_case() -> Result<(), Error> {
+        assert_proj_match(
+            "aea lat_0=23 lon_0=-96 lat_1=29.5 lat_2=45.5 x_0=1234 y_0=5678 ellps=GRS80",
+            Coor4D::geo(35.0, -75.0, 0.0, 0.0),
+            Coor4D::raw(1_886_662.390_542_839_4, 1_541_647.285_801_267_7, 0.0, 0.0),
         )
     }
 
     #[test]
-    fn aea_inverse_matches_proj_metric_coordinates() -> Result<(), Error> {
-        assert_inverse(
-            "aea lat_0=0 lon_0=-120 lat_1=34 lat_2=40.5 x_0=0 y_0=-4000000 ellps=GRS80",
-            Coor4D::raw(0.0, -112_982.409_1, 0.0, 0.0),
-            Coor4D::geo(37.0, -120.0, 0.0, 0.0),
-            1e-8,
-        )
-    }
-
-    #[test]
-    fn aea_spherical_inverse_matches_proj() -> Result<(), Error> {
-        assert_inverse(
-            "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
-            Coor4D::raw(0.0, 0.0, 0.0, 0.0),
-            Coor4D::geo(40.0, 0.0, 0.0, 0.0),
-            1e-10,
-        )?;
-
-        assert_inverse(
-            "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
-            Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0),
-            Coor4D::geo(40.169_004_441_322_194, 0.124_940_293_483_244, 0.0, 0.0),
-            1e-10,
-        )
-    }
-
-    #[test]
-    fn aea_spherical_roundtrip() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+    fn aea_matches_proj_spherical_case() -> Result<(), Error> {
+        assert_proj_match(
             "aea lat_0=40 lon_0=0 lat_1=20 lat_2=60 ellps=6378136.6,0",
             Coor4D::geo(35.0, 10.0, 0.0, 0.0),
             Coor4D::raw(863_038.380_142_686_1, -543_990.840_159_122_7, 0.0, 0.0),
-            1e-8,
-            1e-10,
         )
     }
 
@@ -193,5 +152,10 @@ mod tests {
         ctx.apply(op, Inv, &mut operands)?;
         assert!(ellps.distance(&operands[0], &geo[0]) < 1e-8);
         Ok(())
+    }
+
+    #[test]
+    fn aea_rejects_opposite_standard_parallels() {
+        assert_op_err("aea lat_1=30 lat_2=-30");
     }
 }

@@ -188,7 +188,7 @@ use CoordDomain::{Cartesian, Geographic, Projected};
 #[rustfmt::skip]
 const BUILTIN_OPERATORS: [BuiltinOp; 79] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
-    BuiltinOp::point_with_domains::<aea::Aea>(Geographic, Projected),
+    BuiltinOp::point_with_domains::<Framed<aea::Aea>>(Geographic, Projected),
     BuiltinOp::point_with_domains::<aeqd::Aeqd>(Geographic, Projected),
     BuiltinOp::with_domains("btmerc",      btmerc::new,      Geographic, Projected),
     BuiltinOp::with_domains("butm",        btmerc::utm,      Geographic, Projected),
@@ -213,7 +213,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 79] = [
     BuiltinOp::with_domains("lcc",         lcc::new,         Geographic, Projected),
     BuiltinOp::with_domains("lccnc",       lccnc::new,       Geographic, Projected),
     BuiltinOp::with_domains("lcca",        lcca::new,        Geographic, Projected),
-    BuiltinOp::point_with_domains::<leac::Leac>(Geographic, Projected),
+    BuiltinOp::point_with_domains::<Framed<leac::Leac>>(Geographic, Projected),
     BuiltinOp::point_with_domains::<merc::Merc>(Geographic, Projected),
     BuiltinOp::point_with_domains::<mill::Mill>(Geographic, Projected),
     BuiltinOp::with_domains("moll",        moll::new,        Geographic, Projected), 

@@ -18,14 +18,15 @@ pub mod authoring {
     #[allow(unused_imports)]
     pub(crate) use crate::projection::{
         AuthalicLatitude, AzimuthalAspect, ConformalLatitude, Gauss, ProjectionAspect,
-        ProjectionFrame, SphericalGeodesic, Framed, FramedProjection, projection_gamut,
+        ProjectionFrame, SphericalGeodesic, Framed, FramedProjection, framed_gamut,
+        projection_gamut,
     };
     #[cfg(test)]
     #[allow(unused_imports)]
     #[cfg(test)]
     pub(crate) use crate::projection::{
-        assert_forward_and_roundtrip, assert_inverse, assert_inverse_rejects, assert_proj_match,
-        assert_roundtrip,
+        assert_forward_and_roundtrip, assert_inverse, assert_inverse_rejects, assert_op_err,
+        assert_proj_match, assert_roundtrip,
     };
 
     // All new contexts are supposed to support these

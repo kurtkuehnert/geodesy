@@ -2,18 +2,19 @@
 
 use super::aea::Aea;
 use crate::authoring::*;
-use crate::projection::projection_gamut;
 use std::f64::consts::FRAC_PI_2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Leac(Aea);
 
-impl PointOp for Leac {
+impl FramedProjection for Leac {
     const NAME: &'static str = "leac";
     #[rustfmt::skip]
-    const GAMUT: &'static [OpParameter] = projection_gamut!(
-        OpParameter::Flag { key: "south" },
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
+        OpParameter::Real { key: "lat_0", default: Some(0_f64) },
         OpParameter::Real { key: "lat_1", default: None },
+        OpParameter::Flag { key: "south" },
     );
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
@@ -29,11 +30,11 @@ impl PointOp for Leac {
         )?))
     }
 
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        self.0.fwd(coord)
+    fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
+        FramedProjection::fwd(&self.0, lam, phi)
     }
 
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        self.0.inv(coord)
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        FramedProjection::inv(&self.0, x, y)
     }
 }

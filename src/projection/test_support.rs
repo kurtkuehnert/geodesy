@@ -94,3 +94,8 @@ pub(crate) fn assert_inverse_rejects(
     assert!(operands[0][0].is_nan());
     Ok(())
 }
+
+pub(crate) fn assert_op_err(definition: &str) {
+    let mut ctx = Minimal::default();
+    assert!(ctx.op(definition).is_err());
+}

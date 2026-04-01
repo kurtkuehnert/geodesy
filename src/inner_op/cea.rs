@@ -19,7 +19,8 @@ pub(crate) struct Cea {
 impl FramedProjection for Cea {
     const NAME: &'static str = "cea";
     #[rustfmt::skip]
-    const GAMUT: &'static [OpParameter] = projection_gamut!(
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Text { key: "ellps", default: Some("GRS80") },
         OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
         OpParameter::Real { key: "k_0",    default: Some(1_f64) },
     );
@@ -52,9 +53,9 @@ impl FramedProjection for Cea {
         Some((self.a * self.k_0 * lam, self.a / self.k_0 * 0.5 * q))
     }
 
-    fn inv(&self, x_local: f64, y_local: f64) -> Option<(f64, f64)> {
-        let lam = x_local / (self.a * self.k_0);
-        let q = 2.0 * y_local * self.k_0 / self.a;
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let lam = x / (self.a * self.k_0);
+        let q = 2.0 * y * self.k_0 / self.a;
 
         let lat = self.authalic.geographic_from_q(q)?;
         Some((lam, lat))
@@ -85,7 +86,6 @@ mod tests {
 
     #[test]
     fn cea_rejects_invalid_lat_ts() {
-        let mut ctx = Minimal::default();
-        assert!(ctx.op("cea lat_ts=91").is_err());
+        assert_op_err("cea lat_ts=91");
     }
 }

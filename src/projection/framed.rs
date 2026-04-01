@@ -1,5 +1,19 @@
 use crate::authoring::*;
 
+macro_rules! framed_gamut {
+    ( $( $extra:expr ),* $(,)? ) => {
+        &[
+            OpParameter::Flag { key: "inv" },
+            OpParameter::Real { key: "lon_0", default: Some(0.0) },
+            OpParameter::Real { key: "x_0", default: Some(0.0) },
+            OpParameter::Real { key: "y_0", default: Some(0.0) },
+            $( $extra ),*
+        ]
+    };
+}
+
+pub(crate) use framed_gamut;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Framed<T> {
     lon_0: f64,
@@ -41,9 +55,9 @@ impl<T: FramedProjection> PointOp for Framed<T> {
     }
 
     fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let x_local = coord[0] - self.x_0;
-        let y_local = coord[1] - self.y_0;
-        let (lam, lat) = self.inner.inv(x_local, y_local)?;
+        let x = coord[0] - self.x_0;
+        let y = coord[1] - self.y_0;
+        let (lam, lat) = self.inner.inv(x, y)?;
         let lon = self.lon_0 + lam;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
