@@ -79,7 +79,11 @@ impl FramedProjection for LaeaInner {
 
         match self.aspect {
             AzimuthalAspect::Polar { pole_sign } => {
-                let rho = self.a * (self.q_pole - pole_sign * q_authalic).sqrt();
+                let q_radius = self.q_pole - pole_sign * q_authalic;
+                if q_radius >= 2.0 * self.q_pole - ANGULAR_TOLERANCE {
+                    return None;
+                }
+                let rho = self.a * q_radius.sqrt();
                 Some(self.aspect.polar_xy(lam, rho))
             }
             AzimuthalAspect::Oblique => {

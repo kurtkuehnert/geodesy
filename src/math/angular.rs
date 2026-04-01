@@ -61,11 +61,10 @@ pub fn dd_to_iso_dms(dd: f64) -> f64 {
     (d * 10000. + m * 100. + s).copysign(dd)
 }
 
-/// normalize arbitrary angles to [-π, π)
+/// Normalize arbitrary angles to (-π, π], preferring +π over -π at the branch cut.
 pub fn normalize_symmetric(angle: f64) -> f64 {
     use std::f64::consts::PI;
-    let angle = (angle + PI) % (2.0 * PI);
-    angle - PI * angle.signum()
+    PI - (PI - angle).rem_euclid(2.0 * PI)
 }
 
 /// normalize arbitrary angles to [0, 2π)
@@ -188,6 +187,10 @@ mod tests {
         assert_eq!(iso_dm_to_dd(-5500.), -55.);
         assert_eq!(iso_dm_to_dd(5530.60), -iso_dm_to_dd(-5530.60));
         assert_eq!(iso_dms_to_dd(553036.), -iso_dms_to_dd(-553036.00));
+
+        use std::f64::consts::PI;
+        assert_eq!(PI, normalize_symmetric(-PI));
+        assert_eq!(PI, normalize_symmetric(PI));
     }
 
     #[test]

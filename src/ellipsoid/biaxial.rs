@@ -75,6 +75,10 @@ impl Ellipsoid {
                     if !(0.0..1.0).contains(&f) {
                         return Err(Error::General("ellipsoid flattening must be in [0, 1)"));
                     }
+                    let es = 2.0 * f - f * f;
+                    if 1.0 - es <= f64::EPSILON {
+                        return Err(Error::General("ellipsoid flattening is too close to 1"));
+                    }
                     return Ok(Ellipsoid::new(a, f));
                 }
             }

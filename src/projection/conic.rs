@@ -50,7 +50,7 @@ impl Conic {
 
         let n = if secant_case { secant() } else { phi1.sin() };
 
-        if n == 0.0 || !n.is_finite() {
+        if n.abs() < Self::STANDARD_PARALLEL_TOLERANCE || !n.is_finite() {
             return Err(Error::General(Box::leak(
                 format!(
                     "{}: Invalid value for standard parallels: cone constant is not finite",

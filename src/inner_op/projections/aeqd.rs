@@ -6,6 +6,7 @@
 //! - PROJ 9.8.0 `aeqd` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aeqd.rst>
 use crate::authoring::*;
+use std::f64::consts::PI;
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 
@@ -65,7 +66,10 @@ impl FramedProjection for AeqdInner {
                 if lam.abs() < ANGULAR_TOLERANCE && (phi - self.lat_0).abs() < ANGULAR_TOLERANCE {
                     return Some((0.0, 0.0));
                 }
-                if phi.abs() < ANGULAR_TOLERANCE && self.lat_0.abs() < ANGULAR_TOLERANCE {
+                if phi.abs() < ANGULAR_TOLERANCE
+                    && self.lat_0.abs() < ANGULAR_TOLERANCE
+                    && lam.abs() < PI - ANGULAR_TOLERANCE
+                {
                     return Some((self.a * lam, 0.0));
                 }
 
@@ -74,6 +78,9 @@ impl FramedProjection for AeqdInner {
             }
             AzimuthalAspect::Polar { .. } => {
                 let rho = (self.mp - self.rectifying.distance_from_latitude(phi)).abs();
+                if rho >= 2.0 * self.mp.abs() - ANGULAR_TOLERANCE {
+                    return None;
+                }
                 Some(self.aspect.polar_xy(lam, rho))
             }
         }
@@ -91,6 +98,9 @@ impl FramedProjection for AeqdInner {
                 self.geodesic.destination(azimuth, distance)
             }
             AzimuthalAspect::Polar { pole_sign } => {
+                if distance > 2.0 * self.mp.abs() + ANGULAR_TOLERANCE {
+                    return None;
+                }
                 let lam = self.aspect.polar_lam(x, y);
                 let lat = self
                     .rectifying
