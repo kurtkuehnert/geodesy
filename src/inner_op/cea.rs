@@ -27,7 +27,7 @@ impl FramedProjection for Cea {
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
-        let authalic = AuthalicLatitude::new(ellps);
+        let authalic = ellps.authalic();
 
         let k_0 = match params.given_real("lat_ts") {
             Some(lat_ts) => {
@@ -47,7 +47,7 @@ impl FramedProjection for Cea {
     }
 
     fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
-        let q = self.authalic.q_from_phi(lat);
+        let q = self.authalic.q_from_geographic(lat);
 
         Some((self.a * self.k_0 * lam, self.a / self.k_0 * 0.5 * q))
     }
@@ -56,7 +56,7 @@ impl FramedProjection for Cea {
         let lam = x_local / (self.a * self.k_0);
         let q = 2.0 * y_local * self.k_0 / self.a;
 
-        let lat = self.authalic.phi_from_q(q)?;
+        let lat = self.authalic.geographic_from_q(q)?;
         Some((lam, lat))
     }
 }

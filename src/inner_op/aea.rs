@@ -46,12 +46,12 @@ impl Aea {
         let authalic = AuthalicLatitude::new(ellps);
 
         let m1 = ellps.meridional_scale(phi1);
-        let q0 = authalic.q_from_phi(phi0);
-        let q1 = authalic.q_from_phi(phi1);
+        let q0 = authalic.q_from_geographic(phi0);
+        let q1 = authalic.q_from_geographic(phi1);
 
         let n = if (phi1 - phi2).abs() >= STANDARD_PARALLEL_TOLERANCE {
             let m2 = ellps.meridional_scale(phi2);
-            let q2 = authalic.q_from_phi(phi2);
+            let q2 = authalic.q_from_geographic(phi2);
 
             (m1 * m1 - m2 * m2) / (q2 - q1)
         } else {
@@ -85,7 +85,7 @@ impl PointOp for Aea {
     fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
         let (lon, lat) = coord.xy();
         let lam = self.frame.remove_central_meridian(lon);
-        let q = self.authalic.q_from_phi(lat);
+        let q = self.authalic.q_from_geographic(lat);
         let rho = sqrt_checked(self.c - self.n * q)? / self.n;
         let theta = lam * self.n;
         let (sin_theta, cos_theta) = theta.sin_cos();
@@ -113,7 +113,7 @@ impl PointOp for Aea {
         let lam = theta / self.n;
         let q = (self.c - (rho * self.n).powi(2)) / self.n;
         let lon = self.frame.apply_central_meridian(lam);
-        let lat = self.authalic.phi_from_q_saturating(q)?;
+        let lat = self.authalic.geographic_from_q(q)?;
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }

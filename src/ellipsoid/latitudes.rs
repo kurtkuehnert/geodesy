@@ -1,10 +1,16 @@
 use super::*;
 use crate::authoring::*;
+use crate::projection::AuthalicLatitude;
 
 const LARGE_FLATTENING_SERIES_CUTOFF: f64 = 0.01;
 
 /// The many different latitudes
 pub trait Latitudes: EllipsoidBase {
+    #[must_use]
+    fn authalic(&self) -> AuthalicLatitude {
+        AuthalicLatitude::new(Ellipsoid::new(self.semimajor_axis(), self.flattening()))
+    }
+
     // --- Classic latitudes: geographic, geocentric & reduced ---
 
     /// Geographic latitude, 𝜙 to geocentric latitude, 𝜃.

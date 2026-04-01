@@ -1,32 +1,35 @@
 use crate::authoring::Ellipsoid;
 use crate::ellipsoid::EllipsoidBase;
 use crate::ellipsoid::latitudes::Latitudes;
-use crate::math::{FourierCoefficients, ancillary};
-use std::f64::consts::FRAC_PI_2;
+use crate::math::FourierCoefficients;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum AuthalicLatitude {
+pub enum AuthalicLatitude {
     Spherical,
     Ellipsoidal {
+        e: f64,
+        q_pole: f64,
         ellps: Ellipsoid,
         coefficients: FourierCoefficients,
-        q_pole: f64,
     },
 }
 
 impl AuthalicLatitude {
     const DOMAIN_TOLERANCE: f64 = 1e-10;
-    const SATURATION_TOLERANCE: f64 = 1e-7;
 
     pub fn new(ellps: Ellipsoid) -> Self {
         if ellps.flattening() == 0.0 {
             return Self::Spherical;
         }
 
+        let e = ellps.eccentricity();
+        let q_pole = 1.0 + (1.0 - e * e) * e.atanh() / e;
+
         Self::Ellipsoidal {
-            q_pole: ancillary::qs(1.0, ellps.eccentricity()),
-            coefficients: ellps.coefficients_for_authalic_latitude_computations(),
+            e,
+            q_pole,
             ellps,
+            coefficients: ellps.coefficients_for_authalic_latitude_computations(),
         }
     }
 
@@ -37,22 +40,14 @@ impl AuthalicLatitude {
         }
     }
 
-    pub fn beta_from_q(self, q: f64) -> Option<f64> {
-        let normalized_q = q / self.q_pole();
-        if normalized_q.abs() > 1.0 + Self::DOMAIN_TOLERANCE {
-            return None;
-        }
-        Some(normalized_q.clamp(-1.0, 1.0).asin())
-    }
-
-    pub fn beta_from_phi(self, phi: f64) -> f64 {
+    pub fn geographic_to_authalic(self, phi: f64) -> f64 {
         match self {
             Self::Spherical => phi,
-            Self::Ellipsoidal { .. } => self.beta_from_q(self.q_from_phi(phi)).unwrap_or(phi),
+            Self::Ellipsoidal { .. } => self.beta_from_q(self.q_from_geographic(phi)),
         }
     }
 
-    pub fn phi_from_beta(self, beta: f64) -> f64 {
+    pub fn authalic_to_geographic(self, beta: f64) -> f64 {
         match self {
             Self::Spherical => beta,
             Self::Ellipsoidal {
@@ -63,29 +58,28 @@ impl AuthalicLatitude {
         }
     }
 
-    pub fn phi_from_sin_beta(self, sin_beta: f64) -> Option<f64> {
-        if sin_beta.abs() > 1.0 + Self::DOMAIN_TOLERANCE {
-            return None;
-        }
-        Some(self.phi_from_beta(sin_beta.clamp(-1.0, 1.0).asin()))
-    }
-
-    pub fn phi_from_q(self, q: f64) -> Option<f64> {
-        Some(self.phi_from_beta(self.beta_from_q(q)?))
-    }
-
-    pub fn q_from_phi(self, phi: f64) -> f64 {
+    pub fn q_from_geographic(self, phi: f64) -> f64 {
         let sinphi = phi.sin();
         match self {
             Self::Spherical => 2.0 * sinphi,
-            Self::Ellipsoidal { ellps, .. } => ancillary::qs(sinphi, ellps.eccentricity()),
+            Self::Ellipsoidal { e, .. } => {
+                let es = e * e;
+                (1.0 - es) * (sinphi / (1.0 - es * sinphi * sinphi) + (e * sinphi).atanh() / e)
+            }
         }
     }
 
-    pub fn phi_from_q_saturating(self, q: f64) -> Option<f64> {
-        if (self.q_pole() - q.abs()).abs() <= Self::SATURATION_TOLERANCE {
-            return Some(if q < 0.0 { -FRAC_PI_2 } else { FRAC_PI_2 });
+    pub fn geographic_from_q(self, q: f64) -> Option<f64> {
+        if q.abs() > self.q_pole() + Self::DOMAIN_TOLERANCE {
+            return None;
         }
-        self.phi_from_q(q)
+
+        let beta = self.beta_from_q(q);
+
+        Some(self.authalic_to_geographic(beta))
+    }
+
+    fn beta_from_q(self, q: f64) -> f64 {
+        (q / self.q_pole()).clamp(-1.0, 1.0).asin()
     }
 }

@@ -46,7 +46,7 @@ impl PointOp for Laea {
         let (d, x_factor, y_factor, sin_beta1, cos_beta1) = match aspect {
             AzimuthalAspect::Polar { .. } => (1.0, 1.0, 1.0, 0.0, 1.0),
             AzimuthalAspect::Oblique => {
-                let beta1 = authalic.beta_from_phi(frame.lat_0);
+                let beta1 = authalic.geographic_to_authalic(frame.lat_0);
                 let (sinphi_0, cosphi_0) = frame.lat_0.sin_cos();
                 let (sin_beta1, cos_beta1) = beta1.sin_cos();
                 let es = ellps.eccentricity_squared();
@@ -73,7 +73,7 @@ impl PointOp for Laea {
         let lam = self.frame.remove_central_meridian(lon);
 
         let (sin_lam, cos_lam) = lam.sin_cos();
-        let beta = self.authalic.beta_from_phi(lat);
+        let beta = self.authalic.geographic_to_authalic(lat);
         let (sin_beta, cos_beta) = beta.sin_cos();
 
         let (x_unit, y_unit) = match self.aspect {
@@ -97,9 +97,8 @@ impl PointOp for Laea {
                     return None;
                 }
 
-                let scale = (self.authalic.q_pole()
-                    - pole_sign * sin_beta * self.authalic.q_pole())
-                .sqrt();
+                let scale =
+                    (self.authalic.q_pole() - pole_sign * sin_beta * self.authalic.q_pole()).sqrt();
 
                 if scale < POLAR_DOMAIN_TOLERANCE {
                     (0.0, 0.0)
@@ -156,8 +155,13 @@ impl PointOp for Laea {
             }
         };
 
+        if sin_beta.abs() > 1.0 + ANGULAR_TOLERANCE {
+            return None;
+        }
+
+        let beta = sin_beta.clamp(-1.0, 1.0).asin();
         let lon = self.frame.apply_central_meridian(lam);
-        let lat = self.authalic.phi_from_sin_beta(sin_beta)?;
+        let lat = self.authalic.authalic_to_geographic(beta);
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }
