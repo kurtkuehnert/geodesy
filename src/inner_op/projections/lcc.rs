@@ -22,7 +22,7 @@ impl LccInner {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let k_0 = params.k(0);
-        let conformal = ConformalLatitude::new(ellps);
+        let conformal = ellps.conformal();
 
         let m1 = ellps.meridional_scale(phi1);
         let ts0 = conformal.ts_from_latitude(phi0);
@@ -101,67 +101,55 @@ mod tests {
 
     #[test]
     fn lcc_matches_proj_one_standard_parallel_case() -> Result<(), Error> {
-        assert_proj_match_with_tol(
+        assert_proj_match(
             "lcc lat_1=57 lon_0=12",
             Coor4D::geo(55.0, 10.0, 0.0, 0.0),
             Coor4D::raw(-128_046.472_438_652_24, -220_853.700_160_506_4, 0.0, 0.0),
-            2e-9,
-            1e-9,
         )
     }
 
     #[test]
     fn lcc_matches_proj_two_standard_parallel_case() -> Result<(), Error> {
-        assert_proj_match_with_tol(
+        assert_proj_match(
             "lcc lat_1=33 lat_2=45 lon_0=10",
             Coor4D::geo(40.0, 12.0, 0.0, 0.0),
             Coor4D::raw(169_863.026_093_938_3, 4_735_925.219_292_451, 0.0, 0.0),
-            9e-9,
-            1e-9,
         )
     }
 
     #[test]
     fn lcc_matches_proj_one_standard_parallel_with_lat_offset() -> Result<(), Error> {
-        assert_proj_match_with_tol(
+        assert_proj_match(
             "lcc lat_1=39 lat_0=35 lon_0=10",
             Coor4D::geo(40.0, 12.0, 0.0, 0.0),
             Coor4D::raw(170_800.011_728_740_65, 557_172.361_112_929_4, 0.0, 0.0),
-            2e-9,
-            2e-9,
         )
     }
 
     #[test]
     fn lcc_matches_proj_two_standard_parallels_with_lat_offset() -> Result<(), Error> {
-        assert_proj_match_with_tol(
+        assert_proj_match(
             "lcc lat_1=33 lat_2=45 lat_0=35 lon_0=10",
             Coor4D::geo(40.0, 12.0, 0.0, 0.0),
             Coor4D::raw(169_863.026_093_938_36, 554_155.440_793_916_6, 0.0, 0.0),
-            2e-9,
-            1e-9,
         )
     }
 
     #[test]
     fn lcc_matches_proj_with_false_origin() -> Result<(), Error> {
-        assert_proj_match_with_tol(
+        assert_proj_match(
             "lcc lat_1=33 lat_2=45 lat_0=35 lon_0=10 x_0=12345 y_0=67890",
             Coor4D::geo(40.0, 12.0, 0.0, 0.0),
             Coor4D::raw(182_208.026_093_938_3, 622_045.440_793_916_6, 0.0, 0.0),
-            2e-9,
-            1e-9,
         )
     }
 
     #[test]
     fn lcc_matches_proj_with_false_origin_and_scaling() -> Result<(), Error> {
-        assert_proj_match_with_tol(
+        assert_proj_match(
             "lcc lat_1=33 lat_2=45 lat_0=35 lon_0=10 x_0=12345 y_0=67890 k_0=0.99",
             Coor4D::geo(40.0, 12.0, 0.0, 0.0),
             Coor4D::raw(180_509.395_832_998_9, 616_503.886_385_977_5, 0.0, 0.0),
-            2e-9,
-            1e-9,
         )
     }
 

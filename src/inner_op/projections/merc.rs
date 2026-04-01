@@ -7,26 +7,30 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/merc.rst>
 
 use crate::authoring::*;
-use crate::projection::{ProjectionFrame, projection_gamut};
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Merc {
-    frame: ProjectionFrame,
+pub(crate) struct MercInner {
+    a: f64,
+    k_0: f64,
     ellps: Ellipsoid,
 }
 
-impl PointOp for Merc {
+pub(crate) type Merc = Framed<MercInner>;
+
+impl FramedProjection for MercInner {
     const NAME: &'static str = "merc";
     const TITLE: &'static str = "Mercator";
     #[rustfmt::skip]
-    const GAMUT: &'static [OpParameter] = projection_gamut!(
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Text { key: "ellps",  default: Some("GRS80") },
         OpParameter::Real { key: "k_0",    default: Some(1_f64) },
         OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
     );
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
         let ellps = params.ellps(0);
-        let mut frame = ProjectionFrame::from_params(params);
+        let a = ellps.semimajor_axis();
+        let mut k_0 = params.k(0);
 
         if let Some(lat_ts) = params.given_real("lat_ts") {
             if lat_ts.abs() > FRAC_PI_2 {
@@ -35,86 +39,72 @@ impl PointOp for Merc {
                 ));
             }
 
-            frame.k_0 = ellps.meridional_scale(lat_ts);
+            k_0 = ellps.meridional_scale(lat_ts);
         }
 
-        Ok(Self { frame, ellps })
+        Ok(Self { a, k_0, ellps })
     }
 
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (lon, lat) = coord.xy();
-        let lam = self.frame.remove_central_meridian(lon);
+    fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
         let psi = self.ellps.latitude_geographic_to_isometric(lat);
-
-        let x_local = self.frame.a * self.frame.k_0 * lam;
-        let y_local = self.frame.a * self.frame.k_0 * psi;
-
-        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
-        Some(Coor4D::raw(x, y, coord[2], coord[3]))
+        Some((self.a * self.k_0 * lam, self.a * self.k_0 * psi))
     }
 
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
-
-        let lam = x_local / (self.frame.a * self.frame.k_0);
-        let psi = y_local / (self.frame.a * self.frame.k_0);
-
-        let lon = self.frame.apply_central_meridian(lam);
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let lam = x / (self.a * self.k_0);
+        let psi = y / (self.a * self.k_0);
         let lat = self.ellps.latitude_isometric_to_geographic(psi);
-        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+        Some((lam, lat))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{assert_forward_and_roundtrip, assert_inverse, assert_roundtrip};
+    use crate::projection::assert_proj_match;
 
     #[test]
     fn merc_matches_proj_reference() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "merc",
             Coor4D::geo(55.0, 12.0, 0.0, 0.0),
             Coor4D::raw(1_335_833.889_519_282_8, 7_326_837.714_873_877, 0.0, 0.0),
-            20e-9,
-            20e-9,
         )
     }
 
     #[test]
     fn merc_lat_ts_overrides_k0_when_present() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "merc lat_ts=56",
             Coor4D::geo(55.0, 12.0, 0.0, 0.0),
             Coor4D::raw(748_713.257_925_886_8, 4_106_573.862_841_270_4, 0.0, 0.0),
-            20e-9,
-            20e-9,
         )
     }
 
     #[test]
     fn merc_with_false_origin_and_central_meridian() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "merc lat_ts=-41 lon_0=100 x_0=1234 y_0=5678 ellps=WGS84",
             Coor4D::geo(-33.0, 141.0, 0.0, 0.0),
-            Coor4D::raw(3_450_776.589_667_497, -2_920_802.103_023_224_5, 0.0, 0.0),
-            20e-6,
-            20e-9,
+            Coor4D::raw(3_450_776.589_676_943, -2_920_802.103_023_605, 0.0, 0.0),
         )
     }
 
     #[test]
     fn merc_with_parser_normalized_prime_meridian() -> Result<(), Error> {
-        assert_roundtrip("merc lon_0=13.5", Coor4D::geo(45.0, 13.5, 0.0, 0.0), 20e-9)
+        assert_proj_match(
+            "merc lon_0=13.5",
+            Coor4D::geo(45.0, 13.5, 0.0, 0.0),
+            Coor4D::raw(0.0, 5_591_295.918_405_316, 0.0, 0.0),
+        )
     }
 
     #[test]
     fn merc_spherical_inverse_matches_proj() -> Result<(), Error> {
-        assert_inverse(
+        assert_proj_match(
             "merc ellps=6356751.9,0",
-            Coor4D::raw(10_000.0, 20_000.0, 0.0, 0.0),
             Coor4D::geo(0.180267173822635, 0.090133735615956, 0.0, 0.0),
-            1e-12,
+            Coor4D::raw(10_000.000_000_000_05, 19_999.999_999_999_98, 0.0, 0.0),
         )
     }
 }

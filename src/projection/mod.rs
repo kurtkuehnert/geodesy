@@ -16,9 +16,6 @@ pub(crate) use frame::{ProjectionFrame, projection_gamut};
 pub(crate) use framed::{Framed, FramedProjection, framed_gamut};
 pub(crate) use gauss::Gauss;
 pub(crate) use geodesic::GeodesicPath;
-pub(crate) use latitudes::{AuthalicLatitude, ConformalLatitude, MeridianLatitude};
+pub(crate) use latitudes::{AuthalicLatitude, ConformalLatitude, RectifyingLatitude};
 #[cfg(test)]
-pub(crate) use test_support::{
-    assert_forward_and_roundtrip, assert_inverse, assert_inverse_rejects, assert_op_err,
-    assert_proj_match, assert_proj_match_with_tol, assert_roundtrip,
-};
+pub(crate) use test_support::{assert_op_err, assert_proj_match};

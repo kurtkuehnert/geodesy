@@ -6,7 +6,6 @@
 //! - PROJ 9.8.0 `aeqd` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/aeqd.rst>
 use crate::authoring::*;
-use crate::projection::{AzimuthalAspect, GeodesicPath, MeridianLatitude};
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 const LONGITUDE_CANONICALIZATION_TOLERANCE: f64 = 1e-12;
@@ -16,7 +15,7 @@ pub(crate) struct AeqdInner {
     a: f64,
     lat_0: f64,
     aspect: AzimuthalAspect,
-    meridian: MeridianLatitude,
+    rectifying: RectifyingLatitude,
     geodesic: GeodesicPath,
     mp: f64,
 }
@@ -42,11 +41,11 @@ impl FramedProjection for AeqdInner {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let origin = Coor4D::raw(0.0, lat_0, 0.0, 0.0);
-        let meridian = ellps.meridian();
+        let rectifying = ellps.rectifying();
         let geodesic = GeodesicPath::new(ellps, lat_0, origin);
         let mp = match aspect {
             AzimuthalAspect::Polar { pole_sign } => {
-                meridian.distance_from_geographic(pole_sign * FRAC_PI_2)
+                rectifying.distance_from_latitude(pole_sign * FRAC_PI_2)
             }
             AzimuthalAspect::Oblique => 0.0,
         };
@@ -55,7 +54,7 @@ impl FramedProjection for AeqdInner {
             a,
             lat_0,
             aspect,
-            meridian,
+            rectifying,
             geodesic,
             mp,
         })
@@ -76,7 +75,7 @@ impl FramedProjection for AeqdInner {
             }
             AzimuthalAspect::Polar { pole_sign } => {
                 let coslam = -pole_sign * lam.cos();
-                let rho = (self.mp - self.meridian.distance_from_geographic(phi)).abs();
+                let rho = (self.mp - self.rectifying.distance_from_latitude(phi)).abs();
                 Some((rho * lam.sin(), rho * coslam))
             }
         }
@@ -96,8 +95,8 @@ impl FramedProjection for AeqdInner {
             AzimuthalAspect::Polar { pole_sign } => {
                 let lam = x.atan2(-pole_sign * y);
                 let lat = self
-                    .meridian
-                    .geographic_from_distance(self.mp - pole_sign * distance);
+                    .rectifying
+                    .latitude_from_distance(self.mp - pole_sign * distance);
                 (lam, lat)
             }
         };

@@ -41,11 +41,11 @@ impl ProjectionFrame {
     /// `lon_0`/`lat_0` are expected to already be in radians when present.
     pub fn from_params(params: &ParsedParameters) -> Self {
         Self {
-            lon_0: params.lon(0),
-            lat_0: params.lat(0),
-            x_0: params.x(0),
-            y_0: params.y(0),
-            k_0: params.k(0),
+            lon_0: params.get_real("lon_0").unwrap_or(0.0),
+            lat_0: params.get_real("lat_0").unwrap_or(0.0),
+            x_0: params.get_real("x_0").unwrap_or(0.0),
+            y_0: params.get_real("y_0").unwrap_or(0.0),
+            k_0: params.get_real("k_0").unwrap_or(1.0),
             a: params.ellps(0).semimajor_axis(),
         }
     }

@@ -1,6 +1,5 @@
 //! Transverse Mercator, following [Engsager & Poder (2007)](crate::bibliography::Bibliography::Eng07)
 use crate::authoring::*;
-use crate::projection::{ConformalLatitude, ProjectionFrame};
 
 #[rustfmt::skip]
 pub const GAMUT: [OpParameter; 7] = [
@@ -207,7 +206,7 @@ fn precompute(params: &ParsedParameters) -> TmercState {
     let scaled_radius = frame.k_0 * ellps.semimajor_axis() * ellps.normalized_meridian_arc_unit();
 
     // The Fourier series for the conformal latitude
-    let conformal = ConformalLatitude::new(ellps);
+    let conformal = ellps.conformal();
 
     // The Fourier series for the transverse mercator coordinates,
     // from [Engsager & Poder, 2007](crate::bibliography::Bibliography::Eng07),

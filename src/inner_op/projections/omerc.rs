@@ -2,7 +2,6 @@
 //! Following IOGP Publication 373-7-2 – Geomatics Guidance Note number 7, part 2 – September 2019
 //!
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
 
 const PARAMETER_TOLERANCE: f64 = 1e-7;
 const ANGULAR_TOLERANCE: f64 = 1e-10;

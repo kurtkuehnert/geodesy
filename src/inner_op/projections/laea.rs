@@ -6,7 +6,6 @@
 //! - PROJ 9.8.0 `laea` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/laea.rst>
 use crate::authoring::*;
-use crate::projection::{AuthalicLatitude, AzimuthalAspect, ProjectionFrame, projection_gamut};
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
 const POLAR_DOMAIN_TOLERANCE: f64 = 1e-15;
@@ -168,64 +167,58 @@ impl PointOp for Laea {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{
-        assert_forward_and_roundtrip, assert_inverse_rejects, assert_roundtrip,
-    };
+    use crate::projection::assert_proj_match;
 
     #[test]
     fn laea_matches_proj_reference() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "laea ellps=GRS80 lat_0=52 lon_0=10 x_0=4321000 y_0=3210000",
             Coor4D::geo(50.0, 5.0, 0.0, 0.0),
-            Coor4D::raw(3_962_799.45, 2_999_718.85, 0.0, 0.0),
-            0.01,
-            1e-11,
+            Coor4D::raw(3_962_799.450_955_0678, 2_999_718.853_159_564, 0.0, 0.0),
         )
     }
 
     #[test]
     fn laea_roundtrips_origin() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "laea lon_0=10 lat_0=52 x_0=4321000 y_0=3210000",
             Coor4D::geo(52.0, 10.0, 0.0, 0.0),
             Coor4D::raw(4_321_000.0, 3_210_000.0, 0.0, 0.0),
-            1e-8,
-            1e-11,
         )
     }
 
     #[test]
     fn laea_polar_roundtrip() -> Result<(), Error> {
-        assert_roundtrip(
+        assert_proj_match(
             "laea ellps=GRS80 lat_0=90 lon_0=0 x_0=0 y_0=0",
             Coor4D::geo(20.0, 80.0, 0.0, 0.0),
-            1e-11,
+            Coor4D::raw(7_204_871.251_665_172, -1_270_413.194_199_339_2, 0.0, 0.0),
         )?;
-        assert_roundtrip(
+        assert_proj_match(
             "laea ellps=GRS80 lat_0=-90 lon_0=0 x_0=0 y_0=0",
             Coor4D::geo(-45.0, -70.0, 0.0, 0.0),
-            1e-11,
+            Coor4D::raw(-4_594_471.834_923_999, 1_672_250.990_086_757_1, 0.0, 0.0),
         )?;
         Ok(())
     }
 
     #[test]
     fn laea_spherical_polar_matches_proj() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "laea ellps=6378136.6,0 lat_0=90 lon_0=0 x_0=0 y_0=0",
             Coor4D::geo(20.0, 80.0, 0.0, 0.0),
             Coor4D::raw(7_205_540.644_230_844, -1_270_531.226_169_353, 0.0, 0.0),
-            1e-8,
-            1e-11,
         )
     }
 
     #[test]
     fn laea_inverse_rejects_distant_points() -> Result<(), Error> {
-        // todo: remove this assert helper in favor of some other impl
-        assert_inverse_rejects(
-            "laea ellps=GRS80 lat_0=52 lon_0=10 x_0=4321000 y_0=3210000",
-            Coor4D::raw(1e30, 1e30, 0.0, 0.0),
-        )
+        let mut ctx = Minimal::default();
+        let op = ctx.op("laea ellps=GRS80 lat_0=52 lon_0=10 x_0=4321000 y_0=3210000")?;
+        let mut operands = [Coor4D::raw(1e30, 1e30, 0.0, 0.0)];
+
+        ctx.apply(op, Inv, &mut operands)?;
+        assert!(operands[0][0].is_nan());
+        Ok(())
     }
 }

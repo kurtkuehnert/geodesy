@@ -1,6 +1,6 @@
 use super::*;
 use crate::authoring::*;
-use crate::projection::{AuthalicLatitude, MeridianLatitude};
+use crate::projection::{AuthalicLatitude, ConformalLatitude, RectifyingLatitude};
 
 const LARGE_FLATTENING_SERIES_CUTOFF: f64 = 0.01;
 
@@ -12,8 +12,13 @@ pub trait Latitudes: EllipsoidBase {
     }
 
     #[must_use]
-    fn meridian(&self) -> MeridianLatitude {
-        MeridianLatitude::new(Ellipsoid::new(self.semimajor_axis(), self.flattening()))
+    fn rectifying(&self) -> RectifyingLatitude {
+        RectifyingLatitude::new(Ellipsoid::new(self.semimajor_axis(), self.flattening()))
+    }
+
+    #[must_use]
+    fn conformal(&self) -> ConformalLatitude {
+        ConformalLatitude::new(Ellipsoid::new(self.semimajor_axis(), self.flattening()))
     }
 
     // --- Classic latitudes: geographic, geocentric & reduced ---

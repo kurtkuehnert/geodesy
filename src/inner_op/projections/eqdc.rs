@@ -10,7 +10,7 @@ use crate::authoring::*;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EqdcInner {
-    meridian: MeridianLatitude,
+    rectifying: RectifyingLatitude,
     conic: Conic,
     c: f64,
 }
@@ -20,16 +20,16 @@ pub(crate) type Eqdc = Framed<EqdcInner>;
 impl EqdcInner {
     fn new(params: &ParsedParameters, phi0: f64, phi1: f64, phi2: f64) -> Result<Self, Error> {
         let ellps = params.ellps(0);
-        let meridian = MeridianLatitude::new(ellps);
-        let a = meridian.semimajor_axis();
+        let rectifying = RectifyingLatitude::new(ellps);
+        let a = rectifying.semimajor_axis();
 
         let m1 = ellps.meridional_scale(phi1);
-        let ml0 = meridian.distance_from_geographic(phi0) / a;
-        let ml1 = meridian.distance_from_geographic(phi1) / a;
+        let ml0 = rectifying.distance_from_latitude(phi0) / a;
+        let ml1 = rectifying.distance_from_latitude(phi1) / a;
 
         let n = Conic::cone_constant(params, phi1, phi2, false, || {
             let m2 = ellps.meridional_scale(phi2);
-            let ml2 = meridian.distance_from_geographic(phi2) / a;
+            let ml2 = rectifying.distance_from_latitude(phi2) / a;
             (m1 - m2) / (ml2 - ml1)
         })?;
 
@@ -37,7 +37,7 @@ impl EqdcInner {
         let rho0 = c - ml0;
 
         Ok(Self {
-            meridian,
+            rectifying,
             conic: Conic::new(a, n, rho0),
             c,
         })
@@ -63,7 +63,8 @@ impl FramedProjection for EqdcInner {
     }
 
     fn fwd(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
-        let rho = self.c - self.meridian.distance_from_geographic(lat) / self.meridian.semimajor_axis();
+        let rho =
+            self.c - self.rectifying.distance_from_latitude(lat) / self.rectifying.semimajor_axis();
         Some(self.conic.project(lam, rho))
     }
 
@@ -73,8 +74,8 @@ impl FramedProjection for EqdcInner {
         };
 
         let lat = self
-            .meridian
-            .geographic_from_distance((self.c - rho) * self.meridian.semimajor_axis());
+            .rectifying
+            .latitude_from_distance((self.c - rho) * self.rectifying.semimajor_axis());
         Some((lam, lat))
     }
 }

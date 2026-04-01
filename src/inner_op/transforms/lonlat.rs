@@ -51,16 +51,14 @@ impl PointOp for LonLat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::assert_forward_and_roundtrip;
+    use crate::projection::assert_proj_match;
 
     #[test]
     fn lonlat_applies_prime_meridian_offset() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "lonlat lon_0=0.00289027777777778",
             Coor4D::geo(38.0, 125.00289027777778, 0.0, 0.0),
             Coor4D::geo(38.0, 125.0, 0.0, 0.0),
-            1e-12,
-            1e-12,
         )
     }
 }

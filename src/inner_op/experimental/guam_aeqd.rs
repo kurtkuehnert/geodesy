@@ -1,5 +1,5 @@
 use crate::authoring::*;
-use crate::projection::MeridianLatitude;
+use crate::projection::RectifyingLatitude;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GuamAeqdInner {
@@ -7,7 +7,7 @@ pub(crate) struct GuamAeqdInner {
     lat_0: f64,
     ellps: Ellipsoid,
     m1: f64,
-    meridian: MeridianLatitude,
+    rectifying: RectifyingLatitude,
 }
 
 pub(crate) type GuamAeqd = Framed<GuamAeqdInner>;
@@ -27,15 +27,15 @@ impl FramedProjection for GuamAeqdInner {
         let ellps = params.ellps(0);
         let a = ellps.semimajor_axis();
         let lat_0 = params.lat(0);
-        let meridian = ellps.meridian();
-        let m1 = meridian.distance_from_geographic(lat_0);
+        let rectifying = ellps.rectifying();
+        let m1 = rectifying.distance_from_latitude(lat_0);
 
         Ok(Self {
             a,
             lat_0,
             ellps,
             m1,
-            meridian,
+            rectifying,
         })
     }
 
@@ -43,7 +43,7 @@ impl FramedProjection for GuamAeqdInner {
         let es = self.ellps.eccentricity_squared();
         let (sinphi, cosphi) = lat.sin_cos();
         let t = 1.0 / (1.0 - es * sinphi * sinphi).sqrt();
-        let d = self.meridian.distance_from_geographic(lat);
+        let d = self.rectifying.distance_from_latitude(lat);
         Some((
             self.a * lam * cosphi * t,
             d - self.m1 + 0.5 * self.a * lam * lam * cosphi * sinphi * t,
@@ -58,7 +58,7 @@ impl FramedProjection for GuamAeqdInner {
         let lat = (0..3).fold(self.lat_0, |lat, _| {
             let t = (1.0 - es * lat.sin().powi(2)).sqrt();
             let d = self.m1 + self.a * (y_norm - x2 * lat.tan() * t);
-            self.meridian.geographic_from_distance(d)
+            self.rectifying.latitude_from_distance(d)
         });
         let t = (1.0 - es * lat.sin().powi(2)).sqrt();
         Some((x_norm * t / lat.cos(), lat))
@@ -71,12 +71,10 @@ mod tests {
 
     #[test]
     fn guam_aeqd_matches_proj_gie_example() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "guam_aeqd ellps=clrk66 x_0=50000 y_0=50000 lon_0=144.74875069444445 lat_0=13.47246633333333",
             Coor4D::geo(13.33903846111111, 144.63533129166666, 0.0, 0.0),
-            Coor4D::raw(37712.48, 35242.00, 0.0, 0.0),
-            0.01,
-            1e-10,
+            Coor4D::raw(37_712.482_258_147_284, 35_242.003_289_566_49, 0.0, 0.0),
         )
     }
 }

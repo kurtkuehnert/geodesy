@@ -1,7 +1,7 @@
 use crate::authoring::*;
 
 #[derive(Clone, Copy, Debug)]
-pub enum MeridianLatitude {
+pub enum RectifyingLatitude {
     Spherical {
         a: f64,
     },
@@ -11,7 +11,7 @@ pub enum MeridianLatitude {
     },
 }
 
-impl MeridianLatitude {
+impl RectifyingLatitude {
     pub(crate) fn new(ellps: Ellipsoid) -> Self {
         if ellps.flattening() == 0.0 {
             Self::Spherical {
@@ -31,7 +31,7 @@ impl MeridianLatitude {
         }
     }
 
-    pub fn distance_from_geographic(self, lat: f64) -> f64 {
+    pub fn distance_from_latitude(self, lat: f64) -> f64 {
         match self {
             Self::Spherical { a } => a * lat,
             Self::Ellipsoidal { a, coefficients } => {
@@ -40,7 +40,7 @@ impl MeridianLatitude {
         }
     }
 
-    pub fn geographic_from_distance(self, distance: f64) -> f64 {
+    pub fn latitude_from_distance(self, distance: f64) -> f64 {
         match self {
             Self::Spherical { a } => distance / a,
             Self::Ellipsoidal { a, coefficients } => {

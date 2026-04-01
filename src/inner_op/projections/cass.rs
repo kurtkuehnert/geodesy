@@ -1,7 +1,5 @@
 //! Cassini-Soldner
 use crate::authoring::*;
-use crate::math::angular;
-use crate::projection::ProjectionFrame;
 
 const C1: f64 = 1.0 / 6.0;
 const C2: f64 = 1.0 / 120.0;

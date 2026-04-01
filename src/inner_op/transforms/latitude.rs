@@ -5,9 +5,9 @@ use crate::authoring::*;
 enum LatitudeMode {
     Geocentric,
     Reduced,
-    Conformal(FourierCoefficients),
-    Rectifying(FourierCoefficients),
-    Authalic(FourierCoefficients),
+    Conformal(ConformalLatitude),
+    Rectifying(RectifyingLatitude),
+    Authalic(AuthalicLatitude),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -40,15 +40,15 @@ impl PointOp for Latitude {
                 .then_some(LatitudeMode::Geocentric),
             (params.boolean("reduced") || params.boolean("parametric"))
                 .then_some(LatitudeMode::Reduced),
-            params.boolean("conformal").then(|| {
-                LatitudeMode::Conformal(ellps.coefficients_for_conformal_latitude_computations())
-            }),
-            params.boolean("authalic").then(|| {
-                LatitudeMode::Authalic(ellps.coefficients_for_authalic_latitude_computations())
-            }),
-            params.boolean("rectifying").then(|| {
-                LatitudeMode::Rectifying(ellps.coefficients_for_rectifying_latitude_computations())
-            }),
+            params
+                .boolean("conformal")
+                .then(|| LatitudeMode::Conformal(ellps.conformal())),
+            params
+                .boolean("authalic")
+                .then(|| LatitudeMode::Authalic(ellps.authalic())),
+            params
+                .boolean("rectifying")
+                .then(|| LatitudeMode::Rectifying(ellps.rectifying())),
         ]
         .into_iter()
         .flatten();
@@ -68,15 +68,11 @@ impl PointOp for Latitude {
         coord[1] = match self.mode {
             LatitudeMode::Geocentric => self.ellps.latitude_geographic_to_geocentric(coord[1]),
             LatitudeMode::Reduced => self.ellps.latitude_geographic_to_reduced(coord[1]),
-            LatitudeMode::Conformal(coefficients) => self
-                .ellps
-                .latitude_geographic_to_conformal(coord[1], &coefficients),
-            LatitudeMode::Rectifying(coefficients) => self
-                .ellps
-                .latitude_geographic_to_rectifying(coord[1], &coefficients),
-            LatitudeMode::Authalic(coefficients) => self
-                .ellps
-                .latitude_geographic_to_authalic(coord[1], &coefficients),
+            LatitudeMode::Conformal(conformal) => conformal.geographic_to_conformal(coord[1]),
+            LatitudeMode::Rectifying(meridian) => {
+                meridian.distance_from_latitude(coord[1]) / meridian.semimajor_axis()
+            }
+            LatitudeMode::Authalic(authalic) => authalic.geographic_to_authalic(coord[1]),
         };
         Some(coord)
     }
@@ -86,15 +82,11 @@ impl PointOp for Latitude {
         coord[1] = match self.mode {
             LatitudeMode::Geocentric => self.ellps.latitude_geocentric_to_geographic(coord[1]),
             LatitudeMode::Reduced => self.ellps.latitude_reduced_to_geographic(coord[1]),
-            LatitudeMode::Conformal(coefficients) => self
-                .ellps
-                .latitude_conformal_to_geographic(coord[1], &coefficients),
-            LatitudeMode::Rectifying(coefficients) => self
-                .ellps
-                .latitude_rectifying_to_geographic(coord[1], &coefficients),
-            LatitudeMode::Authalic(coefficients) => self
-                .ellps
-                .latitude_authalic_to_geographic(coord[1], &coefficients),
+            LatitudeMode::Conformal(conformal) => conformal.conformal_to_geographic(coord[1]),
+            LatitudeMode::Rectifying(meridian) => {
+                meridian.latitude_from_distance(coord[1] * meridian.semimajor_axis())
+            }
+            LatitudeMode::Authalic(authalic) => authalic.authalic_to_geographic(coord[1]),
         };
         Some(coord)
     }

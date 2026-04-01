@@ -48,10 +48,37 @@ impl AuthalicLatitude {
         match self {
             Self::Spherical => beta,
             Self::Ellipsoidal {
+                e,
+                q_pole,
                 ellps,
                 coefficients,
-                ..
-            } => ellps.latitude_authalic_to_geographic(beta, &coefficients),
+            } => {
+                let mut geographic = beta + fourier::sin(2.0 * beta, &coefficients.inv);
+                if ellps.third_flattening().abs() < 0.01 {
+                    return geographic;
+                }
+
+                let es = e * e;
+                let one_es = 1.0 - es;
+                let q = beta.sin() * q_pole;
+                let q_div_one_minus_es = q / one_es;
+
+                for _ in 0..10 {
+                    let sinphi = geographic.sin();
+                    let cosphi = geographic.cos();
+                    let one_minus_es_sin2phi = 1.0 - es * sinphi * sinphi;
+                    let dphi = (one_minus_es_sin2phi * one_minus_es_sin2phi) / (2.0 * cosphi)
+                        * (q_div_one_minus_es
+                            - sinphi / one_minus_es_sin2phi
+                            - (e * sinphi).atanh() / e);
+                    if dphi.abs() < 1e-15 {
+                        break;
+                    }
+                    geographic += dphi;
+                }
+
+                geographic
+            }
         }
     }
 

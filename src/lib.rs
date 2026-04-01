@@ -15,20 +15,17 @@ pub mod authoring {
     pub use crate::ops::*;
     pub use crate::parse::*;
     pub use crate::prelude::*;
-    pub use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
     #[allow(unused_imports)]
     pub(crate) use crate::projection::{
         AuthalicLatitude, AzimuthalAspect, ConformalLatitude, Conic, Framed, FramedProjection,
-        Gauss, GeodesicPath, MeridianLatitude, ProjectionAspect, ProjectionFrame, framed_gamut,
+        Gauss, GeodesicPath, ProjectionAspect, ProjectionFrame, RectifyingLatitude, framed_gamut,
         projection_gamut,
     };
     #[cfg(test)]
     #[allow(unused_imports)]
     #[cfg(test)]
-    pub(crate) use crate::projection::{
-        assert_forward_and_roundtrip, assert_inverse, assert_inverse_rejects, assert_op_err,
-        assert_proj_match, assert_proj_match_with_tol, assert_roundtrip,
-    };
+    pub(crate) use crate::projection::{assert_op_err, assert_proj_match};
+    pub use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
     // All new contexts are supposed to support these
     pub use crate::context::BUILTIN_ADAPTORS;

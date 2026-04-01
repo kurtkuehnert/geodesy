@@ -2,7 +2,6 @@
 
 use super::stere::Stere;
 use crate::authoring::*;
-use crate::projection::ProjectionFrame;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Ups(Stere);
@@ -23,17 +22,7 @@ impl PointOp for Ups {
     ];
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
-        let south = params.boolean("south");
-        let mut frame = ProjectionFrame::from_params(params);
-        frame.lat_0 = if south { -FRAC_PI_2 } else { FRAC_PI_2 };
-
-        Ok(Self(Stere::build_core(
-            params,
-            frame,
-            frame.lat_0,
-            frame.lat_0,
-            false,
-        )?))
+        Ok(Self(Stere::build_ups(params)?))
     }
 
     fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
@@ -48,16 +37,23 @@ impl PointOp for Ups {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::assert_forward_and_roundtrip;
+    use crate::projection::assert_proj_match;
 
     #[test]
     fn ups_north_roundtrip() -> Result<(), Error> {
-        assert_forward_and_roundtrip(
+        assert_proj_match(
             "ups ellps=WGS84",
             Coor4D::geo(85., 0., 0., 0.),
             Coor4D::raw(2_000_000.0, 1_444_542.608_617_322_5, 0., 0.),
-            1e-6,
-            1e-8,
+        )
+    }
+
+    #[test]
+    fn ups_south_roundtrip() -> Result<(), Error> {
+        assert_proj_match(
+            "ups south ellps=WGS84",
+            Coor4D::geo(-85., 0., 0., 0.),
+            Coor4D::raw(2_000_000.0, 2_555_457.391_382_677_6, 0., 0.),
         )
     }
 }

@@ -5,6 +5,7 @@ pub enum ConformalLatitude {
     Spherical,
     Ellipsoidal {
         ellps: Ellipsoid,
+        eccentricity: f64,
         coefficients: FourierCoefficients,
     },
 }
@@ -17,6 +18,7 @@ impl ConformalLatitude {
 
         Self::Ellipsoidal {
             ellps,
+            eccentricity: ellps.eccentricity(),
             coefficients: ellps.coefficients_for_conformal_latitude_computations(),
         }
     }
@@ -28,20 +30,21 @@ impl ConformalLatitude {
     pub fn geographic_to_conformal(self, phi: f64) -> f64 {
         match self {
             Self::Spherical => phi,
-            Self::Ellipsoidal {
-                ellps,
-                coefficients,
-            } => ellps.latitude_geographic_to_conformal(phi, &coefficients),
+            Self::Ellipsoidal { eccentricity, .. } => {
+                let (sinphi, cosphi) = phi.sin_cos();
+                ((sinphi / cosphi).asinh() - eccentricity * (eccentricity * sinphi).atanh())
+                    .sinh()
+                    .atan()
+            }
         }
     }
 
     pub fn conformal_to_geographic(self, chi: f64) -> f64 {
         match self {
             Self::Spherical => chi,
-            Self::Ellipsoidal {
-                ellps,
-                coefficients,
-            } => ellps.latitude_conformal_to_geographic(chi, &coefficients),
+            Self::Ellipsoidal { eccentricity, .. } => {
+                ancillary::sinhpsi_to_tanphi(chi.tan(), eccentricity).atan()
+            }
         }
     }
 
@@ -66,7 +69,7 @@ impl ConformalLatitude {
     pub fn ts_from_latitude(self, phi: f64) -> f64 {
         match self {
             Self::Spherical => (std::f64::consts::FRAC_PI_4 - 0.5 * phi).tan(),
-            Self::Ellipsoidal { ellps, .. } => ancillary::ts(phi.sin_cos(), ellps.eccentricity()),
+            Self::Ellipsoidal { eccentricity, .. } => ancillary::ts(phi.sin_cos(), eccentricity),
         }
     }
 
@@ -74,7 +77,9 @@ impl ConformalLatitude {
         let psi = -ts.ln();
         match self {
             Self::Spherical => gudermannian::fwd(psi),
-            Self::Ellipsoidal { ellps, .. } => ellps.latitude_isometric_to_geographic(psi),
+            Self::Ellipsoidal { eccentricity, .. } => {
+                ancillary::sinhpsi_to_tanphi(psi.sinh(), eccentricity).atan()
+            }
         }
     }
 }
