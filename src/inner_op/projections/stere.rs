@@ -57,9 +57,16 @@ impl StereInner {
             }
             AzimuthalAspect::Polar { .. } => {
                 let signed_lat_ts = lat_ts.abs();
-                let m_ts = ellps.meridional_scale(signed_lat_ts);
-                let ts = conformal.ts_from_latitude(signed_lat_ts);
-                a * k_0 * m_ts / ts
+                if (signed_lat_ts - FRAC_PI_2).abs() < ANGULAR_TOLERANCE {
+                    let e = ellps.eccentricity();
+                    let pole_scale =
+                        ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
+                    2.0 * a * k_0 / pole_scale
+                } else {
+                    let m_ts = ellps.meridional_scale(signed_lat_ts);
+                    let ts = conformal.ts_from_latitude(signed_lat_ts);
+                    a * k_0 * m_ts / ts
+                }
             }
         };
 
@@ -220,6 +227,15 @@ mod tests {
             "stere R=6378136.6 lat_0=90 lat_ts=70 lon_0=0",
             Coor4D::geo(80.0, 20.0, 0.0, 0.0),
             Coor4D::raw(370_194.700_049_148_06, -1_017_101.579_186_811_2, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn stere_matches_proj_spherical_polar_default_lat_ts_case() -> Result<(), Error> {
+        assert_proj_match(
+            "stere R=6378136.6 lat_0=90 lon_0=0",
+            Coor4D::geo(80.0, 20.0, 0.0, 0.0),
+            Coor4D::raw(381_704.499_034_651_8, -1_048_724.492_001_944_5, 0.0, 0.0),
         )
     }
 
