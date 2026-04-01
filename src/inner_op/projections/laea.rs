@@ -17,7 +17,6 @@ pub(crate) struct LaeaInner {
     lat_0: f64,
     a: f64,
     q_pole: f64,
-    authalic_radius: f64,
     d: f64,
     sin_beta1: f64,
     cos_beta1: f64,
@@ -47,7 +46,6 @@ impl FramedProjection for LaeaInner {
         let authalic = AuthalicLatitude::new(ellps);
         let q_pole = authalic.q_pole();
         let rq = (0.5 * q_pole).sqrt();
-        let authalic_radius = a * rq;
 
         let (d, sin_beta1, cos_beta1) = match aspect {
             AzimuthalAspect::Polar { .. } => (1.0, 0.0, 1.0),
@@ -69,7 +67,6 @@ impl FramedProjection for LaeaInner {
             authalic,
             aspect,
             q_pole,
-            authalic_radius,
             d,
             sin_beta1,
             cos_beta1,
@@ -82,8 +79,8 @@ impl FramedProjection for LaeaInner {
 
         match self.aspect {
             AzimuthalAspect::Polar { pole_sign } => {
-                let projected_radius = self.a * (self.q_pole - pole_sign * q_authalic).sqrt();
-                Some(self.aspect.polar_xy(lam, projected_radius))
+                let rho = self.a * (self.q_pole - pole_sign * q_authalic).sqrt();
+                Some(self.aspect.polar_xy(lam, rho))
             }
             AzimuthalAspect::Oblique => {
                 let beta = (q_authalic / self.q_pole).asin();
@@ -93,9 +90,9 @@ impl FramedProjection for LaeaInner {
                 if 1.0 + cos_c <= ANGULAR_TOLERANCE {
                     return None;
                 }
-                let projected_radius = self.authalic_radius * (2.0 / (1.0 + cos_c)).sqrt();
-                let x = (projected_radius * self.d) * (cos_beta * sin_lam);
-                let y = (projected_radius / self.d)
+                let rho = self.a * (self.q_pole / (1.0 + cos_c)).sqrt();
+                let x = (rho * self.d) * (cos_beta * sin_lam);
+                let y = (rho / self.d)
                     * (self.cos_beta1 * sin_beta - self.sin_beta1 * cos_beta * cos_lam);
                 Some((x, y))
             }
@@ -122,8 +119,8 @@ impl FramedProjection for LaeaInner {
                 Some((lam, lat))
             }
             AzimuthalAspect::Oblique => {
-                let normalized_radius = (x / self.d).hypot(self.d * y);
-                let radius_ratio = normalized_radius / (2.0 * self.authalic_radius);
+                let rho = (x / self.d).hypot(self.d * y);
+                let radius_ratio = rho / (self.a * (2.0 * self.q_pole).sqrt());
                 if radius_ratio > 1.0 + POLAR_DOMAIN_TOLERANCE {
                     return None;
                 }
@@ -131,11 +128,11 @@ impl FramedProjection for LaeaInner {
                 let c = 2.0 * radius_ratio.clamp(0.0, 1.0).asin();
                 let (sin_c, cos_c) = c.sin_cos();
                 let sin_beta = cos_c * self.sin_beta1
-                    + self.d * y * sin_c * self.cos_beta1 / normalized_radius;
+                    + self.d * y * sin_c * self.cos_beta1 / rho;
                 let q_authalic = sin_beta * self.q_pole;
 
                 let lam = (x * sin_c).atan2(
-                    self.d * normalized_radius * self.cos_beta1 * cos_c
+                    self.d * rho * self.cos_beta1 * cos_c
                         - self.d * self.d * y * self.sin_beta1 * sin_c,
                 );
                 let lat = self.authalic.geographic_from_q(q_authalic)?;
