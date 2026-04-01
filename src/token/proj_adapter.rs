@@ -9,6 +9,7 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     if elements.first().map(String::as_str) == Some("etmerc") {
         elements[0] = "tmerc".to_string();
     }
+    normalize_longlat_aliases(elements);
     normalize_geoc_aliases(elements)?;
     normalize_aeqd_variants(elements);
     normalize_sterec(elements);
@@ -33,6 +34,15 @@ pub fn tidy_proj(elements: &mut Vec<String>) -> Result<(), Error> {
     normalize_omerc(elements);
 
     Ok(())
+}
+
+fn normalize_longlat_aliases(elements: &mut [String]) {
+    if matches!(
+        elements.first().map(String::as_str),
+        Some("longlat" | "latlon" | "latlong")
+    ) {
+        elements[0] = "lonlat".to_string();
+    }
 }
 
 fn normalize_aeqd_variants(elements: &mut Vec<String>) {
@@ -616,7 +626,7 @@ fn normalize_prime_meridian(elements: &mut Vec<String>) -> Result<(), Error> {
 
     let is_longlat = matches!(
         elements.first().map(String::as_str),
-        Some("longlat" | "latlon" | "latlong" | "lonlat")
+        Some("lonlat")
     );
     let is_inverse = elements.iter().any(|element| element == "inv");
     let is_inverse_bonne =

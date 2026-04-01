@@ -1,4 +1,4 @@
-//! Geographic longitude/latitude with optional prime meridian offset.
+//! Geographic lon/lat with optional prime meridian offset.
 //!
 //! Attribution:
 //! - PROJ 9.8.0 `latlong.cpp`:
@@ -9,12 +9,12 @@
 use crate::authoring::*;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct LongLat {
+pub(crate) struct LonLat {
     lon_0: f64,
 }
 
-impl PointOp for LongLat {
-    const NAME: &'static str = "longlat";
+impl PointOp for LonLat {
+    const NAME: &'static str = "lonlat";
     #[rustfmt::skip]
     const GAMUT: &'static [OpParameter] = &[
         OpParameter::Flag { key: "inv" },
@@ -53,9 +53,9 @@ mod tests {
     use crate::projection::assert_forward_and_roundtrip;
 
     #[test]
-    fn longlat_applies_prime_meridian_offset() -> Result<(), Error> {
+    fn lonlat_applies_prime_meridian_offset() -> Result<(), Error> {
         assert_forward_and_roundtrip(
-            "longlat lon_0=0.00289027777777778",
+            "lonlat lon_0=0.00289027777777778",
             Coor4D::geo(38.0, 125.00289027777778, 0.0, 0.0),
             Coor4D::geo(38.0, 125.0, 0.0, 0.0),
             1e-12,

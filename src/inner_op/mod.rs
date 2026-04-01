@@ -77,27 +77,27 @@ impl BuiltinOp {
 
 mod adapt;
 mod addone;
-mod curvature;
-mod deflection;
-mod deformation;
 mod aea;
 mod aeqd;
 mod btmerc;
-mod cass;
 mod cart;
+mod cass;
 mod cea;
+mod curvature;
+mod deflection;
+mod deformation;
 mod geodesic;
 mod gravity;
-mod helmert;
 mod gridshift;
+mod helmert;
 mod iso6709;
 mod laea;
 mod lcc;
 mod leac;
-mod longlat;
+mod lonlat;
 mod merc;
-mod molodensky;
 mod molobadekas;
+mod molodensky;
 mod noop;
 mod omerc;
 mod permtide;
@@ -185,7 +185,7 @@ pub(crate) use crate::projection::ProjectionFrame;
 use CoordDomain::{Cartesian, Geographic, Projected};
 
 #[rustfmt::skip]
-const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
+const BUILTIN_OPERATORS: [BuiltinOp; 79] = [
     // Geographic projections: lon/lat degrees in, projected (linear) out
     BuiltinOp::point_with_domains::<aea::Aea>(Geographic, Projected),
     BuiltinOp::point_with_domains::<aeqd::Aeqd>(Geographic, Projected),
@@ -229,7 +229,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::with_domains("som",         som::new,         Geographic, Projected),
     BuiltinOp::with_domains("somerc",      somerc::new,      Geographic, Projected),
     BuiltinOp::point_with_domains::<stere::Stere>(Geographic, Projected),
-    BuiltinOp::point_with_domains::<sterec::Sterec>(Geographic, Projected),
+    BuiltinOp::point_with_domains::<sterec::Sterec>(Geographic, Projected), 
     BuiltinOp::point_with_domains::<sterea::Sterea>(Geographic, Projected),
     BuiltinOp::with_domains("tcea",        tcea::new,        Geographic, Projected),
     BuiltinOp::with_domains("tmerc",       tmerc::new,       Geographic, Projected),
@@ -241,10 +241,7 @@ const BUILTIN_OPERATORS: [BuiltinOp; 82] = [
     BuiltinOp::point_with_domains::<webmerc::WebMerc>(Geographic, Projected),
 
     // Geographic identity: lon/lat degrees in and out
-    BuiltinOp::point_with_domains::<longlat::LongLat>(Geographic, Geographic),
-    BuiltinOp::with_domains("latlon",      Op::point::<longlat::LongLat>, Geographic, Geographic),
-    BuiltinOp::with_domains("latlong",     Op::point::<longlat::LongLat>, Geographic, Geographic),
-    BuiltinOp::with_domains("lonlat",      Op::point::<longlat::LongLat>, Geographic, Geographic),
+    BuiltinOp::point_with_domains::<lonlat::LonLat>(Geographic, Geographic),
 
     // Geographic to Cartesian: lon/lat degrees in, XYZ meters out
     BuiltinOp::point_with_domains::<cart::Cart>(Geographic, Cartesian),

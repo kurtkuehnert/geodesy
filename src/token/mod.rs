@@ -260,7 +260,7 @@ where
 /// *parse_proj* bridges this gap for single-step PROJ strings by injecting an
 /// explicit `unitconvert xy_in=deg xy_out=rad` step before geographic projection
 /// operators, and a matching `unitconvert xy_in=rad xy_out=deg` step after
-/// geographic identity operators (longlat/latlong). This makes a geodesy pipeline
+/// geographic identity operators (`lonlat`). This makes a geodesy pipeline
 /// produced from a PROJ string behave identically to PROJ at the degree boundary.
 ///
 /// Explicit `+proj=pipeline` strings are **not** wrapped — they already carry
@@ -868,11 +868,11 @@ mod tests {
 
         assert_eq!(
             parse_proj("+proj=longlat +ellps=bessel +pm=0.00289027777777778", true)?,
-            "unitconvert xy_in=deg xy_out=rad | longlat ellps=bessel lon_0=0.00289027777777778 | unitconvert xy_in=rad xy_out=deg"
+            "unitconvert xy_in=deg xy_out=rad | lonlat ellps=bessel lon_0=0.00289027777777778 | unitconvert xy_in=rad xy_out=deg"
         );
         assert_eq!(
             parse_proj("+proj=longlat +ellps=bessel +lon_0=10 +pm=paris", true)?,
-            "unitconvert xy_in=deg xy_out=rad | longlat ellps=bessel lon_0=12.337229166666667 | unitconvert xy_in=rad xy_out=deg"
+            "unitconvert xy_in=deg xy_out=rad | lonlat ellps=bessel lon_0=12.337229166666667 | unitconvert xy_in=rad xy_out=deg"
         );
         assert_eq!(
             parse_proj("+proj=geoc +ellps=GRS80", true)?,
