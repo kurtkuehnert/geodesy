@@ -1,46 +1,42 @@
-pub(crate) fn spherical_inverse_equatorial(
-    x: f64,
-    y: f64,
-    rho: f64,
-    c: f64,
-    rho_tolerance: f64,
-    origin_lat: f64,
-) -> (f64, f64) {
-    if rho.abs() <= rho_tolerance {
-        return (0.0, origin_lat);
-    }
+use std::f64::consts::FRAC_PI_2;
 
-    let (sinc, cosc) = c.sin_cos();
-    let lat = (y * sinc / rho).asin();
-    let lon = if cosc != 0.0 || x != 0.0 {
-        (x * sinc).atan2(cosc * rho)
-    } else {
-        0.0
-    };
-    (lon, lat)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum AzimuthalAspect {
+    Oblique,
+    Polar { pole_sign: f64 },
 }
 
-pub(crate) fn spherical_inverse_oblique(
-    x: f64,
-    y: f64,
-    rho: f64,
-    c: f64,
-    rho_tolerance: f64,
-    origin_lat: f64,
-    sinph0: f64,
-    cosph0: f64,
-) -> (f64, f64) {
-    if rho.abs() <= rho_tolerance {
-        return (0.0, origin_lat);
+impl AzimuthalAspect {
+    pub fn classify(lat_0: f64, tolerance: f64) -> Self {
+        let abs_lat_0 = lat_0.abs();
+        if (abs_lat_0 - FRAC_PI_2).abs() < tolerance {
+            Self::Polar {
+                pole_sign: if lat_0 < 0.0 { -1.0 } else { 1.0 },
+            }
+        } else {
+            Self::Oblique
+        }
     }
 
-    let (sinc, cosc) = c.sin_cos();
-    let lat = (cosc * sinph0 + y * sinc * cosph0 / rho).asin();
-    let denom = cosc - sinph0 * lat.sin();
-    let lon = if denom != 0.0 || x != 0.0 {
-        (x * sinc * cosph0).atan2(denom * rho)
-    } else {
-        0.0
-    };
-    (lon, lat)
+    pub fn pole_sign(self) -> Option<f64> {
+        match self {
+            Self::Polar { pole_sign } => Some(pole_sign),
+            Self::Oblique => None,
+        }
+    }
+
+    pub fn polar_xy(self, lam: f64, rho: f64) -> (f64, f64) {
+        let pole_sign = self
+            .pole_sign()
+            .expect("polar azimuthal helper requires polar aspect");
+        let (sin_lam, cos_lam) = lam.sin_cos();
+        (rho * sin_lam, -pole_sign * rho * cos_lam)
+    }
+
+    pub fn polar_lam(self, x: f64, y: f64) -> f64 {
+        let pole_sign = self
+            .pole_sign()
+            .expect("polar azimuthal helper requires polar aspect");
+        x.atan2(-pole_sign * y)
+    }
 }

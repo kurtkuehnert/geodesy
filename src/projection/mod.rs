@@ -1,4 +1,3 @@
-mod aspect;
 mod azimuthal;
 mod conic;
 mod frame;
@@ -9,8 +8,7 @@ mod latitudes;
 #[cfg(test)]
 mod test_support;
 
-pub(crate) use aspect::{AzimuthalAspect, ProjectionAspect};
-pub(crate) use azimuthal::{spherical_inverse_equatorial, spherical_inverse_oblique};
+pub(crate) use azimuthal::AzimuthalAspect;
 pub(crate) use conic::Conic;
 pub(crate) use frame::{ProjectionFrame, projection_gamut};
 pub(crate) use framed::{Framed, FramedProjection, framed_gamut};

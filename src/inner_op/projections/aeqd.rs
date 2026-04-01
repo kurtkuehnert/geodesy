@@ -8,15 +8,14 @@
 use crate::authoring::*;
 
 const ANGULAR_TOLERANCE: f64 = 1e-10;
-const LONGITUDE_CANONICALIZATION_TOLERANCE: f64 = 1e-12;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AeqdInner {
-    a: f64,
-    lat_0: f64,
     aspect: AzimuthalAspect,
     rectifying: RectifyingLatitude,
     geodesic: GeodesicPath,
+    lat_0: f64,
+    a: f64,
     mp: f64,
 }
 
@@ -73,10 +72,9 @@ impl FramedProjection for AeqdInner {
                 let (distance, azimuth) = self.geodesic.distance_and_azimuth(lam, phi)?;
                 Some((distance * azimuth.sin(), distance * azimuth.cos()))
             }
-            AzimuthalAspect::Polar { pole_sign } => {
-                let coslam = -pole_sign * lam.cos();
+            AzimuthalAspect::Polar { .. } => {
                 let rho = (self.mp - self.rectifying.distance_from_latitude(phi)).abs();
-                Some((rho * lam.sin(), rho * coslam))
+                Some(self.aspect.polar_xy(lam, rho))
             }
         }
     }
@@ -87,27 +85,19 @@ impl FramedProjection for AeqdInner {
             return Some((0.0, self.lat_0));
         }
 
-        let (lam, lat) = match self.aspect {
+        match self.aspect {
             AzimuthalAspect::Oblique => {
                 let azimuth = x.atan2(y);
-                self.geodesic.destination(azimuth, distance)?
+                self.geodesic.destination(azimuth, distance)
             }
             AzimuthalAspect::Polar { pole_sign } => {
-                let lam = x.atan2(-pole_sign * y);
+                let lam = self.aspect.polar_lam(x, y);
                 let lat = self
                     .rectifying
                     .latitude_from_distance(self.mp - pole_sign * distance);
-                (lam, lat)
+                Some((lam, lat))
             }
-        };
-
-        let lam = angular::normalize_symmetric(lam);
-        let lam = if (lam + PI).abs() < LONGITUDE_CANONICALIZATION_TOLERANCE {
-            PI
-        } else {
-            lam
-        };
-        Some((lam, lat))
+        }
     }
 }
 

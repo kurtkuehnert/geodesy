@@ -5,475 +5,224 @@
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/src/projections/stere.cpp>
 //! - PROJ 9.8.0 `stere` documentation:
 //!   <https://github.com/OSGeo/PROJ/blob/9.8.0/docs/source/operations/projections/stere.rst>
-//! - Snyder, 1987: *Map Projections: A Working Manual*, pp. 154-163:
-//!   <https://pubs.usgs.gov/publication/pp1395>
-//! - EPSG method 9829, Polar Stereographic (variant B):
-//!   <https://epsg.io/9829-method>
-//! - EPSG method 9830, Polar Stereographic (variant C):
-//!   <https://epsg.io/9830-method>
 
 use crate::authoring::*;
-use crate::projection::{spherical_inverse_equatorial, spherical_inverse_oblique};
 
-const DENOMINATOR_TOLERANCE: f64 = 1e-10;
-const POLAR_TOLERANCE: f64 = 1e-8;
+const ANGULAR_TOLERANCE: f64 = 1e-10;
 const POLAR_SOURCE_TOLERANCE: f64 = 1e-15;
 
-#[rustfmt::skip]
-pub const GAMUT: &[OpParameter] = projection_gamut!(
-    OpParameter::Real { key: "lat_ts", default: Some(90_f64) },
-    OpParameter::Real { key: "k_0", default: Some(1_f64) },
-);
-
 #[derive(Clone, Copy, Debug)]
-enum StereMode {
-    SouthPole,
-    NorthPole,
-    Oblique { sin_x1: f64, cos_x1: f64 },
-    Equatorial,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Stere {
-    frame: ProjectionFrame,
+pub(crate) struct StereInner {
+    aspect: AzimuthalAspect,
     conformal: ConformalLatitude,
-    mode: StereMode,
-    akm1: f64,
+    lat_0: f64,
+    sin_chi_0: f64,
+    cos_chi_0: f64,
+    rho_factor: f64,
 }
 
-impl Stere {
-    fn mode_from_lat_0(conformal: ConformalLatitude, lat_0: f64) -> StereMode {
-        let aspect = ProjectionAspect::classify(lat_0, POLAR_TOLERANCE);
-        if aspect.is_north_polar() {
-            StereMode::NorthPole
-        } else if aspect.is_south_polar() {
-            StereMode::SouthPole
-        } else if aspect.is_equatorial() {
-            StereMode::Equatorial
-        } else {
-            debug_assert!(aspect.is_oblique());
-            let xang = conformal.geographic_to_conformal(lat_0);
-            StereMode::Oblique {
-                sin_x1: xang.sin(),
-                cos_x1: xang.cos(),
-            }
-        }
-    }
+pub(crate) type Stere = Framed<StereInner>;
 
-    fn akm1(
-        a: f64,
-        k_0: f64,
-        lat_0: f64,
-        lat_ts: f64,
-        conformal: ConformalLatitude,
-        mode: StereMode,
-        e: f64,
-    ) -> f64 {
-        if e != 0.0 {
-            match mode {
-                StereMode::NorthPole | StereMode::SouthPole => {
-                    let lat_ts_abs = lat_ts.abs();
-                    if (lat_ts_abs - FRAC_PI_2).abs() < POLAR_TOLERANCE {
-                        let denominator =
-                            ((1.0 + e).powf(1.0 + e) * (1.0 - e).powf(1.0 - e)).sqrt();
-                        2.0 * a * k_0 / denominator
-                    } else {
-                        let sin_ts = lat_ts_abs.sin();
-                        let factor = lat_ts_abs.cos() / conformal.ts_from_latitude(lat_ts_abs);
-                        a * k_0 * factor / (1.0 - (e * sin_ts).powi(2)).sqrt()
-                    }
-                }
-                StereMode::Equatorial | StereMode::Oblique { .. } => {
-                    let te = e * lat_0.sin();
-                    2.0 * a * k_0 * lat_0.cos() / (1.0 - te * te).sqrt()
-                }
-            }
-        } else {
-            match mode {
-                StereMode::Equatorial | StereMode::Oblique { .. } => 2.0 * a * k_0,
-                StereMode::NorthPole | StereMode::SouthPole => {
-                    if (lat_ts.abs() - FRAC_PI_2).abs() >= DENOMINATOR_TOLERANCE {
-                        a * lat_ts.abs().cos() / (FRAC_PI_4 - 0.5 * lat_ts.abs()).tan()
-                    } else {
-                        2.0 * a * k_0
-                    }
-                }
-            }
-        }
-    }
-
-    fn variant_c_false_northing(ellps: Ellipsoid, lat_ts: f64, south_pole: bool) -> f64 {
-        let a = ellps.semimajor_axis();
-        let e = ellps.eccentricity();
-        let lat_ts_abs = lat_ts.abs();
-        let sin_ts = lat_ts_abs.sin();
-        let cos_ts = lat_ts_abs.cos();
-        let rho_f = a * cos_ts / (1.0 - (e * sin_ts).powi(2)).sqrt();
-        if south_pole { -rho_f } else { rho_f }
-    }
-
-    pub(crate) fn build_core(
-        params: &ParsedParameters,
-        mut frame: ProjectionFrame,
-        lat_0: f64,
-        lat_ts: f64,
-    ) -> Result<Self, Error> {
-        let def = &params.name;
-        if lat_ts.abs() > FRAC_PI_2 + DENOMINATOR_TOLERANCE {
-            return Err(Error::BadParam("lat_ts".to_string(), def.clone()));
-        }
-
-        let ellps = params.ellps(0);
-        let a = ellps.semimajor_axis();
-        let conformal = ellps.conformal();
-        let e = ellps.eccentricity();
-        let mode = Self::mode_from_lat_0(conformal, lat_0);
-        let lat_ts = match mode {
-            StereMode::NorthPole | StereMode::SouthPole => lat_ts.copysign(lat_0),
-            StereMode::Equatorial | StereMode::Oblique { .. } => lat_ts,
-        };
-
-        frame.lat_0 = lat_0;
-
-        Ok(Self {
-            frame,
-            conformal,
-            mode,
-            akm1: Self::akm1(a, frame.k_0, lat_0, lat_ts, conformal, mode, e),
-        })
-    }
-
-    pub(crate) fn build_stere(params: &ParsedParameters) -> Result<Self, Error> {
-        let lat_0 = params.lat(0);
-        let lat_ts = params.real("lat_ts").unwrap_or(FRAC_PI_2);
-        let frame = ProjectionFrame::from_params(params);
-        Self::build_core(params, frame, lat_0, lat_ts)
-    }
-
-    pub(crate) fn build_variant_c(params: &ParsedParameters) -> Result<Self, Error> {
-        let lat_0 = params.lat(0);
-        let lat_ts = params.real("lat_ts").unwrap_or(FRAC_PI_2);
-        let mut frame = ProjectionFrame::from_params(params);
-        let aspect = ProjectionAspect::classify(lat_0, POLAR_TOLERANCE);
-        if !aspect.is_polar() {
-            return Err(Error::Unsupported(
-                "sterec is only supported for polar stereographic aspects".into(),
+impl StereInner {
+    fn build_with(ellps: Ellipsoid, lat_0: f64, lat_ts: f64, k_0: f64) -> Result<Self, Error> {
+        if lat_0.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
+            return Err(Error::BadParam(
+                "lat_0".to_string(),
+                "out of range".to_string(),
             ));
         }
-        let south_pole = aspect.is_south_polar();
 
-        frame.y_0 += Self::variant_c_false_northing(params.ellps(0), lat_ts, south_pole);
-        Self::build_core(params, frame, lat_0, lat_ts)
-    }
-
-    pub(crate) fn build_ups(params: &ParsedParameters) -> Result<Self, Error> {
-        let south = params.boolean("south");
-        let mut frame = ProjectionFrame::from_params(params);
-        frame.lat_0 = if south { -FRAC_PI_2 } else { FRAC_PI_2 };
-        Self::build_core(params, frame, frame.lat_0, frame.lat_0)
-    }
-
-    fn fwd_spherical(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
-        let sin_lam = lam.sin();
-        let cos_lam = lam.cos();
-        let sin_phi = lat.sin();
-        let cos_phi = lat.cos();
-
-        match self.mode {
-            StereMode::Equatorial => {
-                let denominator = 1.0 + cos_phi * cos_lam;
-                if denominator <= DENOMINATOR_TOLERANCE {
-                    return None;
-                }
-
-                let scale = self.akm1 / denominator;
-                Some((scale * cos_phi * sin_lam, scale * sin_phi))
-            }
-            StereMode::Oblique { sin_x1, cos_x1 } => {
-                let denominator = 1.0 + sin_x1 * sin_phi + cos_x1 * cos_phi * cos_lam;
-                if denominator <= DENOMINATOR_TOLERANCE {
-                    return None;
-                }
-
-                let scale = self.akm1 / denominator;
-                Some((
-                    scale * cos_phi * sin_lam,
-                    scale * (cos_x1 * sin_phi - sin_x1 * cos_phi * cos_lam),
-                ))
-            }
-            StereMode::NorthPole => {
-                let phi = -lat;
-                let cos_lam = -cos_lam;
-                if (phi - FRAC_PI_2).abs() < POLAR_TOLERANCE {
-                    return None;
-                }
-
-                let scale = self.akm1 * (FRAC_PI_4 + 0.5 * phi).tan();
-                Some((scale * sin_lam, scale * cos_lam))
-            }
-            StereMode::SouthPole => {
-                if (lat - FRAC_PI_2).abs() < POLAR_TOLERANCE {
-                    return None;
-                }
-
-                let scale = self.akm1 * (FRAC_PI_4 + 0.5 * lat).tan();
-                Some((scale * sin_lam, scale * cos_lam))
-            }
+        if lat_ts.abs() > FRAC_PI_2 + ANGULAR_TOLERANCE {
+            return Err(Error::BadParam(
+                "lat_ts".to_string(),
+                "out of range".to_string(),
+            ));
         }
-    }
 
-    fn fwd_ellipsoidal(&self, lam: f64, lat: f64) -> Option<(f64, f64)> {
-        let sin_lam = lam.sin();
-        let cos_lam = lam.cos();
+        let a = ellps.semimajor_axis();
+        let aspect = AzimuthalAspect::classify(lat_0, ANGULAR_TOLERANCE);
+        let conformal = ellps.conformal();
+        let chi_0 = conformal.geographic_to_conformal(lat_0);
+        let (sin_chi_0, cos_chi_0) = chi_0.sin_cos();
 
-        match self.mode {
-            StereMode::Oblique { sin_x1, cos_x1 } => {
-                let xang = self.conformal.geographic_to_conformal(lat);
-                let sin_x = xang.sin();
-                let cos_x = xang.cos();
-                let denominator = cos_x1 * (1.0 + sin_x1 * sin_x + cos_x1 * cos_x * cos_lam);
-                if denominator == 0.0 {
-                    return None;
-                }
+        let rho_factor = match aspect {
+            AzimuthalAspect::Oblique => {
+                let m_0 = ellps.meridional_scale(lat_0);
+                2.0 * a * k_0 * m_0 / cos_chi_0
+            }
+            AzimuthalAspect::Polar { .. } => {
+                let signed_lat_ts = lat_ts.abs();
+                let m_ts = ellps.meridional_scale(signed_lat_ts);
+                let ts = conformal.ts_from_latitude(signed_lat_ts);
+                a * k_0 * m_ts / ts
+            }
+        };
 
-                let scale = self.akm1 / denominator;
-                let x = scale * cos_x * sin_lam;
-                let y = scale * (cos_x1 * sin_x - sin_x1 * cos_x * cos_lam);
-                Some((x, y))
-            }
-            StereMode::Equatorial => {
-                let xang = self.conformal.geographic_to_conformal(lat);
-                let sin_x = xang.sin();
-                let cos_x = xang.cos();
-                let denominator = 1.0 + cos_x * cos_lam;
-                if denominator == 0.0 {
-                    return None;
-                }
-
-                let scale = self.akm1 / denominator;
-                Some((scale * cos_x * sin_lam, scale * sin_x))
-            }
-            StereMode::NorthPole => {
-                let phi = lat;
-                if (phi - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
-                    return Some((0.0, 0.0));
-                }
-
-                let scale = self.akm1 * self.conformal.ts_from_latitude(phi);
-                Some((scale * sin_lam, scale * -cos_lam))
-            }
-            StereMode::SouthPole => {
-                let phi = -lat;
-                let cos_lam = -cos_lam;
-                if (phi - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
-                    return Some((0.0, 0.0));
-                }
-
-                let scale = self.akm1 * self.conformal.ts_from_latitude(phi);
-                Some((scale * sin_lam, scale * -cos_lam))
-            }
-        }
-    }
-
-    fn inv_spherical(&self, x_local: f64, y_local: f64) -> Option<(f64, f64)> {
-        let rho = x_local.hypot(y_local);
-        let c = 2.0 * (rho / self.akm1).atan();
-
-        match self.mode {
-            StereMode::Equatorial => Some(spherical_inverse_equatorial(
-                x_local,
-                y_local,
-                rho,
-                c,
-                DENOMINATOR_TOLERANCE,
-                0.0,
-            )),
-            StereMode::Oblique { sin_x1, cos_x1 } => Some(spherical_inverse_oblique(
-                x_local,
-                y_local,
-                rho,
-                c,
-                DENOMINATOR_TOLERANCE,
-                self.frame.lat_0,
-                sin_x1,
-                cos_x1,
-            )),
-            StereMode::NorthPole => {
-                let y_local = -y_local;
-                let cos_c = c.cos();
-                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
-                    self.frame.lat_0
-                } else {
-                    cos_c.asin()
-                };
-                let lam = if x_local == 0.0 && y_local == 0.0 {
-                    0.0
-                } else {
-                    x_local.atan2(y_local)
-                };
-                Some((lam, lat))
-            }
-            StereMode::SouthPole => {
-                let cos_c = c.cos();
-                let lat = if rho.abs() <= DENOMINATOR_TOLERANCE {
-                    self.frame.lat_0
-                } else {
-                    (-cos_c).asin()
-                };
-                let lam = if x_local == 0.0 && y_local == 0.0 {
-                    0.0
-                } else {
-                    x_local.atan2(y_local)
-                };
-                Some((lam, lat))
-            }
-        }
-    }
-
-    fn inv_ellipsoidal(&self, x_local: f64, y_local: f64) -> Option<(f64, f64)> {
-        let rho = x_local.hypot(y_local);
-        match self.mode {
-            StereMode::Oblique { sin_x1, cos_x1 } => {
-                let tp = 2.0 * (rho * cos_x1).atan2(self.akm1);
-                let cos_phi = tp.cos();
-                let sin_phi = tp.sin();
-                let chi = if rho == 0.0 {
-                    (cos_phi * sin_x1).asin()
-                } else {
-                    (cos_phi * sin_x1 + y_local * sin_phi * cos_x1 / rho).asin()
-                };
-                let sin_lam = x_local * sin_phi;
-                let cos_lam = rho * cos_x1 * cos_phi - y_local * sin_x1 * sin_phi;
-                let lam = if sin_lam == 0.0 && cos_lam == 0.0 {
-                    0.0
-                } else {
-                    sin_lam.atan2(cos_lam)
-                };
-                let lat = self.conformal.conformal_to_geographic(chi);
-                Some((lam, lat))
-            }
-            StereMode::Equatorial => {
-                let tp = 2.0 * rho.atan2(self.akm1);
-                let cos_phi = tp.cos();
-                let sin_phi = tp.sin();
-                let chi = if rho == 0.0 {
-                    0.0
-                } else {
-                    (y_local * sin_phi / rho).asin()
-                };
-                let sin_lam = x_local * sin_phi;
-                let cos_lam = rho * cos_phi;
-                let lam = if sin_lam == 0.0 && cos_lam == 0.0 {
-                    0.0
-                } else {
-                    sin_lam.atan2(cos_lam)
-                };
-                let lat = self.conformal.conformal_to_geographic(chi);
-                Some((lam, lat))
-            }
-            StereMode::NorthPole => {
-                let lat = self.conformal.latitude_from_ts(rho / self.akm1);
-                let y_local = -y_local;
-                let lam = if x_local == 0.0 && y_local == 0.0 {
-                    0.0
-                } else {
-                    x_local.atan2(y_local)
-                };
-                Some((lam, lat))
-            }
-            StereMode::SouthPole => {
-                let lat = -self.conformal.latitude_from_ts(rho / self.akm1);
-                let lam = if x_local == 0.0 && y_local == 0.0 {
-                    0.0
-                } else {
-                    x_local.atan2(y_local)
-                };
-                Some((lam, lat))
-            }
-        }
+        Ok(Self {
+            lat_0,
+            aspect,
+            conformal,
+            sin_chi_0,
+            cos_chi_0,
+            rho_factor,
+        })
     }
 }
 
-impl PointOp for Stere {
+impl FramedProjection for StereInner {
     const NAME: &'static str = "stere";
     const TITLE: &'static str = "Stereographic";
-    const GAMUT: &'static [OpParameter] = GAMUT;
+    #[rustfmt::skip]
+    const GAMUT: &'static [OpParameter] = framed_gamut!(
+        OpParameter::Flag { key: "south" },
+        OpParameter::Text { key: "ellps",  default: Some("GRS80") },
+        OpParameter::Real { key: "k_0",    default: Some(1_f64) },
+        OpParameter::Real { key: "lat_0",  default: Some(0_f64) },
+        OpParameter::Real { key: "lat_ts", default: Some(0_f64) },
+    );
 
     fn build(params: &ParsedParameters, _ctx: &dyn Context) -> Result<Self, Error> {
-        Self::build_stere(params)
+        let ellps = params.ellps(0);
+        let lat_0 = params.lat(0);
+        let lat_ts = params.given_real("lat_ts").unwrap_or(lat_0);
+        let k_0 = params.k(0);
+        Self::build_with(ellps, lat_0, lat_ts, k_0)
     }
 
-    fn fwd(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (lon, lat) = coord.xy();
-        let lam = self.frame.remove_central_meridian_raw(lon);
+    fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
+        match self.aspect {
+            AzimuthalAspect::Oblique => {
+                let chi = self.conformal.geographic_to_conformal(phi);
+                let (sin_chi, cos_chi) = chi.sin_cos();
+                let (sin_lam, cos_lam) = lam.sin_cos();
+                let denom = 1.0 + self.sin_chi_0 * sin_chi + self.cos_chi_0 * cos_chi * cos_lam;
+                if denom <= ANGULAR_TOLERANCE {
+                    return None;
+                }
 
-        let (x_local, y_local) = if self.conformal.spherical() {
-            self.fwd_spherical(lam, lat)?
-        } else {
-            self.fwd_ellipsoidal(lam, lat)?
-        };
+                let rho = self.rho_factor / denom;
+                let x = rho * cos_chi * sin_lam;
+                let y = rho * (self.cos_chi_0 * sin_chi - self.sin_chi_0 * cos_chi * cos_lam);
+                Some((x, y))
+            }
+            AzimuthalAspect::Polar { pole_sign } => {
+                let signed_phi = pole_sign * phi;
+                if (signed_phi - FRAC_PI_2).abs() < POLAR_SOURCE_TOLERANCE {
+                    return Some((0.0, 0.0));
+                }
 
-        let (x, y) = self.frame.apply_false_origin(x_local, y_local);
-        Some(Coor4D::raw(x, y, coord[2], coord[3]))
+                let rho = self.rho_factor * self.conformal.ts_from_latitude(signed_phi);
+                Some(self.aspect.polar_xy(lam, rho))
+            }
+        }
     }
 
-    fn inv(&self, coord: Coor4D) -> Option<Coor4D> {
-        let (x_local, y_local) = self.frame.remove_false_origin(coord[0], coord[1]);
+    fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let rho = x.hypot(y);
+        if rho < ANGULAR_TOLERANCE {
+            return Some((0.0, self.lat_0));
+        }
 
-        let (lam, lat) = if self.conformal.spherical() {
-            self.inv_spherical(x_local, y_local)?
-        } else {
-            self.inv_ellipsoidal(x_local, y_local)?
-        };
-
-        let lon = self.frame.apply_central_meridian(lam);
-        Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
+        match self.aspect {
+            AzimuthalAspect::Oblique => {
+                let c = 2.0 * (rho / self.rho_factor).atan();
+                let (sin_c, cos_c) = c.sin_cos();
+                let sin_chi = cos_c * self.sin_chi_0 + y * sin_c * self.cos_chi_0 / rho;
+                let chi = sin_chi.clamp(-1.0, 1.0).asin();
+                let lam =
+                    (x * sin_c).atan2(rho * self.cos_chi_0 * cos_c - y * self.sin_chi_0 * sin_c);
+                let lat = self.conformal.conformal_to_geographic(chi);
+                Some((lam, lat))
+            }
+            AzimuthalAspect::Polar { pole_sign } => {
+                let lam = self.aspect.polar_lam(x, y);
+                let lat = pole_sign * self.conformal.latitude_from_ts(rho / self.rho_factor);
+                Some((lam, lat))
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projection::{assert_op_err, assert_proj_match};
 
     #[test]
-    fn south_polar_inverse_matches_proj() -> Result<(), Error> {
+    fn stere_matches_proj_oblique_case() -> Result<(), Error> {
         assert_proj_match(
-            "stere lat_0=-90 lat_ts=-71 lon_0=0 ellps=WGS84",
-            Coor4D::geo(-75., 30., 0., 0.),
-            Coor4D::raw(819_391.619_203_618_1, 1_419_227.915_756_797_2, 0., 0.),
+            "stere ellps=GRS80 lat_0=45 lon_0=10 k_0=0.9999",
+            Coor4D::geo(50.0, 12.0, 0.0, 0.0),
+            Coor4D::raw(143_683.518_553_269_36, 558_126.863_912_303_7, 0.0, 0.0),
         )
     }
 
     #[test]
-    fn custom_ellipsoid_inverse_matches_proj() -> Result<(), Error> {
+    fn stere_matches_proj_equatorial_case() -> Result<(), Error> {
         assert_proj_match(
-            "stere lat_0=90 lat_ts=70 lon_0=-45 ellps=6378273,298.279411123064",
-            Coor4D::geo(80., 45., 0., 0.),
-            Coor4D::raw(1_085_943.187_870_963_5, 0.0, 0., 0.),
+            "stere ellps=GRS80 lat_0=0 lon_0=5 k_0=1 x_0=100 y_0=200",
+            Coor4D::geo(15.0, 10.0, 0.0, 0.0),
+            Coor4D::raw(547_504.282_665_646_9, 1_671_859.208_378_212_8, 0.0, 0.0),
         )
     }
 
     #[test]
-    fn stere_equatorial_matches_proj_sample() -> Result<(), Error> {
+    fn stere_matches_proj_north_polar_case() -> Result<(), Error> {
         assert_proj_match(
-            "stere ellps=GRS80",
-            Coor4D::geo(1., 2., 0., 0.),
-            Coor4D::raw(222_644.854_550_117, 110_610.883_474_174, 0., 0.),
+            "stere ellps=GRS80 lat_0=90 lat_ts=70 lon_0=0",
+            Coor4D::geo(80.0, 20.0, 0.0, 0.0),
+            Coor4D::raw(371_406.615_760_600_14, -1_020_431.290_238_308_3, 0.0, 0.0),
         )
     }
 
     #[test]
-    fn stere_oblique_matches_proj_sample() -> Result<(), Error> {
+    fn stere_matches_proj_south_polar_case() -> Result<(), Error> {
         assert_proj_match(
-            "stere lat_0=45 lon_0=10 k_0=0.9996 ellps=GRS80",
-            Coor4D::geo(46., 12., 0., 0.),
-            Coor4D::raw(154_877.361_182_499_2, 113_025.062_719_405_45, 0., 0.),
+            "stere ellps=GRS80 lat_0=-90 lat_ts=-70 lon_0=0",
+            Coor4D::geo(-80.0, -20.0, 0.0, 0.0),
+            Coor4D::raw(-371_406.615_760_600_14, 1_020_431.290_238_308_3, 0.0, 0.0),
         )
     }
 
     #[test]
-    fn sterec_rejects_non_polar_aspects() {
-        assert_op_err("sterec lat_0=45 lat_ts=70");
+    fn stere_matches_proj_spherical_oblique_case() -> Result<(), Error> {
+        assert_proj_match(
+            "stere R=6378136.6 lat_0=45 lon_0=10 k_0=0.9999",
+            Coor4D::geo(50.0, 12.0, 0.0, 0.0),
+            Coor4D::raw(143_358.809_536_352_6, 558_741.895_045_014_3, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn stere_matches_proj_spherical_polar_case() -> Result<(), Error> {
+        assert_proj_match(
+            "stere R=6378136.6 lat_0=90 lat_ts=70 lon_0=0",
+            Coor4D::geo(80.0, 20.0, 0.0, 0.0),
+            Coor4D::raw(370_194.700_049_148_06, -1_017_101.579_186_811_2, 0.0, 0.0),
+        )
+    }
+
+    #[test]
+    fn stere_defaults_lat_ts_to_lat_0_in_polar_case() -> Result<(), Error> {
+        let mut ctx = Minimal::default();
+        let implicit = ctx.op("stere ellps=GRS80 lat_0=90 lon_0=0")?;
+        let explicit = ctx.op("stere ellps=GRS80 lat_0=90 lat_ts=90 lon_0=0")?;
+        let mut lhs = [Coor4D::geo(80.0, 20.0, 0.0, 0.0)];
+        let mut rhs = lhs;
+
+        ctx.apply(implicit, Fwd, &mut lhs)?;
+        ctx.apply(explicit, Fwd, &mut rhs)?;
+
+        assert!(lhs[0].hypot2(&rhs[0]) < 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn stere_rejects_invalid_lat_0() {
+        assert_op_err("stere lat_0=91");
+    }
+
+    #[test]
+    fn stere_rejects_invalid_lat_ts() {
+        assert_op_err("stere lat_0=90 lat_ts=91");
     }
 }

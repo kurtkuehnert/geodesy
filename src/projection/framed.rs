@@ -60,7 +60,7 @@ impl<T: FramedProjection> PointOp for Framed<T> {
         let x = coord[0] - self.x_0;
         let y = coord[1] - self.y_0;
         let (lam, lat) = self.inner.inv(x, y)?;
-        let lon = self.lon_0 + lam;
+        let lon = self.lon_0 + angular::normalize_symmetric(lam);
         Some(Coor4D::raw(lon, lat, coord[2], coord[3]))
     }
 }
